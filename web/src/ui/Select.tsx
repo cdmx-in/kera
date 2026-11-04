@@ -1,5 +1,5 @@
 import { Select as RSelect } from 'radix-ui'
-import type { ReactNode } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { cx } from '@/lib/format'
 
@@ -51,14 +51,20 @@ export function Select({
   'aria-label'?: string
   [data: `data-${string}`]: string | undefined
 }) {
+  // Inside a modal <dialog> the list must portal into it: the dialog's top layer hides anything portalled to <body>.
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+  const findDialog = useCallback((el: HTMLElement | null) => setContainer(el?.closest('dialog') ?? null), [])
   return (
     <RSelect.Root value={toRadix(value, options)} onValueChange={(v) => onChange(fromRadix(v))} disabled={disabled} required={required}>
       <RSelect.Trigger
+        ref={findDialog}
         aria-label={ariaLabel}
         {...data}
         className={cx(
           'group inline-flex min-w-0 cursor-pointer items-center justify-between gap-1.5 text-left outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-60 focus-visible:ring-3 focus-visible:ring-accent-soft data-[placeholder]:text-muted',
-          variant === 'field' && 'w-full rounded-lg border border-line bg-surface px-3 hover:border-accent/45 focus-visible:border-accent data-[state=open]:border-accent',
+          // A caller's width class (w-auto, w-40...) replaces the default full width; both together let w-full win and squash flex siblings.
+          variant === 'field' && !/(^|\s)w-/.test(className ?? '') && 'w-full',
+          variant === 'field' && 'rounded-lg border border-line bg-surface px-3 hover:border-accent/45 focus-visible:border-accent data-[state=open]:border-accent',
           variant === 'field' && (size === 'sm' ? 'py-1 text-sm' : 'py-1.5 text-sm'),
           variant === 'pill' && cx('rounded-full border pl-3 pr-2 font-medium hover:brightness-95 dark:hover:brightness-110', tones[tone], size === 'sm' ? 'py-0.5 text-xs' : 'py-1 text-sm'),
           className,
@@ -71,7 +77,7 @@ export function Select({
           <ChevronDown size={size === 'sm' ? 13 : 15} />
         </RSelect.Icon>
       </RSelect.Trigger>
-      <RSelect.Portal>
+      <RSelect.Portal container={container ?? undefined}>
         <RSelect.Content
           position="popper"
           sideOffset={6}

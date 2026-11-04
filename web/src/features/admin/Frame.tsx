@@ -21,7 +21,7 @@ export function AdminFrame({ title, base, sections, children }: { title: string;
           </NavLink>
         ))}
       </nav>
-      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
+      <div className="relative min-h-0 flex-1 overflow-y-auto" data-testid="admin-content">
         {children}
       </div>
     </div>

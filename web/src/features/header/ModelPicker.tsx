@@ -85,7 +85,7 @@ export function ModelPicker() {
 }
 
 /** The model's image (presets set one in the config), else a tinted initial. */
-const iconBox = { sm: 'size-6 rounded-md text-xs', md: 'size-9 rounded-xl text-xs', lg: 'size-14 rounded-2xl text-2xl' }
+const iconBox = { xs: 'size-4 rounded text-[9px]', sm: 'size-6 rounded-md text-xs', md: 'size-9 rounded-xl text-xs', lg: 'size-14 rounded-2xl text-2xl' }
 export function ModelIcon({ m, size = 'md' }: { m: Model; size?: keyof typeof iconBox }) {
   const box = iconBox[size]
   if (m.profileImageUrl) return <img src={m.profileImageUrl} alt="" className={cx(box, 'shrink-0 object-cover')} />
