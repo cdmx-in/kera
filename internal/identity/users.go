@@ -185,7 +185,10 @@ func (h *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The caller is an admin and not the target, so an admin always remains.
-	tag, err := h.a.DB.Exec(r.Context(), `DELETE FROM "user" WHERE id = $1`, id)
+	// One statement, so the user and the grants naming them go together
+	// (grants point at principals without a foreign key).
+	tag, err := h.a.DB.Exec(r.Context(), `WITH g AS (DELETE FROM access_grant WHERE principal_type = 'user' AND principal_id = $1)
+		DELETE FROM "user" WHERE id = $1`, id)
 	if err != nil {
 		api.Fail(w, r, fmt.Errorf("delete user: %w", err))
 		return

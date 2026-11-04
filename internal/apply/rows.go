@@ -379,7 +379,9 @@ func (r *run) writeConnection(c Connection) error {
 
 // ---- tool servers --------------------------------------------------------------------
 
-type authCol struct {
+// ToolAuthColumn is the stored tool_server.auth value. KeyEnc is the key
+// sealed with secret.Keys.EncryptString, base64-encoded (see SealToolKey).
+type ToolAuthColumn struct {
 	Type     string `json:"type"`
 	KeyEnc   string `json:"key_enc,omitempty"`
 	Header   string `json:"header,omitempty"`
@@ -421,7 +423,7 @@ func (r *run) readToolServers() ([]row, error) {
 			&t.Disable, &t.MaxResultChars, &t.AutoEnableWhenConnected, &display, &managed); err != nil {
 			return nil, err
 		}
-		var a authCol
+		var a ToolAuthColumn
 		_ = json.Unmarshal(auth, &a)
 		t.Auth = &ToolAuth{Type: a.Type, Header: a.Header, Provider: a.Provider}
 		if a.KeyEnc != "" {
@@ -439,9 +441,9 @@ func (r *run) readToolServers() ([]row, error) {
 }
 
 func (r *run) writeToolServer(t ToolServer) error {
-	a := authCol{Type: "none"}
+	a := ToolAuthColumn{Type: "none"}
 	if t.Auth != nil {
-		a = authCol{Type: t.Auth.Type, Header: t.Auth.Header, Provider: t.Auth.Provider}
+		a = ToolAuthColumn{Type: t.Auth.Type, Header: t.Auth.Header, Provider: t.Auth.Provider}
 		var err error
 		if a.KeyEnc, err = r.sealB64(t.Auth.Key); err != nil {
 			return err
@@ -660,13 +662,7 @@ func (r *run) readKnowledgeGrants() ([]row, error) {
 
 // ---- helpers --------------------------------------------------------------------------
 
-func (r *run) sealB64(s string) (string, error) {
-	b, err := r.keys.EncryptString(s)
-	if err != nil || b == nil {
-		return "", err
-	}
-	return base64.StdEncoding.EncodeToString(b), nil
-}
+func (r *run) sealB64(s string) (string, error) { return SealToolKey(r.keys, s) }
 
 // staleSecret stands for a stored secret that no longer decrypts (the
 // KERA_SECRET_KEY changed). It never equals a configured value, so the plan
