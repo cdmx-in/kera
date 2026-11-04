@@ -575,3 +575,48 @@ func TestModelListHidesNonChatKinds(t *testing.T) {
 		t.Fatalf("kinds %v", kinds)
 	}
 }
+
+func TestConnectionDraftTest(t *testing.T) {
+	e := setup(t)
+	const path = "/api/v1/configs/connections/test"
+	e.json(t, "alice", "POST", path, map[string]any{}, 403)
+	// no api_key: the stored key of "web" is used; nothing is saved
+	v := e.json(t, "admin", "POST", path, map[string]any{"id": "web", "kind": "openai", "base_url": e.fakes.openai.URL + "/v1"}, 200)
+	if v["ok"] != true || strings.Join(toStrings(v["models"]), ",") != "gpt-a,gpt-b" {
+		t.Fatalf("stored key %v", v)
+	}
+	v = e.json(t, "admin", "POST", path, map[string]any{"id": "draft", "kind": "openai", "base_url": e.fakes.openai.URL, "api_key": "wrong-key"}, 200)
+	if v["ok"] != false || !strings.Contains(v["error"].(string), "401") || strings.Contains(v["error"].(string), "wrong-key") {
+		t.Fatalf("typed key %v", v)
+	}
+	if _, err := e.reg.Connection(context.Background(), "draft"); err == nil {
+		t.Fatal("test persisted the draft")
+	}
+	v = e.json(t, "admin", "POST", path, map[string]any{"kind": "ollama", "base_url": e.fakes.ollama.URL}, 200)
+	if v["ok"] != true || len(toStrings(v["models"])) != 2 {
+		t.Fatalf("ollama %v", v)
+	}
+	v = e.json(t, "admin", "POST", path, map[string]any{"kind": "openai", "base_url": "http://169.254.169.254/v1"}, 200)
+	if v["ok"] != false || !strings.Contains(v["error"].(string), "not allowed") {
+		t.Fatalf("metadata %v", v)
+	}
+	// field errors, on test and on save
+	for _, c := range []struct {
+		body  map[string]any
+		field string
+	}{
+		{map[string]any{"kind": "ollama", "base_url": "http://h:11434/v1"}, "base_url"},
+		{map[string]any{"kind": "openai", "base_url": "http://h "}, "base_url"},
+		{map[string]any{"kind": "x", "base_url": "http://h"}, "kind"},
+		{map[string]any{"kind": "openai", "base_url": "http://h", "sort": 1.5}, "sort"},
+	} {
+		if got := e.json(t, "admin", "POST", path, c.body, 400); got["field"] != c.field {
+			t.Errorf("%v: %v", c.body, got)
+		}
+	}
+	got := e.json(t, "admin", "POST", "/api/v1/configs/connections", map[string]any{"connections": []map[string]any{
+		{"id": "Bad Id", "kind": "openai", "base_url": "http://x"}}}, 400)
+	if got["field"] != "id" {
+		t.Fatalf("bad id %v", got)
+	}
+}

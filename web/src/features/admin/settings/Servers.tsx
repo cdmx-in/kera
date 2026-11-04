@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Copy, Pencil, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/api/client'
 import { useModels } from '@/api/queries'
-import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
+import { IconButton } from '@/ui/Dialog'
 import { Switch } from '@/ui/misc'
 import { toast } from '@/stores/toast'
 import { AccessEditor } from '../Access'
@@ -14,8 +14,10 @@ import { ProviderIcon, ToolServerIcon } from './serviceIcons'
 import { providerTemplates } from './providerTemplates'
 import { enc, useHookServers, useProviders, useToolServers, type HookServer, type OAuthProvider, type ToolServer } from '../api'
 import { parseList } from '../lib'
-import { attempt, Badge, Btn, Card, Check, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, SecretInput } from '../ui'
+import { attempt, Badge, Btn, Card, Check, Confirm, Field, inputCls, Loading, ManagedBadge, SecretInput } from '../ui'
 import { Select } from '@/ui/Select'
+import { bad, EditorDialog, useDraftTest, useFormErrors, VField } from './dialogKit'
+import { validateHook, validateProvider, validateToolServer } from './validate'
 
 /** List shell shared by the three tabs. */
 function ServerList<T extends { id: string; managed: boolean }>(props: {
@@ -82,39 +84,17 @@ function ServerList<T extends { id: string; managed: boolean }>(props: {
   )
 }
 
+/** Saves one row; throws on failure (dialogs show field errors inline, toggles toast). */
 function useSaver<T>(path: string, queryKey: string) {
   const qc = useQueryClient()
-  return (body: unknown) =>
-    attempt(async () => {
-      await api<T>(path, { method: 'POST', json: body })
-      await qc.invalidateQueries({ queryKey: ['admin', queryKey] })
-      if (queryKey === 'tool_servers') await qc.invalidateQueries({ queryKey: ['tools'] })
-    }, 'Saved')
+  return async (body: unknown) => {
+    await api<T>(path, { method: 'POST', json: body })
+    await qc.invalidateQueries({ queryKey: ['admin', queryKey] })
+    if (queryKey === 'tool_servers') await qc.invalidateQueries({ queryKey: ['tools'] })
+  }
 }
 
-function EditorDialog({ title, managed, onClose, onSubmit, children, wide }: { title: string; managed?: boolean; onClose: () => void; onSubmit: () => Promise<void>; children: ReactNode; wide?: boolean }) {
-  return (
-    <Dialog open onClose={onClose} label={title} className={wide ? 'w-[min(48rem,calc(100vw-2rem))]' : 'w-[min(40rem,calc(100vw-2rem))]'}>
-      <DialogHeader title={title} onClose={onClose} />
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          void onSubmit()
-        }}
-        className="max-h-[calc(100dvh-8rem)] space-y-3 overflow-y-auto p-4"
-      >
-        {managed && <p className="text-xs text-amber-700 dark:text-amber-400">{managedWarning}</p>}
-        {children}
-        <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Btn onClick={onClose}>Cancel</Btn>
-          <Btn type="submit" variant="primary" data-testid="save-server">
-            Save
-          </Btn>
-        </div>
-      </form>
-    </Dialog>
-  )
-}
+type Saver = (body: unknown) => Promise<void>
 
 // ---- tool servers ----------------------------------------------------------------
 
@@ -140,8 +120,8 @@ export function ToolServersTab() {
           {t.auth.type !== 'none' && <Badge tone={t.auth.type === 'user_oauth' || t.auth.has_key ? 'green' : 'red'}>{t.auth.type === 'user_oauth' ? `OAuth: ${t.auth.provider}` : `${t.auth.type === 'bearer' ? 'Bearer' : 'Header'} auth`}</Badge>}
         </>
       )}
-      toggle={(t) => <Switch checked={t.enabled} onChange={(on) => void save({ ...t, auth: { ...t.auth, key: undefined }, enabled: on })} label={`Enable ${t.id}`} />}
-      editor={(t, close) => <ToolEditor server={t} onClose={close} save={save} />}
+      toggle={(t) => <Switch checked={t.enabled} onChange={(on) => void attempt(() => save({ ...t, auth: { ...t.auth, key: undefined }, enabled: on }), 'Saved')} label={`Enable ${t.id}`} />}
+      editor={(t, close) => <ToolEditor server={t} taken={q.data?.map((x) => x.id) ?? []} onClose={close} save={save} />}
       deleteBody={(t) => <p>Delete {t.id}? Models lose its tools and its access grants are removed.</p>}
     />
   )
@@ -164,34 +144,57 @@ const blankTool: ToolServer = {
   managed: false,
 }
 
-function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onClose: () => void; save: (b: unknown) => Promise<boolean> }) {
+const toolFields = ['id', 'url', 'spec_path', 'max_result_chars', 'auth.type', 'auth.header', 'auth.key', 'auth.provider']
+
+function ToolEditor({ server, taken, onClose, save }: { server: ToolServer | null; taken: string[]; onClose: () => void; save: Saver }) {
   const providers = useProviders().data ?? []
   const [t, setT] = useState(server ?? blankTool)
   const [key, setKey] = useState<string | null>(null)
   const [filter, setFilter] = useState(t.name_filter.join('\n'))
   const [disabled, setDisabled] = useState(t.disabled_functions.join('\n'))
   const [savedId, setSavedId] = useState(server?.id ?? '')
+  const oauthProviders = providers.filter((p) => !p.login)
+  const form = useFormErrors(validateToolServer(t, key, { isNew: !savedId, taken, providers: oauthProviders.map((p) => p.id) }), !!server)
+  const test = useDraftTest(`${TOOLS}/test`, form)
   const auth = t.auth
+  const setAuth = (a: Partial<ToolServer['auth']>, field: string) => {
+    setT({ ...t, auth: { ...auth, ...a } })
+    form.touch(field)
+    test.clear()
+  }
+  const body = () => ({ ...t, auth: { type: auth.type, header: auth.header, provider: auth.provider, ...(key !== null ? { key } : {}) }, name_filter: parseList(filter), disabled_functions: parseList(disabled) })
   const submit = async () => {
-    const body = { ...t, auth: { type: auth.type, header: auth.header, provider: auth.provider, ...(key !== null ? { key } : {}) }, name_filter: parseList(filter), disabled_functions: parseList(disabled) }
-    if (await save(body)) {
-      if (server) onClose()
-      else {
-        setSavedId(t.id) // stay open so access can be set on the new server
-        toast('Now choose who can use it')
-      }
+    await save(body())
+    toast('Saved')
+    if (server) onClose()
+    else {
+      setSavedId(t.id) // stay open so access can be set on the new server
+      toast('Now choose who can use it')
     }
   }
   return (
-    <EditorDialog title={server ? `Edit ${displayName(server.id, server.name)}` : 'Add tool server'} managed={server?.managed} onClose={onClose} onSubmit={submit} wide>
+    <EditorDialog
+      title={server ? `Edit ${displayName(server.id, server.name)}` : 'Add tool server'}
+      managed={server?.managed}
+      form={form}
+      fields={toolFields}
+      onClose={onClose}
+      onSubmit={submit}
+      test={test}
+      onTest={() => void test.run(body())}
+      wide
+    >
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="ID">
-          <input value={t.id} required disabled={!!server} onChange={(e) => setT({ ...t, id: e.target.value })} className={inputCls} data-testid="server-id" />
-        </Field>
+        <VField label="ID" error={form.err('id')}>
+          <input name="id" value={t.id} disabled={!!savedId} onChange={(e) => setT({ ...t, id: e.target.value })} className={inputCls + bad(form.err('id'))} data-testid="server-id" />
+        </VField>
         <Field label="Kind">
           <Select
             value={t.kind}
-            onChange={(v) => setT({ ...t, kind: v as ToolServer['kind'] })}
+            onChange={(v) => {
+              setT({ ...t, kind: v as ToolServer['kind'] })
+              test.clear()
+            }}
             aria-label="Kind"
             options={[
               { value: 'openapi', label: 'OpenAPI' },
@@ -207,13 +210,13 @@ function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onCl
         <input value={t.description} onChange={(e) => setT({ ...t, description: e.target.value })} className={inputCls} />
       </Field>
       <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
-        <Field label="URL">
-          <input value={t.url} required type="url" onChange={(e) => setT({ ...t, url: e.target.value })} placeholder="http://tools:8080" className={inputCls} data-testid="server-url" />
-        </Field>
+        <VField label="URL" error={form.err('url')}>
+          <input name="url" value={t.url} onChange={(e) => setT({ ...t, url: e.target.value })} placeholder="http://tools:8080" className={inputCls + bad(form.err('url'))} data-testid="server-url" />
+        </VField>
         {t.kind === 'openapi' && (
-          <Field label="Spec path">
-            <input value={t.spec_path} onChange={(e) => setT({ ...t, spec_path: e.target.value })} className={inputCls} />
-          </Field>
+          <VField label="Spec path" hint="Relative to the URL." error={form.err('spec_path')}>
+            <input name="spec_path" value={t.spec_path} onChange={(e) => setT({ ...t, spec_path: e.target.value })} className={inputCls + bad(form.err('spec_path'))} />
+          </VField>
         )}
       </div>
       <fieldset className="grid gap-3 rounded-lg border border-line p-3 sm:grid-cols-2">
@@ -221,7 +224,7 @@ function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onCl
         <Field label="Type">
           <Select
             value={auth.type}
-            onChange={(v) => setT({ ...t, auth: { ...auth, type: v as ToolServer['auth']['type'] } })}
+            onChange={(v) => setAuth({ type: v as ToolServer['auth']['type'] }, '')}
             aria-label="Authentication type"
             data-testid="auth-type"
             options={[
@@ -233,26 +236,33 @@ function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onCl
           />
         </Field>
         {(auth.type === 'header' || auth.type === 'user_oauth') && (
-          <Field label="Header name" hint={auth.type === 'user_oauth' ? 'Optional: a service key sent next to the user\'s token.' : undefined}>
-            <input value={auth.header} required={auth.type === 'header'} onChange={(e) => setT({ ...t, auth: { ...auth, header: e.target.value } })} placeholder="X-API-Key" className={inputCls} />
-          </Field>
+          <VField label="Header name" hint={auth.type === 'user_oauth' ? "Optional: a service key sent next to the user's token." : undefined} error={form.err('auth.header')}>
+            <input name="auth.header" value={auth.header} onChange={(e) => setT({ ...t, auth: { ...auth, header: e.target.value } })} placeholder="X-API-Key" className={inputCls + bad(form.err('auth.header'))} />
+          </VField>
         )}
         {(auth.type === 'bearer' || auth.type === 'header' || (auth.type === 'user_oauth' && auth.header)) && (
-          <Field label="Key" hint="Write-only." className="sm:col-span-2">
-            <SecretInput has={auth.has_key} value={key} onChange={setKey} label="Tool server key" />
-          </Field>
+          <VField label="Key" hint="Write-only." error={form.err('auth.key')} className="sm:col-span-2">
+            <SecretInput
+              has={auth.has_key}
+              value={key}
+              onChange={(v) => {
+                setKey(v)
+                form.touch('auth.key')
+              }}
+              label="Tool server key"
+            />
+          </VField>
         )}
         {auth.type === 'user_oauth' && (
-          <Field label="OAuth provider" hint="Defined under OAuth providers.">
+          <VField label="OAuth provider" hint="Defined under OAuth providers." error={form.err('auth.provider')}>
             <Select
               value={auth.provider}
-              required
               placeholder="Choose…"
               aria-label="OAuth provider"
-              onChange={(v) => setT({ ...t, auth: { ...auth, provider: v } })}
-              options={providers.filter((p) => !p.login).map((p) => ({ value: p.id, label: p.name || p.id }))}
+              onChange={(v) => setAuth({ provider: v }, 'auth.provider')}
+              options={oauthProviders.map((p) => ({ value: p.id, label: p.name || p.id }))}
             />
-          </Field>
+          </VField>
         )}
       </fieldset>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -264,9 +274,17 @@ function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onCl
         </Field>
       </div>
       <div className="grid items-end gap-3 sm:grid-cols-3">
-        <Field label="Max result characters" hint="0 = no limit.">
-          <input type="number" min={0} value={t.max_result_chars} onChange={(e) => setT({ ...t, max_result_chars: Number(e.target.value) || 0 })} className={inputCls} />
-        </Field>
+        <VField label="Max result characters" hint="0 = no limit." error={form.err('max_result_chars')}>
+          <input
+            name="max_result_chars"
+            type="number"
+            min={0}
+            step={1}
+            value={Number.isNaN(t.max_result_chars) ? '' : t.max_result_chars}
+            onChange={(e) => setT({ ...t, max_result_chars: e.target.valueAsNumber })}
+            className={inputCls + bad(form.err('max_result_chars'))}
+          />
+        </VField>
         <Check checked={t.auto_enable_when_connected} onChange={(v) => setT({ ...t, auto_enable_when_connected: v })}>
           Auto-enable once a user connects
         </Check>
@@ -306,8 +324,8 @@ export function HookServersTab() {
           <Badge tone={h.scope === 'global' ? 'amber' : 'grey'}>{h.scope === 'global' ? 'All models' : `${h.model_ids.length} ${h.model_ids.length === 1 ? 'model' : 'models'}`}</Badge>
         </>
       )}
-      toggle={(h) => <Switch checked={h.enabled} onChange={(on) => void save({ ...h, enabled: on })} label={`Enable ${h.id}`} />}
-      editor={(h, close) => <HookEditor hook={h} onClose={close} save={save} />}
+      toggle={(h) => <Switch checked={h.enabled} onChange={(on) => void attempt(() => save({ ...h, enabled: on }), 'Saved')} label={`Enable ${h.id}`} />}
+      editor={(h, close) => <HookEditor hook={h} taken={q.data?.map((x) => x.id) ?? []} onClose={close} save={save} />}
       deleteBody={(h) => <p>Delete hook server {h.id}?</p>}
     />
   )
@@ -315,54 +333,74 @@ export function HookServersTab() {
 
 const blankHook: HookServer = { id: '', name: '', url: '', has_key: false, events: ['inlet'], priority: 0, scope: 'models', model_ids: [], config: {}, forward_oauth: [], timeout_ms: 10000, on_error: 'skip', enabled: true, managed: false }
 
-function HookEditor({ hook, onClose, save }: { hook: HookServer | null; onClose: () => void; save: (b: unknown) => Promise<boolean> }) {
+const hookFields = ['id', 'url', 'key', 'events', 'priority', 'timeout_ms', 'model_ids', 'config', 'scope', 'on_error']
+
+function HookEditor({ hook, taken, onClose, save }: { hook: HookServer | null; taken: string[]; onClose: () => void; save: Saver }) {
   const models = useModels().data ?? []
   const [h, setH] = useState(hook ?? blankHook)
   const [key, setKey] = useState<string | null>(null)
   const [config, setConfig] = useState(JSON.stringify(h.config ?? {}, null, 2))
   const [forward, setForward] = useState(h.forward_oauth.join('\n'))
+  const form = useFormErrors(validateHook(h, config, { isNew: !hook, taken }), !!hook)
+  const test = useDraftTest(`${HOOKS}/test`, form)
   const toggle = (list: string[], v: string, on: boolean) => (on ? [...list.filter((x) => x !== v), v] : list.filter((x) => x !== v))
+  const body = () => ({ ...h, config: JSON.parse(config || '{}'), forward_oauth: parseList(forward), ...(key !== null ? { key } : {}) })
   const submit = async () => {
-    let cfg: unknown
-    try {
-      cfg = JSON.parse(config || '{}')
-    } catch {
-      toast('Config must be valid JSON', 'error')
-      return
-    }
-    if (await save({ ...h, config: cfg, forward_oauth: parseList(forward), ...(key !== null ? { key } : {}) })) onClose()
+    await save(body())
+    toast('Saved')
+    onClose()
   }
+  const num = (v: number) => (Number.isNaN(v) ? '' : v)
   return (
-    <EditorDialog title={hook ? `Edit ${displayName(hook.id, hook.name)}` : 'Add hook server'} managed={hook?.managed} onClose={onClose} onSubmit={submit} wide>
+    <EditorDialog
+      title={hook ? `Edit ${displayName(hook.id, hook.name)}` : 'Add hook server'}
+      managed={hook?.managed}
+      form={form}
+      fields={hookFields}
+      onClose={onClose}
+      onSubmit={submit}
+      test={test}
+      onTest={() => void test.run(body())}
+      wide
+    >
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="ID">
-          <input value={h.id} required disabled={!!hook} onChange={(e) => setH({ ...h, id: e.target.value })} className={inputCls} />
-        </Field>
+        <VField label="ID" error={form.err('id')}>
+          <input name="id" value={h.id} disabled={!!hook} onChange={(e) => setH({ ...h, id: e.target.value })} className={inputCls + bad(form.err('id'))} />
+        </VField>
         <Field label="Name">
           <input value={h.name} onChange={(e) => setH({ ...h, name: e.target.value })} className={inputCls} />
         </Field>
       </div>
-      <Field label="URL">
-        <input value={h.url} required type="url" onChange={(e) => setH({ ...h, url: e.target.value })} className={inputCls} />
-      </Field>
-      <Field label="Key" hint="Sent as a bearer token. Write-only.">
+      <VField label="URL" hint="Kera calls {URL}/inlet and {URL}/outlet; Test tries {URL}/health first." error={form.err('url')}>
+        <input name="url" value={h.url} onChange={(e) => setH({ ...h, url: e.target.value })} placeholder="http://hooks:8080" className={inputCls + bad(form.err('url'))} />
+      </VField>
+      <VField label="Key" hint="Sent as a bearer token. Write-only." error={form.err('key')}>
         <SecretInput has={h.has_key} value={key} onChange={setKey} label="Hook key" />
-      </Field>
-      <div className="flex flex-wrap gap-5">
-        {['inlet', 'outlet'].map((e) => (
-          <Check key={e} checked={h.events.includes(e)} onChange={(on) => setH({ ...h, events: toggle(h.events, e, on) })}>
-            {e === 'inlet' ? 'Inlet (before the model)' : 'Outlet (after the reply)'}
+      </VField>
+      <div>
+        <div className="flex flex-wrap gap-5">
+          <span className={'flex flex-wrap gap-5 rounded-lg' + (form.err('events') ? ' outline outline-offset-4 outline-red-500' : '')}>
+            {['inlet', 'outlet'].map((e) => (
+              <Check key={e} checked={h.events.includes(e)} onChange={(on) => (setH({ ...h, events: toggle(h.events, e, on) }), form.touch('events'))}>
+                {e === 'inlet' ? 'Inlet (before the model)' : 'Outlet (after the reply)'}
+              </Check>
+            ))}
+          </span>
+          <Check checked={h.enabled} onChange={(v) => setH({ ...h, enabled: v })}>
+            Enabled
           </Check>
-        ))}
-        <Check checked={h.enabled} onChange={(v) => setH({ ...h, enabled: v })}>
-          Enabled
-        </Check>
+        </div>
+        {form.err('events') && (
+          <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+            {form.err('events')}
+          </p>
+        )}
       </div>
       <div className="grid gap-3 sm:grid-cols-4">
         <Field label="Scope">
           <Select
             value={h.scope}
-            onChange={(v) => setH({ ...h, scope: v as HookServer['scope'] })}
+            onChange={(v) => (setH({ ...h, scope: v as HookServer['scope'] }), form.touch('model_ids'))}
             aria-label="Scope"
             options={[
               { value: 'models', label: 'Selected models' },
@@ -370,12 +408,12 @@ function HookEditor({ hook, onClose, save }: { hook: HookServer | null; onClose:
             ]}
           />
         </Field>
-        <Field label="Priority" hint="Lower runs first.">
-          <input type="number" value={h.priority} onChange={(e) => setH({ ...h, priority: Number(e.target.value) || 0 })} className={inputCls} />
-        </Field>
-        <Field label="Timeout (ms)">
-          <input type="number" min={1} value={h.timeout_ms} onChange={(e) => setH({ ...h, timeout_ms: Number(e.target.value) || 10000 })} className={inputCls} />
-        </Field>
+        <VField label="Priority" hint="Lower runs first." error={form.err('priority')}>
+          <input name="priority" type="number" step={1} value={num(h.priority)} onChange={(e) => setH({ ...h, priority: e.target.valueAsNumber })} className={inputCls + bad(form.err('priority'))} />
+        </VField>
+        <VField label="Timeout (ms)" hint="1000–120000." error={form.err('timeout_ms')}>
+          <input name="timeout_ms" type="number" min={1000} max={120000} step={500} value={num(h.timeout_ms)} onChange={(e) => setH({ ...h, timeout_ms: e.target.valueAsNumber })} className={inputCls + bad(form.err('timeout_ms'))} />
+        </VField>
         <Field label="On error">
           <Select
             value={h.on_error}
@@ -389,20 +427,20 @@ function HookEditor({ hook, onClose, save }: { hook: HookServer | null; onClose:
         </Field>
       </div>
       {h.scope === 'models' && (
-        <Field label="Models">
-          <div className="flex max-h-40 flex-wrap gap-x-5 gap-y-2 overflow-y-auto rounded-lg border border-line p-2">
+        <VField label="Models" error={form.err('model_ids')}>
+          <div className={'flex max-h-40 flex-wrap gap-x-5 gap-y-2 overflow-y-auto rounded-lg border border-line p-2' + bad(form.err('model_ids'))}>
             {models.map((m) => (
-              <Check key={m.id} checked={h.model_ids.includes(m.id)} onChange={(on) => setH({ ...h, model_ids: toggle(h.model_ids, m.id, on) })}>
+              <Check key={m.id} checked={h.model_ids.includes(m.id)} onChange={(on) => (setH({ ...h, model_ids: toggle(h.model_ids, m.id, on) }), form.touch('model_ids'))}>
                 {m.name || m.id}
               </Check>
             ))}
           </div>
-        </Field>
+        </VField>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Config (JSON)" hint="Sent to the hook with every call.">
-          <textarea value={config} rows={4} onChange={(e) => setConfig(e.target.value)} className={inputCls + ' font-mono text-xs'} />
-        </Field>
+        <VField label="Config (JSON)" hint="Sent to the hook with every call." error={form.err('config')}>
+          <textarea name="config" value={config} rows={4} onChange={(e) => setConfig(e.target.value)} className={inputCls + ' font-mono text-xs' + bad(form.err('config'))} />
+        </VField>
         <Field label="Forward OAuth tokens" hint="Provider ids whose user token the hook receives (one per line).">
           <textarea value={forward} rows={4} onChange={(e) => setForward(e.target.value)} className={inputCls} />
         </Field>
@@ -441,7 +479,7 @@ export function OAuthTab() {
           {!p.has_secret && <Badge tone="amber">No secret</Badge>}
         </>
       )}
-      editor={(p, close) => <ProviderEditor provider={p} onClose={close} save={save} />}
+      editor={(p, close) => <ProviderEditor provider={p} taken={q.data?.map((x) => x.id) ?? []} onClose={close} save={save} />}
       deleteBody={(p) => <p>Delete {p.id}? {p.login ? 'People can no longer sign in with it.' : 'Users connected through it must reconnect if it comes back.'}</p>}
     />
   )
@@ -473,21 +511,37 @@ export function redirectPreview(p: OAuthProvider, origin: string): string {
   return p.login ? `${origin}/oauth/${id}/callback` : `${origin}/oauth/clients/${id}/callback`
 }
 
-function ProviderEditor({ provider, onClose, save }: { provider: OAuthProvider | null; onClose: () => void; save: (b: unknown) => Promise<boolean> }) {
+const providerFields = ['id', 'client_id', 'client_secret', 'issuer', 'authorization_endpoint', 'token_endpoint', 'userinfo_endpoint', 'revocation_endpoint', 'scope']
+
+function ProviderEditor({ provider, taken, onClose, save }: { provider: OAuthProvider | null; taken: string[]; onClose: () => void; save: Saver }) {
   const [p, setP] = useState(provider ?? blankProvider)
   const [template, setTemplate] = useState('')
   const [secret, setSecret] = useState<string | null>(null)
+  const form = useFormErrors(validateProvider(p, { isNew: !provider, taken }), !!provider)
+  const test = useDraftTest(`${PROVIDERS}/test`, form)
   const uri = redirectPreview(provider && provider.login === p.login ? p : { ...p, redirect_uri: '' }, location.origin)
-  const text = (k: keyof OAuthProvider, label: string, hint?: string, type = 'url') => (
-    <Field label={label} hint={hint}>
-      <input type={type} value={String(p[k] ?? '')} onChange={(e) => setP({ ...p, [k]: e.target.value })} className={inputCls} />
-    </Field>
+  const text = (k: keyof OAuthProvider, label: string, hint?: string) => (
+    <VField label={label} hint={hint} error={form.err(k)}>
+      <input name={k} value={String(p[k] ?? '')} onChange={(e) => setP({ ...p, [k]: e.target.value })} className={inputCls + bad(form.err(k))} />
+    </VField>
   )
   const submit = async () => {
-    if (await save({ ...p, ...(secret !== null ? { client_secret: secret } : {}) })) onClose()
+    await save({ ...p, ...(secret !== null ? { client_secret: secret } : {}) })
+    toast('Saved')
+    onClose()
   }
   return (
-    <EditorDialog title={provider ? `Edit ${displayName(provider.id, provider.name)}` : 'Add OAuth provider'} managed={provider?.managed} onClose={onClose} onSubmit={submit} wide>
+    <EditorDialog
+      title={provider ? `Edit ${displayName(provider.id, provider.name)}` : 'Add OAuth provider'}
+      managed={provider?.managed}
+      form={form}
+      fields={providerFields}
+      onClose={onClose}
+      onSubmit={submit}
+      test={test}
+      onTest={() => void test.run(p)} // the client secret is never sent to a test
+      wide
+    >
       {!provider && (
         <Field label="Start from" hint="Fills in the endpoints and scopes; you add the client ID and secret.">
           <Select
@@ -498,6 +552,7 @@ function ProviderEditor({ provider, onClose, save }: { provider: OAuthProvider |
               setTemplate(k)
               const t = providerTemplates.find((x) => x.key === k)
               if (t) setP({ ...blankProvider, ...t.values })
+              test.clear()
             }}
             options={providerTemplates.map((t) => ({
               value: t.key,
@@ -509,13 +564,13 @@ function ProviderEditor({ provider, onClose, save }: { provider: OAuthProvider |
         </Field>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="ID" hint="For a tool server's per-user sign-in, use the tool server's id.">
-          <input value={p.id} required disabled={!!provider} onChange={(e) => setP({ ...p, id: e.target.value })} className={inputCls} />
-        </Field>
-        {text('name', 'Name', undefined, 'text')}
+        <VField label="ID" hint="For a tool server's per-user sign-in, use the tool server's id." error={form.err('id')}>
+          <input name="id" value={p.id} disabled={!!provider} onChange={(e) => setP({ ...p, id: e.target.value })} className={inputCls + bad(form.err('id'))} />
+        </VField>
+        {text('name', 'Name')}
       </div>
       <div className="flex flex-wrap gap-5">
-        <Check checked={p.login} onChange={(v) => setP({ ...p, login: v })}>
+        <Check checked={p.login} onChange={(v) => (setP({ ...p, login: v }), form.touch('scope'))}>
           Offer on the sign-in page
         </Check>
         <Check checked={p.pkce} onChange={(v) => setP({ ...p, pkce: v })}>
@@ -538,22 +593,22 @@ function ProviderEditor({ provider, onClose, save }: { provider: OAuthProvider |
           )}
         </div>
       </div>
-      {text('issuer', 'Issuer', "Sign-in providers with empty endpoints use Google's.")}
+      {text('issuer', 'Issuer', 'Test compares the endpoints with its discovery document.')}
       <div className="grid gap-3 sm:grid-cols-2">
-        {text('authorization_endpoint', 'Authorization endpoint')}
+        {text('authorization_endpoint', 'Authorization endpoint', p.login ? "Leave both empty to use Google's." : undefined)}
         {text('token_endpoint', 'Token endpoint')}
         {text('userinfo_endpoint', 'Userinfo endpoint')}
         {text('revocation_endpoint', 'Revocation endpoint', 'Called when a user disconnects.')}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Client ID">
-          <input value={p.client_id} required onChange={(e) => setP({ ...p, client_id: e.target.value })} className={inputCls} />
-        </Field>
-        <Field label="Client secret" hint="Write-only.">
+        <VField label="Client ID" error={form.err('client_id')}>
+          <input name="client_id" value={p.client_id} onChange={(e) => setP({ ...p, client_id: e.target.value })} className={inputCls + bad(form.err('client_id'))} />
+        </VField>
+        <VField label="Client secret" hint="Write-only. Never sent by Test." error={form.err('client_secret')}>
           <SecretInput has={p.has_secret} value={secret} onChange={setSecret} label="Client secret" />
-        </Field>
+        </VField>
       </div>
-      {text('scope', 'Scope', 'Space-separated.', 'text')}
+      {text('scope', 'Scope', p.login ? 'Space-separated; sign-in needs openid or email.' : 'Space-separated.')}
     </EditorDialog>
   )
 }

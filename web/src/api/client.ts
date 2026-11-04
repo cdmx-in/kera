@@ -4,10 +4,13 @@
 export class ApiError extends Error {
   status: number
   code?: string
-  constructor(status: number, message: string, code?: string) {
+  /** the form field at fault (admin forms answer {detail, code, field}) */
+  field?: string
+  constructor(status: number, message: string, code?: string, field?: string) {
     super(message)
     this.status = status
     this.code = code
+    this.field = field
   }
 }
 
@@ -54,15 +57,17 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
 async function toError(res: Response): Promise<ApiError> {
   let message = res.statusText || `HTTP ${res.status}`
   let code: string | undefined
+  let field: string | undefined
   try {
     const b = await res.json()
     const e = b?.error ?? b
     message = (typeof e === 'string' ? e : e?.message ?? e?.detail ?? b?.detail) || message
     code = e?.code ?? b?.code
+    field = typeof b?.field === 'string' ? b.field : undefined
   } catch {
     // not JSON
   }
-  return new ApiError(res.status, message, code)
+  return new ApiError(res.status, message, code, field)
 }
 
 /** JSON request. `json` is serialised as the body. */

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -23,27 +24,42 @@ import (
 // (tool providers, hooks, OAuth) query these tables on use, so no cache needs
 // invalidating.
 
-func checkURL(field, s string) error {
-	u, err := url.Parse(s)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return api.Errf(http.StatusBadRequest, "bad_url", field+" must be an http(s) URL")
+// Validation errors name the form field (api.FieldErr) so the console shows
+// them inline; web/src/features/admin/settings/validate.ts mirrors these rules.
+
+// checkNewID requires an id and applies the id format to rows that do not
+// exist yet (stored and imported rows keep theirs).
+func (h *handler) checkNewID(ctx context.Context, table, id string) error {
+	if id == "" {
+		return api.FieldErr("id", "bad_id", "ID is required")
 	}
-	return nil
+	var exists bool
+	if err := h.a.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM `+table+` WHERE id = $1)`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("check id: %w", err)
+	}
+	if exists {
+		return nil
+	}
+	return api.CheckID("id", id)
 }
 
-func checkID(id string) error {
-	if strings.TrimSpace(id) == "" || strings.ContainsAny(id, " /") {
-		return api.Errf(http.StatusBadRequest, "bad_id", "id is required and must not contain spaces or slashes")
+// optionalURL checks a URL field that may be empty.
+func optionalURL(field, s string) error {
+	if s == "" {
+		return nil
 	}
-	return nil
+	return api.CheckURL(field, s)
 }
 
 func oneOf(field, v string, allowed ...string) error {
 	if !slices.Contains(allowed, v) {
-		return api.Errf(http.StatusBadRequest, "bad_"+field, fmt.Sprintf("%s must be one of %s", field, strings.Join(allowed, ", ")))
+		return api.FieldErr(field, "bad_"+strings.ReplaceAll(field, ".", "_"), fmt.Sprintf("%s must be one of %s", field, strings.Join(allowed, ", ")))
 	}
 	return nil
 }
+
+// headerRe is an HTTP header name (RFC 9110 token).
+var headerRe = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
 
 func nonNil[T any](s []T) []T {
 	if s == nil {
@@ -159,24 +175,32 @@ type toolForm struct {
 	Sort              int             `json:"sort"`
 }
 
+// validate checks everything but the id (see checkNewID).
 func (f *toolForm) validate() error {
-	f.ID, f.URL = strings.TrimSpace(f.ID), strings.TrimRight(strings.TrimSpace(f.URL), "/")
+	f.ID, f.URL = strings.TrimSpace(f.ID), strings.TrimRight(f.URL, "/")
+	f.Auth.Header = strings.TrimSpace(f.Auth.Header)
 	if f.Auth.Type == "" {
 		f.Auth.Type = "none"
 	}
-	errs := []error{checkID(f.ID), oneOf("kind", f.Kind, "openapi", "mcp"), checkURL("url", f.URL),
-		oneOf("auth_type", f.Auth.Type, "none", "bearer", "header", "user_oauth")}
-	if f.Auth.Type == "header" && strings.TrimSpace(f.Auth.Header) == "" {
-		errs = append(errs, api.Errf(http.StatusBadRequest, "bad_auth", "auth.header is required for header auth"))
+	errs := []error{oneOf("kind", f.Kind, "openapi", "mcp"), api.CheckURL("url", f.URL),
+		oneOf("auth.type", f.Auth.Type, "none", "bearer", "header", "user_oauth")}
+	if f.Kind == "openapi" && (strings.Contains(f.SpecPath, "://") || strings.ContainsAny(f.SpecPath, " \t")) {
+		errs = append(errs, api.FieldErr("spec_path", "bad_spec_path", "Use a path relative to the URL, e.g. openapi.json"))
+	}
+	if f.Auth.Type == "header" && f.Auth.Header == "" {
+		errs = append(errs, api.FieldErr("auth.header", "bad_auth", "Header name is required for header auth"))
+	}
+	if (f.Auth.Type == "header" || f.Auth.Type == "user_oauth") && f.Auth.Header != "" && !headerRe.MatchString(f.Auth.Header) {
+		errs = append(errs, api.FieldErr("auth.header", "bad_auth", "Not a valid header name (letters, digits and - only, e.g. X-API-Key)"))
 	}
 	if f.Auth.Type == "user_oauth" && f.Auth.Provider == "" {
-		errs = append(errs, api.Errf(http.StatusBadRequest, "bad_auth", "auth.provider is required for user_oauth auth"))
+		errs = append(errs, api.FieldErr("auth.provider", "bad_auth", "Choose the OAuth provider users sign in with"))
 	}
 	if f.MaxResultChars < 0 {
-		errs = append(errs, api.Errf(http.StatusBadRequest, "bad_max_result_chars", "max_result_chars must be 0 or more"))
+		errs = append(errs, api.FieldErr("max_result_chars", "bad_max_result_chars", "Must be 0 (no limit) or more"))
 	}
 	if len(f.Display) > 0 && string(f.Display) != "null" && jsonType(f.Display) != "object" {
-		errs = append(errs, api.Errf(http.StatusBadRequest, "bad_display", "display must be an object"))
+		errs = append(errs, api.FieldErr("display", "bad_display", "display must be an object"))
 	}
 	if f.SpecPath == "" && f.Kind == "openapi" {
 		f.SpecPath = "openapi.json"
@@ -196,11 +220,11 @@ func firstErr(errs []error) error {
 // saveToolServer upserts one server by id.
 func (h *handler) saveToolServer(w http.ResponseWriter, r *http.Request) {
 	var f toolForm
-	if err := api.Decode(r, &f); err != nil {
+	if err := api.DecodeForm(r, &f); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
-	if err := f.validate(); err != nil {
+	if err := firstErr([]error{f.validate(), h.checkNewID(r.Context(), "tool_server", f.ID)}); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
@@ -246,7 +270,7 @@ func (h *handler) writeToolServer(ctx context.Context, f *toolForm) error {
 			}
 		}
 		if a.KeyEnc == "" {
-			return api.Errf(http.StatusBadRequest, "bad_auth", "auth.key is required for "+f.Auth.Type+" auth")
+			return api.FieldErr("auth.key", "bad_auth", "A key is required for "+f.Auth.Type+" auth")
 		}
 	case "user_oauth":
 		a.Provider = f.Auth.Provider
@@ -259,7 +283,7 @@ func (h *handler) writeToolServer(ctx context.Context, f *toolForm) error {
 				}
 			}
 			if a.KeyEnc == "" {
-				return api.Errf(http.StatusBadRequest, "bad_auth", "auth.key is required with auth.header")
+				return api.FieldErr("auth.key", "bad_auth", "A key is required with a header name")
 			}
 		}
 		var ok bool
@@ -267,7 +291,7 @@ func (h *handler) writeToolServer(ctx context.Context, f *toolForm) error {
 			return fmt.Errorf("check provider: %w", err)
 		}
 		if !ok {
-			return api.Errf(http.StatusBadRequest, "bad_auth", "unknown OAuth provider "+a.Provider)
+			return api.FieldErr("auth.provider", "bad_auth", "Unknown OAuth provider "+a.Provider)
 		}
 	}
 	if len(f.Display) > 0 && string(f.Display) != "null" {
@@ -362,9 +386,10 @@ type hookForm struct {
 	Enabled      *bool           `json:"enabled"`
 }
 
+// validate checks everything but the id (see checkNewID).
 func (f *hookForm) validate() error {
-	f.ID, f.URL = strings.TrimSpace(f.ID), strings.TrimSpace(f.URL)
-	if len(f.Events) == 0 {
+	f.ID = strings.TrimSpace(f.ID)
+	if f.Events == nil { // absent keeps the old default; an explicit [] is an error
 		f.Events = []string{"inlet"}
 	}
 	if f.Scope == "" {
@@ -379,16 +404,22 @@ func (f *hookForm) validate() error {
 	if len(f.Config) == 0 || string(f.Config) == "null" {
 		f.Config = json.RawMessage(`{}`)
 	}
-	errs := []error{checkID(f.ID), checkURL("url", f.URL), oneOf("scope", f.Scope, "global", "models"),
+	errs := []error{api.CheckURL("url", f.URL), oneOf("scope", f.Scope, "global", "models"),
 		oneOf("on_error", f.OnError, "skip", "abort")}
+	if len(f.Events) == 0 {
+		errs = append(errs, api.FieldErr("events", "bad_events", "Pick inlet, outlet or both"))
+	}
 	for _, e := range f.Events {
 		errs = append(errs, oneOf("events", e, "inlet", "outlet"))
 	}
-	if jsonType(f.Config) != "object" {
-		errs = append(errs, api.Errf(http.StatusBadRequest, "bad_config", "config must be an object"))
+	if f.TimeoutMS < 1000 || f.TimeoutMS > 120000 {
+		errs = append(errs, api.FieldErr("timeout_ms", "bad_timeout", "Timeout must be 1000 to 120000 ms"))
 	}
-	if f.TimeoutMS < 0 {
-		errs = append(errs, api.Errf(http.StatusBadRequest, "bad_timeout", "timeout_ms must be positive"))
+	if f.Scope == "models" && len(f.ModelIDs) == 0 {
+		errs = append(errs, api.FieldErr("model_ids", "bad_model_ids", "Pick at least one model, or apply to all models"))
+	}
+	if jsonType(f.Config) != "object" {
+		errs = append(errs, api.FieldErr("config", "bad_config", "Config must be a JSON object"))
 	}
 	return firstErr(errs)
 }
@@ -396,11 +427,11 @@ func (f *hookForm) validate() error {
 func (h *handler) saveHook(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var f hookForm
-	if err := api.Decode(r, &f); err != nil {
+	if err := api.DecodeForm(r, &f); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
-	if err := f.validate(); err != nil {
+	if err := firstErr([]error{f.validate(), h.checkNewID(ctx, "hook_server", f.ID)}); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
@@ -523,34 +554,52 @@ type providerForm struct {
 	SendResource          bool    `json:"send_resource"`
 }
 
+// validate checks everything but the id (see checkNewID).
 func (f *providerForm) validate() error {
-	f.ID, f.ClientID = strings.TrimSpace(f.ID), strings.TrimSpace(f.ClientID)
-	errs := []error{checkID(f.ID)}
+	f.ID, f.ClientID, f.Scope = strings.TrimSpace(f.ID), strings.TrimSpace(f.ClientID), strings.TrimSpace(f.Scope)
+	errs := []error{}
 	if f.ClientID == "" {
-		errs = append(errs, api.Errf(http.StatusBadRequest, "bad_client_id", "client_id is required"))
+		errs = append(errs, api.FieldErr("client_id", "bad_client_id", "Client ID is required"))
 	}
-	for field, v := range map[string]string{"issuer": f.Issuer, "authorization_endpoint": f.AuthorizationEndpoint,
-		"token_endpoint": f.TokenEndpoint, "revocation_endpoint": f.RevocationEndpoint, "userinfo_endpoint": f.UserinfoEndpoint} {
-		if v != "" {
-			errs = append(errs, checkURL(field, v))
-		}
+	errs = append(errs, optionalURL("issuer", f.Issuer), optionalURL("authorization_endpoint", f.AuthorizationEndpoint),
+		optionalURL("token_endpoint", f.TokenEndpoint), optionalURL("userinfo_endpoint", f.UserinfoEndpoint),
+		optionalURL("revocation_endpoint", f.RevocationEndpoint))
+	// Both endpoints are needed (neither sign-in nor tool OAuth discovers them
+	// from the issuer), except that a sign-in provider with neither uses
+	// Google's (the row `kera apply` writes for auth.oauth.google has none).
+	googleDefaults := f.Login && f.AuthorizationEndpoint == "" && f.TokenEndpoint == ""
+	if f.AuthorizationEndpoint == "" && !googleDefaults {
+		errs = append(errs, api.FieldErr("authorization_endpoint", "bad_endpoints", endpointHint(f.Login)))
 	}
-	// Login providers may leave endpoints empty: sign-in fills Google's (the
-	// row `kera apply` writes for auth.oauth.google has none).
-	if !f.Login && f.Issuer == "" && (f.AuthorizationEndpoint == "" || f.TokenEndpoint == "") {
-		errs = append(errs, api.Errf(http.StatusBadRequest, "bad_endpoints", "set issuer, or the authorization and token endpoints"))
+	if f.TokenEndpoint == "" && !googleDefaults {
+		errs = append(errs, api.FieldErr("token_endpoint", "bad_endpoints", endpointHint(f.Login)))
+	}
+	if strings.Contains(f.Scope, ",") {
+		errs = append(errs, api.FieldErr("scope", "bad_scope", "Separate scopes with spaces, not commas"))
+	}
+	if f.Login && f.Scope != "" && !slices.ContainsFunc(strings.Fields(f.Scope), func(s string) bool {
+		return s == "openid" || strings.Contains(s, "email")
+	}) {
+		errs = append(errs, api.FieldErr("scope", "bad_scope", "Sign-in needs the openid or an email scope"))
 	}
 	return firstErr(errs)
+}
+
+func endpointHint(login bool) string {
+	if login {
+		return "Set both the authorization and token endpoints, or neither for Google"
+	}
+	return "Required: set both the authorization and token endpoints"
 }
 
 func (h *handler) saveProvider(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var f providerForm
-	if err := api.Decode(r, &f); err != nil {
+	if err := api.DecodeForm(r, &f); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
-	if err := f.validate(); err != nil {
+	if err := firstErr([]error{f.validate(), h.checkNewID(ctx, "oauth_provider", f.ID)}); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
