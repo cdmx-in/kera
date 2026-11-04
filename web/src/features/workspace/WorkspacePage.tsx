@@ -1,6 +1,6 @@
 // Lazy chunk. ponytail: placeholder until the workspace milestone; routes are reserved.
 import { useParams } from 'react-router'
-import { Placeholder } from '@/features/admin/AdminPage'
+import { Placeholder } from '@/features/admin/Frame'
 
 const sections = [
   ['models', 'Models'],

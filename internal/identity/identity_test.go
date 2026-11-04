@@ -519,8 +519,15 @@ func TestUsersAdmin(t *testing.T) {
 	}
 
 	e.status(http.StatusForbidden, "DELETE", "/api/v1/users/"+adminID, admin, nil)
+	_, _ = e.a.DB.Exec(ctx, `INSERT INTO access_grant (id, resource_type, resource_id, principal_type, principal_id, permission)
+		VALUES ('g-zed', 'model', 'm', 'user', $1, 'read')`, uid)
 	e.ok("DELETE", "/api/v1/users/"+uid, admin, nil, nil)
 	e.status(http.StatusNotFound, "GET", "/api/v1/users/"+uid, admin, nil)
+	var grants int
+	_ = e.a.DB.QueryRow(ctx, `SELECT count(*) FROM access_grant WHERE principal_id = $1`, uid).Scan(&grants)
+	if grants != 0 {
+		t.Fatal("deleting a user left their grants")
+	}
 	e.status(http.StatusUnauthorized, "GET", "/api/v1/auths/", user, nil)
 }
 
