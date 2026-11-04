@@ -140,8 +140,9 @@ func (s *Service) ensureIndex(ctx context.Context, m *embedModel) error {
 	}
 	name := indexName(m.ID)
 	var valid *bool
-	err := s.db.QueryRow(ctx, `SELECT i.indisvalid FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
-		WHERE c.relname = $1`, name).Scan(&valid)
+	// An index another process is still building is invalid too: leave it.
+	err := s.db.QueryRow(ctx, `SELECT i.indisvalid OR EXISTS (SELECT 1 FROM pg_stat_progress_create_index p WHERE p.index_relid = c.oid)
+		FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = $1`, name).Scan(&valid)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("check index %s: %w", name, err)
 	}

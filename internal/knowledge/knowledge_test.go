@@ -431,6 +431,10 @@ func TestReindexToAnotherModel(t *testing.T) {
 	fid := e.upload("root", "a.md", "alpha beta gamma\n\ndelta epsilon")
 	e.req("root", "POST", "/api/v1/knowledge/"+c.ID+"/file/add", map[string]any{"file_id": fid}, 200, nil)
 	e.waitFile(c.ID, fid, "completed")
+	// Moving to another model is admin-only; a write grant is not enough.
+	e.req("root", "PUT", "/api/v1/knowledge/"+c.ID+"/grants", []map[string]string{{"principal": "user:alice", "permission": "write"}}, 200, nil)
+	e.req("alice", "POST", "/api/v1/knowledge/"+c.ID+"/reindex?embedding_model=wide", nil, 403, nil)
+	e.req("alice", "POST", "/api/v1/knowledge/"+c.ID+"/reindex?connection=other", nil, 403, nil)
 	e.req("root", "POST", "/api/v1/knowledge/"+c.ID+"/reindex?embedding_model=wide", nil, 200, nil)
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -452,6 +456,26 @@ func TestReindexToAnotherModel(t *testing.T) {
 	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, "delta", 1)
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("search after reindex %v %v", hits, err)
+	}
+
+	// A plain reindex cancels a move in progress and drops the chunks it wrote.
+	old, err := e.s.ensureModel(ctx, "ollama", "stub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.db.Exec(ctx, `UPDATE knowledge SET meta = meta || jsonb_build_object('reindex_to', $2::text) WHERE id = $1`, c.ID, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.db.Exec(ctx, `INSERT INTO chunk (knowledge_id, file_id, idx, text, embedding_model_id) VALUES ($1, $2, 99, 'stray', $3)`, c.ID, fid, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.Reindex(ctx, c.ID, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	var stray int
+	_ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM chunk WHERE knowledge_id = $1 AND embedding_model_id = $2`, c.ID, old.ID).Scan(&stray)
+	if stray != 0 {
+		t.Fatalf("%d chunks of the cancelled move left", stray)
 	}
 }
 
@@ -541,5 +565,33 @@ func TestKnowledgeTools(t *testing.T) {
 	}
 	if r := call("bob", "view_knowledge_file", fmt.Sprintf(`{"file_id":%q}`, fid)); !r.IsError {
 		t.Fatal(r.Content)
+	}
+}
+
+// An index left invalid by an interrupted build is dropped and built again.
+func TestEnsureIndexReplacesInvalid(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	m, err := e.s.ensureModel(ctx, "ollama", "stub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := indexName(m.ID)
+	for _, q := range []string{`CREATE TABLE dup (x int)`, `INSERT INTO dup VALUES (1), (1)`} {
+		if _, err := e.s.db.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.s.db.Exec(ctx, `CREATE UNIQUE INDEX CONCURRENTLY `+name+` ON dup (x)`); err == nil {
+		t.Fatal("want a failed build")
+	}
+	if err := e.s.ensureIndex(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	var table string
+	var valid bool
+	if err := e.s.db.QueryRow(ctx, `SELECT i.indrelid::regclass::text, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+		WHERE c.relname = $1`, name).Scan(&table, &valid); err != nil || table != "chunk" || !valid {
+		t.Fatalf("index on %q valid %v err %v", table, valid, err)
 	}
 }

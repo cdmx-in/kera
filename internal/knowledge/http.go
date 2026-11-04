@@ -403,6 +403,11 @@ func (s *Service) hReindex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	// Another model means DDL (a new HNSW index) and calls on any connection.
+	if (q.Get("embedding_model") != "" || q.Get("connection") != "") && !u.IsAdmin() {
+		api.Fail(w, r, api.Errf(http.StatusForbidden, "forbidden", "Only admins can move a collection to another embedding model"))
+		return
+	}
 	n, err := s.Reindex(ctx, c.ID, q.Get("connection"), q.Get("embedding_model"))
 	if err != nil {
 		api.Fail(w, r, api.Errf(http.StatusBadRequest, "reindex_failed", err.Error()))

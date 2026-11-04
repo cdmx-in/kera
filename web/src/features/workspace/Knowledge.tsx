@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { api } from '@/api/client'
+import { useMe } from '@/api/queries'
 import { cx, formatBytes } from '@/lib/format'
 import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
 import { Spinner } from '@/ui/misc'
@@ -108,6 +109,7 @@ export function KnowledgeDetail() {
   const [uploading, setUploading] = useState(0)
   const [model, setModel] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
+  const { data: me } = useMe()
   useEffect(() => {
     if (c) {
       setName(c.name)
@@ -122,8 +124,10 @@ export function KnowledgeDetail() {
       await api(`/api/v1/knowledge/${c.id}${path}`, init)
       await refresh()
       if (done) toast(done)
+      return true
     } catch (e) {
       toast(errorText(e), 'error')
+      return false
     }
   }
   const upload = async (files: FileList | null) => {
@@ -143,8 +147,7 @@ export function KnowledgeDetail() {
   }
   const remove = async () => {
     if (!confirm(`Delete the collection ${c.name}? Its files stay in their owners' file lists.`)) return
-    await call('/delete', { method: 'DELETE' })
-    navigate('/workspace/knowledge')
+    if (await call('/delete', { method: 'DELETE' })) navigate('/workspace/knowledge')
   }
   const w = c.write_access
   return (
@@ -208,9 +211,12 @@ export function KnowledgeDetail() {
       </Section>
       {w && (
         <Section title="Index">
-          <p className="text-sm text-muted">Re-embed every file, for example after changing the chunk settings. Name another embedding model to move the collection to it; searches keep using the current model until every file is done.</p>
+          <p className="text-sm text-muted">
+            Re-embed every file, for example after changing the chunk settings.
+            {me?.role === 'admin' && ' Name another embedding model to move the collection to it; searches keep using the current model until every file is done.'}
+          </p>
           <div className="flex flex-wrap gap-2">
-            <input className={cx(input, 'max-w-xs py-1.5')} placeholder={c.embedding_model?.model ?? 'embedding model (optional)'} value={model} onChange={(e) => setModel(e.target.value)} aria-label="Embedding model" />
+            {me?.role === 'admin' && <input className={cx(input, 'max-w-xs py-1.5')} placeholder={c.embedding_model?.model ?? 'embedding model (optional)'} value={model} onChange={(e) => setModel(e.target.value)} aria-label="Embedding model" />}
             <button type="button" className={btn} onClick={() => call(`/reindex${model.trim() ? `?embedding_model=${encodeURIComponent(model.trim())}` : ''}`, { method: 'POST' }, 'Reindexing started')} data-testid="reindex">
               <RefreshCw size={14} /> Reindex
             </button>

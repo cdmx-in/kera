@@ -296,8 +296,11 @@ func (s *Service) queue(ctx context.Context, kid string, fileIDs []string) (int,
 // which keep serving queries until every file is done (see finishReindex).
 func (s *Service) Reindex(ctx context.Context, kid, conn, model string) (int, error) {
 	if model == "" {
-		if _, err := s.db.Exec(ctx, `UPDATE knowledge SET meta = meta - 'reindex_to' WHERE id = $1`, kid); err != nil {
-			return 0, err
+		// Cancels a move in progress: drop the chunks it already wrote.
+		if _, err := s.db.Exec(ctx, `WITH k AS (UPDATE knowledge SET meta = meta - 'reindex_to' WHERE id = $1 RETURNING embedding_model_id)
+			DELETE FROM chunk c USING k WHERE c.knowledge_id = $1 AND k.embedding_model_id IS NOT NULL
+				AND c.embedding_model_id IS DISTINCT FROM k.embedding_model_id`, kid); err != nil {
+			return 0, fmt.Errorf("cancel reindex: %w", err)
 		}
 		return s.queue(ctx, kid, nil)
 	}
