@@ -23,6 +23,9 @@ Usage:
   kera serve              run the server (applies database migrations first)
   kera db migrate         apply database migrations and exit
   kera db status          list migrations and whether they are applied
+  kera apply -f FILE [--dry-run] [--prune]
+                          make the database match a declarative YAML config
+  kera export [-o FILE]   print the managed config as YAML (secrets as ${...})
   kera version            print the version
 
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL.
@@ -51,6 +54,10 @@ func run(args []string) error {
 		return serve(ctx)
 	case "db":
 		return dbCmd(ctx, args[1:])
+	case "apply":
+		return applyCmd(ctx, args[1:])
+	case "export":
+		return exportCmd(ctx, args[1:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
