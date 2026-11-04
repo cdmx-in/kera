@@ -16,6 +16,9 @@ export function humanizeTool(name: string, server?: string): string {
       }
     }
   }
+  // no server given: the engine names server tools "<server-id>_<fn>"; a kebab-case
+  // first segment is a server id ("google-sheets_read_sheet_values"), never a verb
+  if (!server) n = n.replace(/^[a-z0-9]+(?:-[a-z0-9]+)+_(?=.)/i, '')
   n = n.replace(/Tool$/, '').replace(/_tool$/i, '')
   const words = n
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
