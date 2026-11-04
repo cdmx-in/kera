@@ -34,9 +34,9 @@ export function Shell() {
   }
   return (
     <Tooltip.Provider delayDuration={400}>
-      <div data-testid="app-ready" className="flex h-dvh overflow-hidden">
+      <div data-testid="app-ready" className="relative flex h-dvh overflow-hidden">
         <Sidebar />
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <Outlet />
         </main>
       </div>

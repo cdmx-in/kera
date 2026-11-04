@@ -77,7 +77,8 @@ export function AccessEditor({ type, id, hint }: { type: ResourceType; id: strin
   )
 }
 
-function Principal({ p, groupName }: { p: string; groupName: (id: string) => string | undefined }) {
+/** Who a grant is for: Everyone, a group name, or a user's name and email (admin APIs). */
+export function Principal({ p, groupName }: { p: string; groupName: (id: string) => string | undefined }) {
   if (p === 'user:*')
     return (
       <span className="flex min-w-0 flex-1 items-center gap-2">

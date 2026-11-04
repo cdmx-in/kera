@@ -112,6 +112,11 @@ body,
 #root {
   height: 100%;
 }
+/* Signed-in app: the viewport never scrolls; the main pane (and the sidebar's chat list) do. */
+html:has([data-testid='app-ready']),
+html:has([data-testid='app-ready']) body {
+  overflow: hidden;
+}
 body {
   margin: 0;
   background: var(--bg);
