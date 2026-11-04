@@ -275,6 +275,20 @@ type CodeInterpreter struct {
 	Prelude     *string `yaml:"prelude,omitempty"`
 	PreludeFile string  `yaml:"prelude_file,omitempty" apply:"-"`
 	MaxFileMB   *int    `yaml:"max_file_mb,omitempty"`
+	// Languages replaces the whole code_interpreter.languages map.
+	Languages map[string]CodeLanguage `yaml:"languages,omitempty"`
+}
+
+// CodeLanguage is one language execute_code can run. An empty Command means
+// the Jupyter kernel itself (Python); otherwise Command is an argv (never a
+// shell string) whose "{file}" is replaced by the script path.
+type CodeLanguage struct {
+	Command  []string `yaml:"command,omitempty" json:"command,omitempty"`
+	Ext      string   `yaml:"ext,omitempty" json:"ext,omitempty"`
+	Aliases  []string `yaml:"aliases,omitempty" json:"aliases,omitempty"`
+	Label    string   `yaml:"label,omitempty" json:"label,omitempty"`
+	Check    []string `yaml:"check,omitempty" json:"check,omitempty"`       // must exit 0 for Command to count as installed
+	Fallback []string `yaml:"fallback,omitempty" json:"fallback,omitempty"` // used when Command is not installed
 }
 
 type OAuthProvider struct {

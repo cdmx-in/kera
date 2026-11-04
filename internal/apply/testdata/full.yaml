@@ -95,6 +95,10 @@ code_interpreter:
   kernel_dir: /mnt/data
   prompt_file: ci-prompt.md
   max_file_mb: 50
+  languages:
+    python: {label: Python}
+    php: {command: [php, "{file}"], ext: .php, label: PHP}
+    typescript: {command: [node, --experimental-strip-types, "{file}"], ext: .ts, check: [node, --experimental-strip-types, -e, ""], fallback: [tsx, "{file}"]}
 
 oauth_providers:
   - id: "mcp:sheets"

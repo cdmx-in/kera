@@ -163,6 +163,11 @@ func TestApplyFullAndIdempotent(t *testing.T) {
 	if !strings.Contains(tpl, "{{CONTEXT}}") {
 		t.Errorf("rag.template = %q", tpl)
 	}
+	var langs map[string]CodeLanguage
+	_ = fx.st.Get(ctx, "code_interpreter.languages", &langs)
+	if len(langs) != 3 || langs["php"].Command[1] != "{file}" || langs["typescript"].Fallback[0] != "tsx" || langs["typescript"].Check[3] != "" {
+		t.Errorf("code_interpreter.languages = %+v", langs)
+	}
 	if tok, err := ReadSecret(ctx, fx.st, fx.keys, "code_interpreter.token"); err != nil || tok != testEnv["JUPYTER_TOKEN"] {
 		t.Errorf("ReadSecret token mismatch (err %v)", err)
 	}

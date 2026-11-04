@@ -17,6 +17,7 @@ import (
 	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/provider"
 	"github.com/cdmx-in/kera/internal/retrieval"
+	"github.com/cdmx-in/kera/internal/sandbox"
 )
 
 // exec is the working state of one run.
@@ -234,6 +235,9 @@ func (e *Engine) process(ctx context.Context, x *exec) error {
 	table, specs, err := e.assembleTools(ctx, x)
 	if err != nil {
 		return err
+	}
+	if t, ok := table["execute_code"]; ok && t.provider.ID() == sandbox.ID {
+		x.system = append(x.system, sandbox.Prompt(ctx, e.Settings))
 	}
 	if err := e.loop(ctx, x, table, specs); err != nil {
 		return err

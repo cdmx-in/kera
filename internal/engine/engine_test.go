@@ -22,6 +22,7 @@ import (
 	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/provider"
 	"github.com/cdmx-in/kera/internal/retrieval"
+	"github.com/cdmx-in/kera/internal/sandbox"
 	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/settings"
 	"github.com/cdmx-in/kera/internal/testdb"
@@ -750,5 +751,39 @@ func TestNonChatModelRefused(t *testing.T) {
 	_, err := h.e.Start(ctx, h.u, &Request{Model: "e.nomic-embed-text", Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"hi"`)}}})
 	if !errors.Is(err, models.ErrNotChat) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// fakeSandbox stands in for builtin:code so the run offers execute_code.
+type fakeSandbox struct{}
+
+func (fakeSandbox) ID() string { return sandbox.ID }
+func (fakeSandbox) Tools(context.Context, *auth.User) ([]tools.Spec, error) {
+	return []tools.Spec{{Name: "execute_code", Parameters: json.RawMessage(`{"type":"object"}`)}}, nil
+}
+func (fakeSandbox) Execute(context.Context, tools.Call) (tools.Result, error) {
+	return tools.Result{}, nil
+}
+
+// The code interpreter's prompt joins the system prompt when execute_code is offered.
+func TestCodeInterpreterPrompt(t *testing.T) {
+	h := newHarness(t)
+	tools.Register(fakeSandbox{})
+	ctx := context.Background()
+	if err := h.e.Settings.Set(ctx, "code_interpreter.prompt", "RUN-CODE-FOR-REAL", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(ctx, `INSERT INTO model (id, base_model_id, features, default_features) VALUES ('ci', 'm1', '{"code_interpreter": true}', '{code_interpreter}')`); err != nil {
+		t.Fatal(err)
+	}
+	for model, want := range map[string]bool{"ci": true, "m1": false} {
+		run, err := h.e.Start(ctx, h.u, &Request{Model: model, Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"echo system"`)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wait(t, run)
+		if got := strings.Contains(run.stateText(), "RUN-CODE-FOR-REAL"); got != want {
+			t.Errorf("%s: prompt included = %v: %q", model, got, run.stateText())
+		}
 	}
 }

@@ -89,7 +89,21 @@ var Defaults = map[string]json.RawMessage{
 	"code_interpreter.prompt":      raw(`""`),
 	"code_interpreter.prelude":     raw(`""`),
 	"code_interpreter.max_file_mb": raw(`50`),
-	"spend.source.kind":            raw(`""`),
+	// Languages for execute_code's language argument; only those whose program exists in the sandbox are offered.
+	"code_interpreter.languages": raw(`{
+		"python": {"label": "Python", "aliases": ["py", "python3"]},
+		"javascript": {"label": "JavaScript (Node.js)", "ext": ".js", "command": ["node", "{file}"], "aliases": ["js", "node", "nodejs"]},
+		"typescript": {"label": "TypeScript (Node.js)", "ext": ".ts", "aliases": ["ts"],
+			"command": ["node", "--experimental-strip-types", "--disable-warning=ExperimentalWarning", "{file}"],
+			"check": ["node", "--experimental-strip-types", "-e", ""], "fallback": ["tsx", "{file}"]},
+		"php": {"label": "PHP", "ext": ".php", "command": ["php", "{file}"]},
+		"bash": {"label": "Bash", "ext": ".sh", "command": ["bash", "{file}"], "aliases": ["shell", "sh"]},
+		"ruby": {"label": "Ruby", "ext": ".rb", "command": ["ruby", "{file}"], "aliases": ["rb"]},
+		"go": {"label": "Go", "ext": ".go", "command": ["go", "run", "{file}"], "aliases": ["golang"]},
+		"java": {"label": "Java (single-file source)", "ext": ".java", "command": ["java", "{file}"]},
+		"r": {"label": "R", "ext": ".R", "command": ["Rscript", "{file}"], "aliases": ["rscript"]}
+	}`),
+	"spend.source.kind": raw(`""`),
 	// Cap on one tool result passed to the model (characters; a tool server's max_result_chars wins; 0 = no cap).
 	"tools.max_result_chars": raw(`100000`),
 }

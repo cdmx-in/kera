@@ -1,5 +1,6 @@
 // Package sandbox is the built-in code interpreter (tool set "builtin:code"):
-// execute_code runs Python in a Jupyter kernel, with the chat's attachments
+// execute_code runs Python in a Jupyter kernel (other languages from
+// code_interpreter.languages as a subprocess started by the kernel), with the chat's attachments
 // staged into a per-call folder on a directory shared with the kernel, and
 // every new file the code writes there returned as a file of the user.
 package sandbox
@@ -17,6 +18,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -58,13 +60,17 @@ const DefaultPrompt = "You can run Python with the execute_code tool. Use it for
 
 // Prompt returns the system-prompt text describing the sandbox: the
 // code_interpreter.prompt setting (`kera apply` loads it from prompt_file),
-// or DefaultPrompt. The chat engine appends it to the system prompt when the
+// or DefaultPrompt, plus a line naming the other installed languages (known
+// once Tools has probed the sandbox). The chat engine appends it to the system prompt when the
 // code_interpreter feature is on for the turn.
 func Prompt(ctx context.Context, st *settings.Store) string {
 	var p string
 	_ = st.Get(ctx, "code_interpreter.prompt", &p)
 	if strings.TrimSpace(p) == "" {
-		return DefaultPrompt
+		p = DefaultPrompt
+	}
+	if n := cachedNote(); n != "" {
+		p = strings.TrimRight(p, "\n") + "\n\n" + n
 	}
 	return p
 }
@@ -100,7 +106,7 @@ func (p *Provider) Tools(ctx context.Context, u *auth.User) ([]tools.Spec, error
 	if err != nil || !cfg.enabled() {
 		return nil, err
 	}
-	return []tools.Spec{spec}, nil
+	return []tools.Spec{toolSpec(cfg.languages, p.available(ctx, cfg))}, nil
 }
 
 type config struct {
@@ -109,6 +115,7 @@ type config struct {
 	sharedDir, kernelDir string
 	prelude              string
 	maxFile              int64
+	languages            map[string]Language
 }
 
 func (c config) enabled() bool { return c.engine == "jupyter" && c.url != "" }
@@ -121,6 +128,7 @@ func (p *Provider) load(ctx context.Context) (config, error) {
 		"code_interpreter.engine": &c.engine, "code_interpreter.url": &c.url, "code_interpreter.timeout": &timeout,
 		"code_interpreter.shared_dir": &c.sharedDir, "code_interpreter.kernel_dir": &c.kernelDir,
 		"code_interpreter.prelude": &c.prelude, "code_interpreter.max_file_mb": &maxMB,
+		"code_interpreter.languages": &c.languages,
 	} {
 		if err := st.Get(ctx, key, dst); err != nil {
 			return c, err
@@ -133,6 +141,7 @@ func (p *Provider) load(ctx context.Context) (config, error) {
 	c.token = tok
 	c.timeout = time.Duration(max(timeout, 1)) * time.Second
 	c.maxFile = int64(max(maxMB, 1)) << 20
+	c.languages = validLanguages(c.languages)
 	if c.kernelDir == "" {
 		c.kernelDir = "/mnt/data"
 	}
@@ -142,7 +151,8 @@ func (p *Provider) load(ctx context.Context) (config, error) {
 // Execute implements tools.Provider.
 func (p *Provider) Execute(ctx context.Context, c tools.Call) (tools.Result, error) {
 	var args struct {
-		Code string `json:"code"`
+		Code     string `json:"code"`
+		Language string `json:"language"`
 	}
 	if err := json.Unmarshal(c.Args, &args); err != nil || strings.TrimSpace(args.Code) == "" {
 		return tools.Result{Content: `{"error":"the code argument is required"}`, IsError: true}, nil
@@ -154,8 +164,22 @@ func (p *Provider) Execute(ctx context.Context, c tools.Call) (tools.Result, err
 	if !cfg.enabled() {
 		return tools.Result{Content: `{"error":"the code interpreter is not configured"}`, IsError: true}, nil
 	}
+	lang, ok := resolve(cfg.languages, args.Language)
+	var command []string
+	if ok && lang != defaultLanguage {
+		avail := p.available(ctx, cfg)
+		command, ok = avail[lang]
+		if !ok {
+			return report{Error: fmt.Sprintf("%s is not installed in the sandbox; available: %s", lang,
+				strings.Join(sortedNames(avail), ", "))}.result(nil), nil
+		}
+	}
+	if !ok {
+		return report{Error: fmt.Sprintf("unknown language %q; available: %s", args.Language,
+			strings.Join(sortedNames(p.available(ctx, cfg)), ", "))}.result(nil), nil
+	}
 	c.Emit(status(false, "Running code"))
-	res := p.run(ctx, c, cfg, args.Code)
+	res := p.run(ctx, c, cfg, job{lang: lang, command: command, ext: cfg.languages[lang].Ext, code: args.Code})
 	desc := "Ran code"
 	if res.IsError {
 		desc = "Code failed"
@@ -168,14 +192,21 @@ func status(done bool, desc string) tools.Event {
 	return tools.Event{Type: "status", Data: map[string]any{"action": "code_run", "description": desc, "done": done}}
 }
 
+// job is one execute_code call; command is nil for Python (the kernel).
+type job struct {
+	lang, ext, code string
+	command         []string
+}
+
 // report is the JSON the model receives.
 type report struct {
-	Stdout  string   `json:"stdout,omitempty"`
-	Stderr  string   `json:"stderr,omitempty"`
-	Result  string   `json:"result,omitempty"`
-	Error   string   `json:"error,omitempty"`
-	Files   []string `json:"files,omitempty"`
-	Skipped []string `json:"skipped_files,omitempty"`
+	Stdout   string   `json:"stdout,omitempty"`
+	Stderr   string   `json:"stderr,omitempty"`
+	Result   string   `json:"result,omitempty"`
+	ExitCode *int     `json:"exit_code,omitempty"` // non-Python languages
+	Error    string   `json:"error,omitempty"`
+	Files    []string `json:"files,omitempty"`
+	Skipped  []string `json:"skipped_files,omitempty"`
 }
 
 func (r report) result(fileIDs []string) tools.Result {
@@ -184,7 +215,7 @@ func (r report) result(fileIDs []string) tools.Result {
 }
 
 // run stages inputs, executes, harvests outputs and removes the run folder.
-func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, code string) tools.Result {
+func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, jb job) tools.Result {
 	var rep report
 	runID := ids.New()
 	hostDir, kernelDir := "", cfg.kernelDir
@@ -204,8 +235,12 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, code strin
 			}
 		}()
 	}
-	out, err := p.execute(ctx, cfg, prelude(kernelDir, inputs, cfg.prelude),
-		rewritePaths(code, cfg.kernelDir, kernelDir))
+	code, timeout := rewritePaths(jb.code, cfg.kernelDir, kernelDir), cfg.timeout
+	if jb.command != nil {
+		// the driver enforces cfg.timeout on the script; the kernel gets slack to report it
+		code, timeout = driver(jb.command, jb.ext, code, cfg.timeout), cfg.timeout+setupTimeout
+	}
+	out, err := p.execute(ctx, cfg, prelude(kernelDir, inputs, cfg.prelude), code, timeout)
 	if err != nil {
 		slog.Warn("sandbox execute", "run", c.RunID, "err", err)
 		rep.Error = "sandbox unavailable: " + err.Error()
@@ -214,6 +249,18 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, code strin
 	rep.Stdout, rep.Stderr, rep.Result = clip(out.Stdout), clip(out.Stderr), clip(out.Result)
 	if out.Error != "" {
 		rep.Error = tail(out.Error, 40, maxOutputChars)
+	}
+	if jb.command != nil && out.Error == "" && !out.TimedOut {
+		v := strings.TrimSpace(out.Result) // the driver's value: the exit code or 'timeout'
+		rep.Result = ""
+		if rc, err := strconv.Atoi(v); err == nil {
+			rep.ExitCode = &rc
+			if rc != 0 {
+				rep.Error = fmt.Sprintf("%s exited with code %d", jb.lang, rc)
+			}
+		} else if v == "'timeout'" {
+			rep.Error = fmt.Sprintf("timed out after %s; the %s process was stopped", cfg.timeout, jb.lang)
+		}
 	}
 	if out.TimedOut {
 		rep.Error = strings.TrimSpace(rep.Error + fmt.Sprintf("\ntimed out after %s; the kernel was stopped", cfg.timeout))
@@ -244,7 +291,7 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, code strin
 }
 
 // execute runs the prelude and the code in one fresh kernel, then deletes it.
-func (p *Provider) execute(ctx context.Context, cfg config, pre, code string) (Output, error) {
+func (p *Provider) execute(ctx context.Context, cfg config, pre, code string, timeout time.Duration) (Output, error) {
 	j := &Jupyter{URL: cfg.url, Token: cfg.token, HTTP: p.HTTP}
 	k, err := j.Start(ctx)
 	if err != nil {
@@ -258,7 +305,7 @@ func (p *Provider) execute(ctx context.Context, cfg config, pre, code string) (O
 	if setup.Error != "" || setup.TimedOut {
 		return Output{}, fmt.Errorf("sandbox setup failed: %s", tail(setup.Error, 5, 2000))
 	}
-	return k.Exec(ctx, code, cfg.timeout)
+	return k.Exec(ctx, code, timeout)
 }
 
 func meta(c tools.Call) map[string]any {

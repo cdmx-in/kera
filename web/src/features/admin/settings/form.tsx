@@ -10,7 +10,7 @@ import { attempt, Btn, Card, inputCls, Loading, ManagedBadge, managedWarning } f
 import { Select } from '@/ui/Select'
 import { ModelIcon } from '@/features/header/ModelPicker'
 
-export type Kind = 'bool' | 'int' | 'float' | 'text' | 'textarea' | 'secret' | 'model' | 'connection' | { select: [string, string][] }
+export type Kind = 'bool' | 'int' | 'float' | 'text' | 'textarea' | 'json' | 'secret' | 'model' | 'connection' | { select: [string, string][] }
 
 export interface FieldSpec {
   key: string
@@ -58,6 +58,14 @@ export function useDraft(): Draft {
 
 /** Converts number fields typed as text; throws on invalid input. */
 export function coerce(kind: Kind, v: unknown, key: string): unknown {
+  if (kind === 'json') {
+    if (typeof v !== 'string') return v
+    try {
+      return JSON.parse(v)
+    } catch {
+      throw new Error(`${key} must be valid JSON`)
+    }
+  }
   if (kind !== 'int' && kind !== 'float') return v
   const n = typeof v === 'number' ? v : Number(String(v).trim())
   if (String(v).trim() === '' || !Number.isFinite(n) || (kind === 'int' && !Number.isInteger(n))) throw new Error(`${key} must be a ${kind === 'int' ? 'whole number' : 'number'}`)
@@ -74,7 +82,7 @@ export function SettingsForm({ sections, children }: { sections: { title: string
       {/* Two columns of cards on wide screens; a card holding a text area spans both. */}
       <div className="grid items-start gap-4 xl:grid-cols-2">
         {sections.map((s) => (
-          <Card key={s.title} title={s.title} hint={s.hint} className={cx(s.fields.some((f) => f.kind === 'textarea') && 'xl:col-span-2')}>
+          <Card key={s.title} title={s.title} hint={s.hint} className={cx(s.fields.some((f) => f.kind === 'textarea' || f.kind === 'json') && 'xl:col-span-2')}>
             <div className="divide-y divide-line">
               {s.fields.map((f) => (
                 <SettingField key={f.key} spec={f} d={d} />
@@ -144,11 +152,22 @@ function SettingField({ spec, d }: { spec: FieldSpec; d: Draft }) {
   const { key, kind } = spec
   const v = d.get(key)
   const s = d.settings?.get(key)
-  const wide = kind === 'textarea'
+  const wide = kind === 'textarea' || kind === 'json'
   let control: ReactNode
   if (kind === 'bool') control = <Switch checked={!!v} onChange={(x) => d.set(key, x)} label={spec.label ?? key} />
   else if (kind === 'textarea')
     control = <textarea value={String(v ?? '')} onChange={(e) => d.set(key, e.target.value)} rows={6} aria-label={spec.label ?? key} className={cx(inputCls, 'font-mono text-xs')} />
+  else if (kind === 'json')
+    control = (
+      <textarea
+        value={typeof v === 'string' ? v : JSON.stringify(v ?? null, null, 2)}
+        onChange={(e) => d.set(key, e.target.value)}
+        rows={10}
+        spellCheck={false}
+        aria-label={spec.label ?? key}
+        className={cx(inputCls, 'font-mono text-xs')}
+      />
+    )
   else if (kind === 'secret')
     control = (
       <div className="flex gap-2">
