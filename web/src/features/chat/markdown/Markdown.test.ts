@@ -12,3 +12,23 @@ describe('linkCitations', () => {
     expect(linkCitations('a [1]', 0)).toBe('a [1]')
   })
 })
+
+import { inlineHtmlToMarkdown, keepLineBreaks } from './Markdown'
+
+describe('inlineHtmlToMarkdown', () => {
+  it('maps allow-listed tags and drops ones without Markdown', () => {
+    expect(inlineHtmlToMarkdown('Fill **<u>https://x.io/a</u>** <b>now</b><br>next')).toBe('Fill **https://x.io/a** **now**  \nnext')
+    expect(inlineHtmlToMarkdown('<span style="color:red">red</span> <em>e</em> <del>x</del>')).toBe('red *e* ~~x~~')
+  })
+  it('leaves code and unknown tags alone', () => {
+    expect(inlineHtmlToMarkdown('`<b>x</b>` and <script>alert(1)</script>')).toBe('`<b>x</b>` and <script>alert(1)</script>')
+    expect(inlineHtmlToMarkdown('```\n<u>keep</u>\n```')).toBe('```\n<u>keep</u>\n```')
+  })
+})
+
+describe('keepLineBreaks', () => {
+  it('turns single newlines into hard breaks outside fences', () => {
+    expect(keepLineBreaks('a\nb\n\nc')).toBe('a  \nb\n\nc')
+    expect(keepLineBreaks('```\na\nb\n```')).toBe('```\na\nb\n```')
+  })
+})

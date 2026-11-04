@@ -56,3 +56,14 @@ describe('display', () => {
     expect(summarizeSteps([{ name: 'search_web' }, { name: 'execute_code' }], map)).toBe('Explored 1 web search; executed 1 code run')
   })
 })
+
+describe('derived labels', () => {
+  it('uses ×N for names made from function names and strips MCP server prefixes', () => {
+    const steps = [
+      { name: 'google_sheets_read_sheet_values', server: 'mcp:google-sheets' },
+      { name: 'google_sheets_read_sheet_values', server: 'mcp:google-sheets' },
+      { name: 'get_spreadsheet_info', server: 'mcp:google-sheets' },
+    ]
+    expect(summarizeSteps(steps, {})).toBe('Used read sheet values ×2, 1 get spreadsheet info')
+  })
+})

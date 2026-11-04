@@ -360,3 +360,14 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* user messages: same Markdown, tighter spacing inside the bubble */
+.md.md-user p,
+.md.md-user ul,
+.md.md-user ol {
+  margin-block: 0.35em;
+}
+.md.md-user a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

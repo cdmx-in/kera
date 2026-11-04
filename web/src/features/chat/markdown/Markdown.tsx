@@ -24,6 +24,34 @@ export function linkCitations(text: string, count: number): string {
     .join('')
 }
 
+// Messages imported from other chat apps (and some model output) carry a few
+// inline HTML tags. Raw HTML is never rendered, so an allow-list is mapped to
+// Markdown and tags without an equivalent (<u>, <span>) are dropped, outside code.
+const inlineTags: [RegExp, string][] = [
+  [/<br\s*\/?>/gi, '  \n'],
+  [/<\/?(?:b|strong)>/gi, '**'],
+  [/<\/?(?:i|em)>/gi, '*'],
+  [/<\/?(?:s|del|strike)>/gi, '~~'],
+  [/<\/?code>/gi, '`'],
+  [/<\/?(?:u|ins|span|mark|small|font)(?:\s[^>]*)?>/gi, ''],
+]
+
+export function inlineHtmlToMarkdown(text: string): string {
+  if (!text.includes('<')) return text
+  return text
+    .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/)
+    .map((seg, i) => (i % 2 ? seg : inlineTags.reduce((t, [re, md]) => t.replace(re, md), seg)))
+    .join('')
+}
+
+// Typed messages keep their single line breaks (Markdown would join them).
+export function keepLineBreaks(text: string): string {
+  return text
+    .split(/(```[\s\S]*?(?:```|$))/)
+    .map((seg, i) => (i % 2 ? seg : seg.replace(/([^\n])\n(?!\n)/g, '$1  \n')))
+    .join('')
+}
+
 function textOf(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node)
   if (Array.isArray(node)) return node.map(textOf).join('')
@@ -62,11 +90,12 @@ function components(sources: Source[]): Components {
   }
 }
 
-export const Markdown = memo(function Markdown({ text, sources = [] }: { text: string; sources?: Source[] }) {
+export const Markdown = memo(function Markdown({ text, sources = [], breaks = false, className = 'md' }: { text: string; sources?: Source[]; breaks?: boolean; className?: string }) {
+  const md = inlineHtmlToMarkdown(breaks ? keepLineBreaks(text) : text)
   return (
-    <div className="md">
+    <div className={className}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components(sources)}>
-        {linkCitations(text, sources.length)}
+        {linkCitations(md, sources.length)}
       </ReactMarkdown>
     </div>
   )

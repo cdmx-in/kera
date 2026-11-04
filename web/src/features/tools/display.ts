@@ -6,7 +6,16 @@ import type { ToolStep } from '@/api/types'
 
 export function humanizeTool(name: string, server?: string): string {
   let n = name
-  if (server && n.toLowerCase().startsWith(server.toLowerCase() + '_')) n = n.slice(server.length + 1)
+  // MCP tools often carry their server in the name ("google_sheets_read_values" on server "mcp:google-sheets")
+  if (server) {
+    const base = server.split(':').pop() ?? server
+    for (const p of new Set([server, base, base.replace(/-/g, '_'), base.replace(/_/g, '-'), base.replace(/[-_]/g, '')])) {
+      if (n.toLowerCase().startsWith(p.toLowerCase() + '_')) {
+        n = n.slice(p.length + 1)
+        break
+      }
+    }
+  }
   n = n.replace(/Tool$/, '').replace(/_tool$/i, '')
   const words = n
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -29,14 +38,19 @@ export function pluralize(label: string): string {
   return head + p
 }
 
-export function displayFor(map: Record<string, ToolDisplay>, name: string, server?: string): Required<Pick<ToolDisplay, 'label' | 'kind'>> & ToolDisplay {
+export function displayFor(map: Record<string, ToolDisplay>, name: string, server?: string): Required<Pick<ToolDisplay, 'label' | 'kind'>> & ToolDisplay & { derived?: boolean } {
   // a tool server's own name for its function ("<server>_<fn>") wins over the bare name
   const d = (server ? map[`${server}_${name}`] : undefined) ?? map[name]
-  return { kind: 'other', ...d, label: d?.label ?? humanizeTool(name, server) }
+  return { kind: 'other', ...d, label: d?.label ?? humanizeTool(name, server), derived: !d?.label }
 }
 
-export function countLabel(n: number, d: ToolDisplay): string {
-  return `${n} ${n === 1 ? d.label : d.plural ?? pluralize(d.label)}`
+// A configured plural reads naturally ("2 web searches"); a label derived from a
+// function name is not a noun phrase we can pluralise ("read sheet values"),
+// so repeats read "read sheet values ×8".
+export function countLabel(n: number, d: ToolDisplay & { derived?: boolean }): string {
+  if (n === 1) return `1 ${d.label}`
+  if (d.plural) return `${n} ${d.plural}`
+  return d.derived ? `${d.label} ×${n}` : `${n} ${pluralize(d.label)}`
 }
 
 const verbs: Record<ToolKind, string> = {

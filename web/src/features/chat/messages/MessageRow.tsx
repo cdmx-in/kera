@@ -97,8 +97,8 @@ function UserMessage({ m, readOnly }: { m: Message; readOnly?: boolean }) {
           </div>
         </form>
       ) : (
-        <div data-testid="message-content" className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-surface-2 px-4 py-2.5 text-[15px] leading-relaxed [overflow-wrap:anywhere]">
-          {text}
+        <div data-testid="message-content" className="max-w-[85%] rounded-2xl bg-surface-2 px-4 py-2.5 text-[15px] leading-relaxed [overflow-wrap:anywhere]">
+          <Markdown text={text} breaks className="md md-user" />
         </div>
       )}
       {!readOnly && !editing && (
