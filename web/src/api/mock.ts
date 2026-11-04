@@ -277,6 +277,8 @@ async function body(init?: RequestInit): Promise<Json> {
   }
 }
 
+const desktopsEnded = new Set<string>()
+
 const summary = (c: ReturnType<typeof chats.get> & object) => ({ id: c.id, title: c.title, updated_at: c.updated_at, created_at: c.created_at, pinned: c.pinned, folder_id: c.folder_id })
 
 async function route(method: string, url: URL, init?: RequestInit): Promise<Response | null> {
@@ -335,6 +337,13 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
         return { id: c.id, title: c.title, status, model: (cur?.model as string) ?? c.model, files: new Set(out.map((f) => f.id)).size, created_at: c.created_at, updated_at: c.updated_at }
       }),
     )
+  }
+  if ((m = p.match(/^\/api\/v1\/desktop\/([^/]+)(\/end)?$/))) {
+    // the seeded task (and tasks on a model whose id contains "desk") have a desktop until ended
+    const id = decodeURIComponent(m[1])
+    if (m[2]) desktopsEnded.add(id)
+    const active = !desktopsEnded.has(id) && (id === 'seed-task-1' || String(chats.get(id)?.model ?? '').includes('desk'))
+    return json({ active, mock: true })
   }
   if (p === '/api/v1/knowledge/') return json({ items: [{ id: 'kb-handbook', name: 'Team handbook', description: 'Policies and how-tos', write_access: false, status: { files: 3, chunks: 40, pending: 0, processing: 0, completed: 3, failed: 0 }, created_at: now(), updated_at: now() }] })
   if ((m = p.match(/^\/api\/v1\/chats\/folder\/([^/]+)$/))) {

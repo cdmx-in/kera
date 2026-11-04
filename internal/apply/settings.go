@@ -27,6 +27,7 @@ func sections(cfg *Config) map[string]reflect.Value {
 		"chat": v.FieldByName("Chat"), "rag": v.FieldByName("RAG"), "web": v.FieldByName("Web"),
 		"code_interpreter": v.FieldByName("CodeInterpreter"), "spend": v.FieldByName("Spend"),
 		"compat": v.FieldByName("Compat"), "cowork": v.FieldByName("Cowork"),
+		"desktop": v.FieldByName("Desktop"),
 	}
 }
 

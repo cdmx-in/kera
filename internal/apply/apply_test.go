@@ -22,6 +22,7 @@ var testEnv = map[string]string{
 	"KB_TOKEN":      "kb-token-value",
 	"PLUGINS_KEY":   "plugins-key-value",
 	"SPEND_DSN":     "postgres://spend:spend-pass-value@db/spend",
+	"DESKTOP_KEY":   "desktop-key-value",
 }
 
 func lookup(env map[string]string) func(string) (string, bool) {
@@ -343,6 +344,7 @@ func TestExportRoundTrip(t *testing.T) {
 		"KERA_TOOL_KB_KEY":                    testEnv["KB_TOKEN"],
 		"KERA_HOOK_CARDS_KEY":                 testEnv["PLUGINS_KEY"],
 		"KERA_SPEND_SOURCE_DSN":               testEnv["SPEND_DSN"],
+		"KERA_DESKTOP_KEY":                    testEnv["DESKTOP_KEY"],
 	}
 	if len(placeholders) != len(env) {
 		t.Errorf("placeholders = %v", placeholders)

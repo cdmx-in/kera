@@ -17,6 +17,7 @@ import { AskUserCard } from '@/features/chat/AskUserCard'
 import { ConfirmDialog } from '@/features/chat/ConfirmDialog'
 import { sendMessage } from '@/features/chat/actions'
 import { stopStream } from '@/features/chat/stream'
+import { DesktopPanel } from './DesktopPanel'
 import { STATUS_LABEL, STATUS_TONE, collectOutputs, taskStatus, type TaskStatus } from './lib'
 
 export function TopBar({ children }: { children: React.ReactNode }) {
@@ -92,19 +93,22 @@ export default function TaskPage() {
               <p className="mt-1.5 text-center text-xs text-muted">Follow-up instructions start the assistant's next turn.</p>
             </div>
           </div>
-          <aside data-testid="task-outputs" aria-label="Outputs" className="shrink-0 overflow-y-auto border-line p-3 max-lg:max-h-40 max-lg:border-t lg:w-80 lg:border-l">
-            <h2 className="pb-2 text-xs font-medium text-muted">Outputs</h2>
-            {outputs.length ? (
-              <ul className="space-y-2">
-                {outputs.map((f) => (
-                  <li key={f.id} data-testid="output-file" data-file-id={f.id} data-name={f.name}>
-                    <FileChip file={f} />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted">No files yet.</p>
-            )}
+          <aside className="flex shrink-0 flex-col border-line max-lg:border-t lg:w-80 lg:border-l lg:has-[[data-testid=desktop-panel]]:w-[34rem]">
+            {taskId && <DesktopPanel chatId={taskId} live={status === 'running' || status === 'needs_input'} />}
+            <section data-testid="task-outputs" aria-label="Outputs" className="min-h-0 overflow-y-auto p-3 max-lg:max-h-40">
+              <h2 className="pb-2 text-xs font-medium text-muted">Outputs</h2>
+              {outputs.length ? (
+                <ul className="space-y-2">
+                  {outputs.map((f) => (
+                    <li key={f.id} data-testid="output-file" data-file-id={f.id} data-name={f.name}>
+                      <FileChip file={f} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted">No files yet.</p>
+              )}
+            </section>
           </aside>
         </div>
       )}

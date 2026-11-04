@@ -47,6 +47,9 @@ var Defaults = map[string]json.RawMessage{
 	// Cowork (task mode): the prompt added after the preset prompt ("" = cowork.DefaultPrompt) and its tool-round cap.
 	"cowork.prompt":              raw(`""`),
 	"cowork.max_tool_iterations": raw(`100`),
+	// Desktop sidecar live view: its API and websockify base URLs ("" = off); desktop.key is a secret without default.
+	"desktop.url":      raw(`""`),
+	"desktop.view_url": raw(`""`),
 
 	"rag.chunk_size":             raw(`1000`),
 	"rag.chunk_overlap":          raw(`100`),

@@ -3,6 +3,7 @@ package engine
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -869,9 +870,11 @@ func (s shotTools) Execute(context.Context, tools.Call) (tools.Result, error) {
 	return tools.Result{Content: "took a screenshot", Images: s.ids}, nil
 }
 
-// Tool images reach a vision model as one trailing user turn per round (the
-// last keepToolImages kept), show on the step only, and become a text note
-// for a model without vision. Files the run user cannot read are dropped.
+// Tool images reach a model with vision: true as one trailing user turn per
+// round holding the round's last image (the last keepToolImages turns kept),
+// show on the step only, and become a text note for a model without vision
+// set (false or no capabilities) and for types like SVG. Files the run user
+// cannot read are dropped.
 func TestToolImages(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
@@ -880,7 +883,7 @@ func TestToolImages(t *testing.T) {
 	var reqs [][]map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/models") {
-			fmt.Fprint(w, `{"data":[{"id":"m1"}]}`)
+			fmt.Fprint(w, `{"data":[{"id":"m1"},{"id":"m2"}]}`)
 			return
 		}
 		if r.Method != http.MethodPost { // model info probes
@@ -906,8 +909,9 @@ func TestToolImages(t *testing.T) {
 			}
 		}
 		delta := `{"content":"ok"}`
-		if calls < rounds {
-			delta = fmt.Sprintf(`{"tool_calls":[{"index":0,"id":"c%d","function":{"name":"shot","arguments":"{}"}}]}`, calls)
+		if calls < rounds { // two parallel calls per round
+			delta = fmt.Sprintf(`{"tool_calls":[{"index":0,"id":"c%d","function":{"name":"shot","arguments":"{}"}},`+
+				`{"index":1,"id":"c%d-b","function":{"name":"shot","arguments":"{}"}}]}`, calls, calls)
 		}
 		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":%s}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", delta)
 	}))
@@ -915,6 +919,8 @@ func TestToolImages(t *testing.T) {
 	for _, q := range []string{
 		`INSERT INTO "user" (id, name, email, role) VALUES ('u2', 'Bob', 'bob@example.com', 'user')`,
 		`INSERT INTO file (id, user_id, filename, content_type, path) VALUES ('f-ada', 'u1', 'ada.png', 'image/png', '/x')`,
+		`INSERT INTO model (id, capabilities) VALUES ('s.m1', '{"vision": true}')`,
+		`INSERT INTO access_grant (id, resource_type, resource_id, principal_type, principal_id, permission) VALUES ('g1', 'model', 's.m1', 'user', 'u2', 'read')`,
 		`INSERT INTO model (id, base_model_id, capabilities) VALUES ('blind', 's.m1', '{"vision": false}')`,
 	} {
 		if _, err := h.pool.Exec(ctx, q); err != nil {
@@ -927,11 +933,16 @@ func TestToolImages(t *testing.T) {
 	if err := h.e.Settings.Set(ctx, "models.base_public", true, false); err != nil {
 		t.Fatal(err)
 	}
-	f, err := h.e.Files.Create(ctx, "u2", "shot.png", "image/png", strings.NewReader("PNGDATA"), nil)
-	if err != nil {
-		t.Fatal(err)
+	var ids []string
+	for _, n := range [][3]string{{"shot.png", "image/png", "PNGDATA"}, {"chart.svg", "image/svg+xml", "<svg/>"}, {"shot.jpg", "image/jpeg", "JPEGDATA"}} {
+		f, err := h.e.Files.Create(ctx, "u2", n[0], n[1], strings.NewReader(n[2]), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, f.ID)
 	}
-	tools.Register(shotTools{ids: []string{f.ID, "f-ada"}})
+	tools.Register(shotTools{ids: []string{ids[0], "f-ada", ids[1], ids[2]}})
+	jpeg := base64.StdEncoding.EncodeToString([]byte("JPEGDATA"))
 	bob := &auth.User{ID: "u2", Name: "Bob", Email: "bob@example.com", Role: "user"}
 	start := func(u *auth.User, model string) *Run {
 		mu.Lock()
@@ -945,16 +956,17 @@ func TestToolImages(t *testing.T) {
 		wait(t, run)
 		return run
 	}
-	imageParts := func(m map[string]any) int {
-		n := 0
+	imageURLs := func(m map[string]any) []string {
+		var out []string
 		parts, _ := m["content"].([]any)
 		for _, p := range parts {
-			if p.(map[string]any)["type"] == "image_url" {
-				n++
+			if p := p.(map[string]any); p["type"] == "image_url" {
+				out = append(out, fmt.Sprint(p["image_url"]))
 			}
 		}
-		return n
+		return out
 	}
+	imageParts := func(m map[string]any) int { return len(imageURLs(m)) }
 
 	run := start(bob, "s.m1")
 	mu.Lock()
@@ -962,8 +974,12 @@ func TestToolImages(t *testing.T) {
 		t.Fatalf("%d model requests", len(reqs))
 	}
 	for i, msgs := range reqs[1:] {
-		if last := msgs[len(msgs)-1]; last["role"] != "user" || imageParts(last) != 1 {
+		last := msgs[len(msgs)-1]
+		if u := imageURLs(last); last["role"] != "user" || len(u) != 1 || !strings.Contains(u[0], "image/jpeg;base64,"+jpeg) {
 			t.Fatalf("request %d: last message %v", i+1, last)
+		}
+		if tm := msgs[len(msgs)-2]; tm["role"] != "tool" || !strings.Contains(fmt.Sprint(tm["content"]), "(image not shown: image/svg+xml is not a supported image type)") {
+			t.Fatalf("request %d: tool message %v", i+1, tm)
 		}
 	}
 	withImages, removed := 0, 0
@@ -981,23 +997,25 @@ func TestToolImages(t *testing.T) {
 	}
 	run.mu.Lock()
 	st := run.state.Parts[0].Steps[0]
-	if len(st.Files) != 1 || st.Files[0].ID != f.ID || st.Files[0].Type != "image" || len(run.state.Files) != 0 {
+	if len(st.Files) != 3 || st.Files[0].ID != ids[0] || st.Files[0].Type != "image" || len(run.state.Files) != 0 {
 		t.Fatalf("step files %v, message files %v", st.Files, run.state.Files)
 	}
 	run.mu.Unlock()
 
-	start(h.u, "blind")
-	mu.Lock()
-	defer mu.Unlock()
-	for _, msgs := range reqs {
-		for _, m := range msgs {
-			if imageParts(m) > 0 {
-				t.Fatalf("blind model got an image: %v", m)
+	for _, model := range []string{"blind", "s.m2"} { // vision false; no capabilities at all
+		start(h.u, model)
+		mu.Lock()
+		for _, msgs := range reqs {
+			for _, m := range msgs {
+				if imageParts(m) > 0 {
+					t.Fatalf("%s got an image: %v", model, m)
+				}
 			}
 		}
-	}
-	if last := reqs[1][len(reqs[1])-1]; last["role"] != "tool" || !strings.Contains(fmt.Sprint(last["content"]), "image not shown: this model has no vision") {
-		t.Fatalf("blind model's tool message %v", last)
+		if last := reqs[1][len(reqs[1])-1]; last["role"] != "tool" || !strings.Contains(fmt.Sprint(last["content"]), "(image not shown: this model has no vision)") {
+			t.Fatalf("%s's tool message %v", model, last)
+		}
+		mu.Unlock()
 	}
 }
 
@@ -1036,5 +1054,11 @@ func TestCallbackFileUpload(t *testing.T) {
 	}
 	if w := post(tok, strings.Repeat("x", 1<<20+1)); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversize: %d %s", w.Code, w.Body)
+	}
+	run.mu.Lock()
+	run.uploads = maxRunUploads
+	run.mu.Unlock()
+	if w := post(tok, "JPEG"); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("over the run's upload cap: %d %s", w.Code, w.Body)
 	}
 }

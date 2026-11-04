@@ -32,3 +32,7 @@ header naming its upstream source and is listed in docs/compat/ports.md.
   CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
   OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+The web app bundles the noVNC client (@novnc/novnc, https://github.com/novnc/noVNC),
+distributed under the Mozilla Public License 2.0; its source is available from
+that repository and the npm package, unmodified.

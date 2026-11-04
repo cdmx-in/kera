@@ -27,6 +27,10 @@ var coworkAskTimeout = 12 * time.Hour
 // ponytail: a constant; make it a setting if desktop tasks need more history.
 const keepToolImages = 3
 
+// toolImageTypes are the image types every vision API accepts; a tool image
+// of another type (SVG, BMP, TIFF, HEIC...) is not sent to the model.
+var toolImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
+
 // toolEntry is one function the model may call this run.
 type toolEntry struct {
 	spec     tools.Spec
@@ -212,7 +216,10 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 			shots = append(shots, imgs...)
 		}
 		if len(shots) > 0 { // tool messages cannot carry images in every API; a user turn can
-			msgs = append(msgs, provider.Message{Role: "user", Content: "[Screenshots returned by the tool calls above. Continue the task.]", Images: shots})
+			// ponytail: only the round's last image is sent (earlier ones are stale
+			// screens of the same desktop); keep more per round if a tool returns
+			// several distinct images the model must compare.
+			msgs = append(msgs, provider.Message{Role: "user", Content: "[Screenshots returned by the tool calls above. Continue the task.]", Images: shots[len(shots)-1:]})
 			imageTurns = append(imageTurns, len(msgs)-1)
 			if len(imageTurns) > keepToolImages {
 				old := &msgs[imageTurns[0]]
@@ -286,10 +293,12 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	for _, p := range res.Parts {
 		x.run.block(p)
 	}
-	vision := x.m.Capabilities["vision"] != false
+	// Tool images need vision set explicitly: a base model without a
+	// capabilities row may be text-only, and its provider would reject the run.
+	vision := x.m.Capabilities["vision"] == true
 	stepFiles := refs
 	var imgs []provider.Image
-	seen := false
+	var notes []string // why images were not shown
 	for _, id := range res.Images {
 		if ok, err := e.Files.CanRead(ctx, x.u, id); err != nil || !ok {
 			continue
@@ -298,14 +307,26 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 		if err != nil || !strings.HasPrefix(f.ContentType, "image/") {
 			continue
 		}
-		seen = true
 		if !slices.ContainsFunc(stepFiles, func(r FileRef) bool { return r.ID == id }) {
 			stepFiles = append(stepFiles, refOf(f)) // on the step only, not attached to the answer
 		}
-		if vision {
+		note := ""
+		switch {
+		case !vision:
+			note = "this model has no vision"
+		case !toolImageTypes[f.ContentType]:
+			note = f.ContentType + " is not a supported image type"
+		case f.Size > maxImageBytes:
+			note = fmt.Sprintf("%s is larger than %d MB", f.Filename, maxImageBytes>>20)
+		default:
 			if img, ok := e.image(ctx, f); ok {
 				imgs = append(imgs, img)
+			} else {
+				note = f.Filename + " could not be read"
 			}
+		}
+		if note != "" && !slices.Contains(notes, note) {
+			notes = append(notes, note)
 		}
 	}
 	x.run.toolResult(c.ID, clip(res.Content, 2000), stepFiles, res.IsError)
@@ -320,8 +341,8 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 		}
 		content = "Files created and shown to the user: " + strings.Join(names, ", ")
 	}
-	if seen && !vision {
-		content = strings.TrimSpace(content + "\n(image not shown: this model has no vision)")
+	if len(notes) > 0 {
+		content = strings.TrimSpace(content + "\n(image not shown: " + strings.Join(notes, "; ") + ")")
 	}
 	return content, imgs
 }

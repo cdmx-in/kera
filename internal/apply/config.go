@@ -24,6 +24,7 @@ type Config struct {
 	Web             *Web             `yaml:"web,omitempty"`
 	CodeInterpreter *CodeInterpreter `yaml:"code_interpreter,omitempty"`
 	Cowork          *Cowork          `yaml:"cowork,omitempty"`
+	Desktop         *Desktop         `yaml:"desktop,omitempty"`
 	OAuthProviders  []OAuthProvider  `yaml:"oauth_providers,omitempty"`
 	ToolServers     []ToolServer     `yaml:"tool_servers,omitempty"`
 	HookServers     []HookServer     `yaml:"hook_servers,omitempty"`
@@ -285,6 +286,13 @@ type Cowork struct {
 	Prompt            *string `yaml:"prompt,omitempty"`
 	PromptFile        string  `yaml:"prompt_file,omitempty" apply:"-"`
 	MaxToolIterations *int    `yaml:"max_tool_iterations,omitempty"`
+}
+
+// Desktop is the desktop sidecar's live view: its API URL, websockify URL and service key.
+type Desktop struct {
+	URL     *string `yaml:"url,omitempty"`
+	ViewURL *string `yaml:"view_url,omitempty"`
+	Key     *string `yaml:"key,omitempty" secret:"true"`
 }
 
 // CodeLanguage is one language execute_code can run. An empty Command means

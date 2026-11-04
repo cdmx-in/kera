@@ -6,6 +6,7 @@ import (
 	_ "github.com/cdmx-in/kera/internal/admin"
 	_ "github.com/cdmx-in/kera/internal/chats"
 	_ "github.com/cdmx-in/kera/internal/cowork"
+	_ "github.com/cdmx-in/kera/internal/desktop"
 	_ "github.com/cdmx-in/kera/internal/engine"
 	_ "github.com/cdmx-in/kera/internal/files"
 	_ "github.com/cdmx-in/kera/internal/identity"

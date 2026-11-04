@@ -264,12 +264,28 @@ func (e *Engine) callbackAsk(w http.ResponseWriter, r *http.Request) {
 	api.JSON(w, http.StatusOK, map[string]any{"answer": v})
 }
 
+// maxRunUploads caps the files one run may store through the callback.
+// ponytail: a fixed count; make it a setting if long desktop tasks hit it.
+const maxRunUploads = 500
+
 // callbackFile stores the raw body as a file of the run's user (?name=, the
 // Content-Type header is the type; files.max_mb caps the size) -> {id, name}.
 // A tool returns the id in "images" or "files" of its result.
+// ponytail: the files are not linked to the chat (chat_file would list them as
+// attachments to list_chat_files, and deleting a chat only drops links, never
+// files), so they outlive the chat; clean up by meta.source = "tool" + chat_id
+// if storage matters.
 func (e *Engine) callbackFile(w http.ResponseWriter, r *http.Request) {
 	run := e.callbackRun(w, r)
 	if run == nil {
+		return
+	}
+	run.mu.Lock()
+	run.uploads++
+	over := run.uploads > maxRunUploads
+	run.mu.Unlock()
+	if over {
+		api.Fail(w, r, api.Errf(http.StatusTooManyRequests, "too_many_files", fmt.Sprintf("This run already uploaded %d files", maxRunUploads)))
 		return
 	}
 	ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))

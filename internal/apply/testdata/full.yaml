@@ -104,6 +104,11 @@ cowork:
   prompt_file: cowork-prompt.md
   max_tool_iterations: 80
 
+desktop:
+  url: http://desktop:8000
+  view_url: http://desktop:6080
+  key: ${DESKTOP_KEY}
+
 oauth_providers:
   - id: "mcp:sheets"
     issuer: https://accounts.example.com

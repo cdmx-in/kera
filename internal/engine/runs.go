@@ -63,6 +63,7 @@ type Run struct {
 	tools       []toolRecord
 	usage       Usage
 	finish      string // stop | tool_calls | length
+	uploads     int    // files stored through the files callback
 
 	checkpoint func()     // persists the state (set by the engine; may be nil)
 	saveMu     sync.Mutex // orders saves: state read + write happen together
