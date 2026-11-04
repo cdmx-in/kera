@@ -2,7 +2,8 @@ import { isValidElement, memo, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Source } from '@/api/types'
-import { domainOf } from '@/lib/format'
+import { prettyFileName } from '@/lib/format'
+import { Favicon, SourceLink } from '../messages/Sources'
 import { CodeBlock } from './CodeBlock'
 
 // "[3]" citation markers (outside code) become links to "#cite-3" so the
@@ -69,15 +70,27 @@ function components(sources: Source[]): Components {
       }
       return <pre>{children}</pre>
     },
+    // Inline code naming a cited file ("Sources: `x.md`") becomes a source chip.
+    code({ className, children }) {
+      const name = textOf(children)
+      const s = !className && sources.find((x) => x.name === name)
+      if (!s) return <code className={className}>{children}</code>
+      return (
+        <SourceLink source={s} className="inline-flex max-w-full items-center gap-1 rounded-md border border-line bg-surface px-1.5 py-0.5 align-middle text-xs font-medium no-underline hover:bg-surface-2">
+          <Favicon url={s.url} size={14} />
+          <span className="truncate">{s.title ?? prettyFileName(name)}</span>
+        </SourceLink>
+      )
+    },
     a({ href, children }) {
       const cite = href?.match(/^#cite-(\d+)$/)
       if (cite) {
-        const s = sources[Number(cite[1]) - 1]
+        const s = sources[Number(cite[1]) - 1] ?? {}
         return (
           <sup>
-            <a href={s?.url || undefined} target="_blank" rel="noreferrer" title={s?.title ?? s?.name ?? domainOf(s?.url)} className="ml-0.5 rounded bg-accent-soft px-1 text-[10px] font-semibold no-underline">
+            <SourceLink source={s} className="ml-0.5 rounded bg-accent-soft px-1 text-[10px] font-semibold no-underline">
               {cite[1]}
-            </a>
+            </SourceLink>
           </sup>
         )
       }

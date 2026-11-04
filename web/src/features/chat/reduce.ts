@@ -98,7 +98,8 @@ export function applyEvent(m: Message, ev: StreamEvent, now = Date.now()): Messa
       if (callId && ev.action !== 'compaction') {
         const urls = Array.isArray(ev.urls) ? (ev.urls as unknown[]).map(str) : undefined
         parts = mapStep(parts, callId, (s) => {
-          const i = line.id ? s.statusLines.findIndex((l) => l.id === line.id) : -1
+          // no id: a line finishes the still-open line of the same action ("Searching…" -> "Searched")
+          const i = line.id ? s.statusLines.findIndex((l) => l.id === line.id) : line.action ? s.statusLines.findLastIndex((l) => !l.id && !l.done && l.action === line.action) : -1
           const statusLines = i >= 0 ? s.statusLines.map((l, j) => (j === i ? line : l)) : [...s.statusLines, line]
           return { ...s, statusLines, urls: urls ? [...new Set([...(s.urls ?? []), ...urls])] : s.urls }
         })

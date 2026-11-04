@@ -34,7 +34,7 @@ export function Steps({ steps }: { steps: ToolStep[] }) {
                 <button type="button" data-testid="step-item" data-status={s.status} onClick={() => setDrawer(s)} className="flex w-full items-start gap-2 rounded-lg px-1 py-0.5 text-left text-sm hover:bg-surface-2">
                   <Icon size={14} className="mt-0.5 shrink-0 text-muted" />
                   <span className="min-w-0 flex-1">
-                    <span className="first-letter:uppercase">{d.label}</span>
+                    <span className="block first-letter:uppercase">{d.label}</span>
                     {s.statusLines.map((l, i) => (
                       <span key={l.id ?? i} className={cx('block truncate text-xs', l.done ? 'text-muted' : 'text-fg')}>
                         {l.description}

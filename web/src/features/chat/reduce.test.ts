@@ -31,6 +31,18 @@ describe('applyEvent', () => {
     expect(m.seq).toBe(9)
   })
 
+  it('a done status line without an id replaces the open line of the same action', () => {
+    const m = run([
+      { type: 'tool_call', callId: 'c1', name: 'query_knowledge_files', seq: 1 },
+      { type: 'status', callId: 'c1', action: 'knowledge_search', description: 'Searching knowledge', done: false, seq: 2 },
+      { type: 'status', callId: 'c1', action: 'knowledge_search', description: 'Searched knowledge', done: true, seq: 3 },
+      { type: 'status', callId: 'c1', action: 'knowledge_search', description: 'Searching again', done: false, seq: 4 },
+    ])
+    const steps = m.parts[0]
+    if (steps.type !== 'steps') throw new Error('steps')
+    expect(steps.steps[0].statusLines.map((l) => l.description)).toEqual(['Searched knowledge', 'Searching again'])
+  })
+
   it('tracks pending calls, sources, files and errors', () => {
     let m = run([
       { type: 'ask_user', callId: 'q1', questions: [{ question: 'Which?', options: [{ label: 'A' }] }] },

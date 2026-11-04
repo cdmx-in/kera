@@ -11,6 +11,13 @@ export function formatBytes(n?: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`
 }
 
+// "domain--portals-and-modules.md" -> "Domain – Portals and modules"
+export function prettyFileName(name: string): string {
+  const base = name.replace(/\.[a-z0-9]{1,5}$/i, '')
+  const t = base.split('--').map((p) => p.replace(/[-_]+/g, ' ').trim()).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' – ')
+  return t || name
+}
+
 export function fileExt(name: string): string {
   const i = name.lastIndexOf('.')
   return i > 0 ? name.slice(i + 1).toLowerCase() : ''

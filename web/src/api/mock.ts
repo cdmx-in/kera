@@ -194,10 +194,11 @@ async function play(chatId: string | null, messageId: string, userText: string, 
         { title: 'Independent laptop review', url: 'https://example.org/review', snippet: 'Battery life tests across three models.' },
         { title: 'Buying guide', url: 'https://example.com/guide', snippet: 'What to look for in a work laptop.' },
         { title: 'Spec sheet', url: 'https://docs.example.net/specs', snippet: 'Official specifications.' },
+        { name: 'laptop-policy.md', fileId: 'f-kb', snippet: 'Company laptop policy.' },
       ],
     })
     await words(
-      "Here's a quick comparison based on the review [1] and the buying guide [2]:\n\n| Model | Battery | Price |\n|---|---|---|\n| A | 14 h | 1,399 |\n| B | 11 h | 1,199 |\n| C | 9 h | 999 |\n\nModel **A** lasts longest. To compute value per hour:\n\n```python\nprices = {'A': 1399, 'B': 1199, 'C': 999}\nhours = {'A': 14, 'B': 11, 'C': 9}\nfor m in prices:\n    print(m, round(prices[m] / hours[m], 1))\n```\n",
+      "Here's a quick comparison based on the review [1] and the buying guide [2]:\n\n| Model | Battery | Price |\n|---|---|---|\n| A | 14 h | 1,399 |\n| B | 11 h | 1,199 |\n| C | 9 h | 999 |\n\nModel **A** lasts longest. To compute value per hour:\n\n```python\nprices = {'A': 1399, 'B': 1199, 'C': 999}\nhours = {'A': 14, 'B': 11, 'C': 9}\nfor m in prices:\n    print(m, round(prices[m] / hours[m], 1))\n```\n\nSources: `laptop-policy.md`, `not-a-source.md`\n",
     )
     emit('block', {
       block: {
@@ -388,6 +389,7 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
     return json({ id, filename: f.name, meta: { name: f.name, size: f.size, content_type: f.type }, data: { status: 'pending' } })
   }
   if ((m = p.match(/^\/api\/v1\/files\/([^/]+)\/preview$/))) {
+    if (m[1] === 'f-kb') return json({ kind: 'text', text: '# Laptop policy\n\nStaff get a **14" laptop** every 3 years.\n\n- Battery: 10 h minimum\n- Encryption: required' })
     const rows = [['Model', 'Battery (h)', 'Price', 'Weight (kg)', 'Released']]
     for (let i = 0; i < 40; i++) rows.push([`Model ${String.fromCharCode(65 + (i % 26))}${i >= 26 ? 2 : ''}`, String(8 + (i % 7)), (999 + i * 25).toLocaleString('en'), (1 + (i % 6) / 10).toFixed(1), `2026-${String((i % 12) + 1).padStart(2, '0')}-01`])
     return json({ kind: 'xlsx', sheets: ['Summary', 'Raw'], rows: url.searchParams.get('sheet') === '1' ? rows.slice(0, 5) : rows, truncated: false })

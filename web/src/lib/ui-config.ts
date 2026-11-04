@@ -80,7 +80,22 @@ const defaults: UIConfig = {
   defaultModels: [],
   modelOrder: [],
   promptSuggestions: [],
-  toolDisplay: {},
+  // core tools; the server's tool_display (and tool-server display) override these
+  toolDisplay: {
+    search_web: { label: 'web search', kind: 'search', plural: 'web searches' },
+    fetch_url: { label: 'page read', icon: 'globe', kind: 'read' },
+    ask_user: { label: 'question to you', kind: 'ask', plural: 'questions to you' },
+    list_knowledge: { label: 'knowledge base list', icon: 'book', kind: 'read' },
+    search_knowledge_files: { label: 'file lookup', icon: 'file', kind: 'search' },
+    query_knowledge_files: { label: 'knowledge search', kind: 'search', plural: 'knowledge searches' },
+    view_knowledge_file: { label: 'document read', icon: 'file', kind: 'read' },
+    view_file: { label: 'file read', icon: 'file', kind: 'read' },
+    grep_chat_files: { label: 'file search', icon: 'file', kind: 'search', plural: 'file searches' },
+    execute_code: { label: 'code run', kind: 'code' },
+    get_current_timestamp: { label: 'clock check', kind: 'other' },
+    search_memories: { label: 'memory search', kind: 'memory', plural: 'memory searches' },
+    add_memory: { label: 'memory save', kind: 'memory' },
+  },
   integrations: [],
 }
 
@@ -96,7 +111,7 @@ export function uiConfig(): UIConfig {
     defaultModels: arr(raw.defaultModels, defaults.defaultModels),
     modelOrder: arr(raw.modelOrder, defaults.modelOrder),
     promptSuggestions: arr(raw.promptSuggestions, defaults.promptSuggestions),
-    toolDisplay: raw.toolDisplay && typeof raw.toolDisplay === 'object' ? raw.toolDisplay : {},
+    toolDisplay: { ...defaults.toolDisplay, ...(raw.toolDisplay && typeof raw.toolDisplay === 'object' ? raw.toolDisplay : {}) },
     integrations: arr<Integration>(raw.integrations, []).filter((i) => i && (i.kind === 'oauthToolServer' || i.kind === 'extensionInstall')),
   }
   return cached
