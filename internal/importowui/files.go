@@ -48,8 +48,12 @@ func (im *importer) importFiles(ctx context.Context) error {
 		st.Source++
 		im.progress("files", st.Source, total)
 		uid, ok := im.users[userID]
-		if !ok {
+		switch {
+		case !ok:
 			st.skip("owner missing", id)
+			return nil
+		case safeName(id) != id: // the id becomes a directory name under uploads/
+			st.skip("id is not a plain name", id)
 			return nil
 		}
 		return im.importFile(ctx, st, fileRow{id: id, userID: uid, filename: filename, srcPath: srcPath,
@@ -123,10 +127,13 @@ func (im *importer) copyBlob(f fileRow, rel string, prev blob, metaSize int64) (
 	if f.srcPath == "" {
 		base = f.id + "_" + f.filename
 	}
-	src := filepath.Join(im.opt.UploadsDir, base)
+	src := filepath.Join(im.opt.UploadsDir, safeName(base)) // one element: never leaves the uploads dir
 	info, err := os.Stat(src)
 	if err != nil {
 		return "", metaSize, err
+	}
+	if !info.Mode().IsRegular() {
+		return "", metaSize, fs.ErrNotExist
 	}
 	if im.opt.DryRun {
 		return "", info.Size(), nil

@@ -95,7 +95,7 @@ func fromCmd(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	if opt.DryRun {
-		fmt.Fprintln(out, "dry run: nothing was written")
+		fmt.Fprintln(out, "dry run: nothing was imported")
 	}
 	if *presets != "" {
 		n, err := ExportPresets(ctx, src, *presets)

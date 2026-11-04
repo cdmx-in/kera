@@ -116,6 +116,22 @@ func ConvertHistory(blob []byte, outputs map[string][]map[string]any, fallback t
 			t.Dangling++
 		}
 	}
+	// Corrupt parent cycles (a message that is its own ancestor) are cut at
+	// the message that closes them, so every walk down the tree ends.
+	parent := make(map[string]string, len(t.Messages))
+	for _, m := range t.Messages {
+		parent[m.ID] = m.ParentID
+	}
+	for i := range t.Messages {
+		id := t.Messages[i].ID
+		for p, n := parent[id], 0; p != "" && n <= len(t.Messages); p, n = parent[p], n+1 {
+			if p == id {
+				t.Messages[i].ParentID, parent[id] = "", ""
+				t.Dangling++
+				break
+			}
+		}
+	}
 	t.CurrentID = activeLeaf(t.Messages, doc.History.CurrentID)
 	return t, nil
 }

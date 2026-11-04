@@ -115,12 +115,13 @@ func (r *Report) Stat(name string) *Stat {
 
 // importer carries the state of one run.
 type importer struct {
-	src   *pgxpool.Pool
-	tx    pgx.Tx
-	opt   Options
-	rep   *Report
-	log   *slog.Logger
-	users map[string]string // source user id -> target user id
+	src      *pgxpool.Pool
+	tx       pgx.Tx
+	opt      Options
+	rep      *Report
+	log      *slog.Logger
+	users    map[string]string // source user id -> target user id
+	tagNames map[string]string // "<source user id>\x00<tag id>" -> tag name
 	// filled by steps, used by later ones
 	pruneDirs []string // blob dirs to remove after commit
 }
@@ -310,6 +311,10 @@ func SourceName(dsn string) string {
 	u, err := url.Parse(dsn)
 	if err != nil || u.Scheme == "" {
 		return "openwebui"
+	}
+	if q := u.Query(); q.Has("password") {
+		q.Set("password", "xxxxx")
+		u.RawQuery = q.Encode()
 	}
 	return u.Redacted()
 }

@@ -65,6 +65,9 @@ func (im *importer) importChats(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if im.tagNames, err = im.loadTagNames(ctx); err != nil {
+		return err
+	}
 	var total int
 	if err := im.src.QueryRow(ctx, `SELECT count(*) FROM chat WHERE updated_at >= $1`, im.since()).Scan(&total); err != nil {
 		return fmt.Errorf("count source chats: %w", err)
@@ -188,7 +191,7 @@ func (im *importer) importChat(ctx context.Context, c srcChat, outputs map[strin
 		current = &tree.CurrentID
 	}
 	meta := jsonObject(c.meta)
-	tags := tagList(meta["tags"])
+	tags := tagList(meta["tags"], im.tagNames, c.userID)
 	delete(meta, "tags")
 	outcome, err := im.upsert(ctx, st, c.id, `INSERT INTO chat (id, user_id, title, folder_id, pinned, archived, share_id,
 			current_message_id, model_ids, summary, meta, origin, created_at, updated_at)
@@ -317,12 +320,36 @@ func (im *importer) writeTags(ctx context.Context, chatID string, tags []string)
 	return nil
 }
 
-func tagList(v any) []string {
+// loadTagNames maps "<user id>\x00<tag id>" to the tag's display name: chat
+// meta holds normalized tag ids ("data_analysis"), Kera stores the name.
+func (im *importer) loadTagNames(ctx context.Context) (map[string]string, error) {
+	out := map[string]string{}
+	err := im.sourceRows(ctx, `SELECT user_id, id, coalesce(name, '') FROM tag`, nil, func(r pgx.Rows) error {
+		var user, id, name string
+		if err := r.Scan(&user, &id, &name); err != nil {
+			return err
+		}
+		if name != "" {
+			out[user+"\x00"+id] = name
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("load tag names: %w", err)
+	}
+	return out, nil
+}
+
+func tagList(v any, names map[string]string, user string) []string {
 	arr, _ := v.([]any)
 	seen := map[string]bool{}
 	out := []string{}
 	for _, t := range arr {
-		if s, ok := t.(string); ok && s != "" && !seen[s] {
+		s, _ := t.(string)
+		if n, ok := names[user+"\x00"+s]; ok {
+			s = n
+		}
+		if s != "" && !seen[s] {
 			seen[s] = true
 			out = append(out, s)
 		}

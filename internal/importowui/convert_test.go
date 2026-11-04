@@ -2,6 +2,10 @@ package importowui
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -147,6 +151,33 @@ func TestConvertHistory(t *testing.T) {
 	}
 }
 
+func TestConvertHistoryCutsCycles(t *testing.T) {
+	blob := `{"history":{"currentId":"a","messages":{
+ "a":{"parentId":"b","role":"user","content":"x","timestamp":1},
+ "b":{"parentId":"a","role":"assistant","content":"y","timestamp":2},
+ "c":{"parentId":"c","role":"user","content":"z","timestamp":3},
+ "d":{"parentId":"b","role":"assistant","content":"w","timestamp":4}}}}`
+	done := make(chan Tree, 1)
+	go func() {
+		tr, _ := ConvertHistory([]byte(blob), nil, time.Unix(1, 0))
+		done <- tr
+	}()
+	select {
+	case tr := <-done:
+		roots := 0
+		for _, m := range tr.Messages {
+			if m.ParentID == "" {
+				roots++
+			}
+		}
+		if roots != 2 || tr.Dangling != 2 || tr.CurrentID != "d" {
+			t.Fatalf("roots=%d dangling=%d current=%q", roots, tr.Dangling, tr.CurrentID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ConvertHistory loops on a parent cycle")
+	}
+}
+
 func TestActiveLeafUnknownCurrent(t *testing.T) {
 	msgs := []Message{{ID: "r"}, {ID: "x", ParentID: "r"}, {ID: "y", ParentID: "r"}}
 	if got := activeLeaf(msgs, "missing"); got != "y" {
@@ -162,6 +193,23 @@ func TestEpoch(t *testing.T) {
 	for _, v := range []int64{1700000000, 1700000000000, 1700000000000000, 1700000000000000000} {
 		if got := epoch(v); !got.Equal(want) {
 			t.Fatalf("epoch(%d) = %v", v, got)
+		}
+	}
+}
+
+func TestCopyBlobStaysInUploads(t *testing.T) {
+	root := t.TempDir()
+	uploads := filepath.Join(root, "uploads")
+	if err := os.MkdirAll(uploads, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "secret"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	im := &importer{opt: Options{UploadsDir: uploads, DataDir: t.TempDir()}}
+	for _, f := range []fileRow{{id: "f3", filename: "x/../../secret"}, {id: "f4", srcPath: ".."}} {
+		if _, _, err := im.copyBlob(f, "uploads/f/x", blob{}, 0); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%+v: err = %v, want not found", f, err)
 		}
 	}
 }

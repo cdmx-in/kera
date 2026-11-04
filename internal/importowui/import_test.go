@@ -42,6 +42,8 @@ CREATE TABLE prompt (id text, user_id text, command text, name text, content tex
 CREATE TABLE feedback (id text, user_id text, type text, data json, meta json, snapshot json, created_at bigint, updated_at bigint);
 CREATE TABLE model (id text, params text);
 CREATE TABLE config (key text, value json);
+CREATE TABLE tag (id text, name text, user_id text);
+INSERT INTO tag VALUES ('work', 'Work', 'u1'), ('work', 'Work (Bob)', 'u2');
 
 INSERT INTO "user" VALUES
  ('u1', 'Ann', 'ann@example.com', 'admin', '/user.png', '{"ui":{"theme":"dark"}}', null, '{"google":{"sub":"g-1"}}', 1700000100, 1700000000, 1700000050),
@@ -163,6 +165,9 @@ func TestImportSynthetic(t *testing.T) {
 	check("chats", 2, 1)  // ghost-owned chat skipped
 	check("messages", 4, 0)
 	check("chat_tags", 2, 0)
+	if n := count(t, dst, `SELECT count(*) FROM chat_tag WHERE chat_id = 'c1' AND tag IN ('Work', 'todo')`); n != 2 {
+		t.Errorf("chat tags by name: %d", n)
+	}
 	check("files", 2, 0)
 	check("chat_files", 1, 1)
 	check("knowledge_files", 2, 0)
@@ -256,6 +261,11 @@ func TestImportSynthetic(t *testing.T) {
 	if v, err := Verify(ctx, src, dst); err != nil || v.OK() || v.Report.Stats["chats"].Pruned != 1 {
 		t.Fatalf("verify after delete: ok=%v err=%v", v.OK(), err)
 	}
+	// c1 is gone at the source too, but was continued in Kera: prune keeps it.
+	if _, err := dst.Exec(ctx, `DELETE FROM src.chat WHERE id = 'c1';
+		INSERT INTO message (id, chat_id, parent_id, role, content) VALUES ('native-msg', 'c1', 'm2', 'user', 'more')`); err != nil {
+		t.Fatal(err)
+	}
 	prune := opt
 	prune.PruneMissing = true
 	prune.Only = []string{"users", "chats"}
@@ -266,7 +276,7 @@ func TestImportSynthetic(t *testing.T) {
 	if rep3.Stats["chats"].Pruned != 1 || rep3.Stats["api_keys"].Pruned != 1 {
 		t.Errorf("pruned chats %d keys %d", rep3.Stats["chats"].Pruned, rep3.Stats["api_keys"].Pruned)
 	}
-	if n := count(t, dst, `SELECT count(*) FROM chat WHERE id IN ('c2', 'native-chat')`); n != 1 {
+	if n := count(t, dst, `SELECT count(*) FROM chat WHERE id IN ('c1', 'c2', 'native-chat')`); n != 2 {
 		t.Errorf("after prune: %d", n)
 	}
 	if n := count(t, dst, `SELECT count(*) FROM "user" WHERE id = 'native-bob'`); n != 1 {
@@ -316,6 +326,10 @@ func TestRedact(t *testing.T) {
 	if got := redact("x", "Bearer abc"); got != redacted {
 		t.Errorf("bearer %v", got)
 	}
+	if got := redact("info", map[string]any{"oauth_client_info": "opaque", "note": "gAAAAABfernet"}); got.(map[string]any)["oauth_client_info"] != redacted ||
+		got.(map[string]any)["note"] != redacted {
+		t.Errorf("client info / fernet %v", got)
+	}
 	if got := redact("api_key", ""); got != "" {
 		t.Errorf("empty secret should stay visible, got %v", got)
 	}
@@ -334,7 +348,7 @@ func TestParseFlags(t *testing.T) {
 	if _, err := parseSince("yesterday"); err == nil {
 		t.Error("bad since accepted")
 	}
-	if got := SourceName("postgres://u:secret@db:5432/x"); strings.Contains(got, "secret") {
+	if got := SourceName("postgres://u:secret@db:5432/x") + SourceName("postgres://u@db/x?password=secret&sslmode=disable"); strings.Contains(got, "secret") {
 		t.Errorf("SourceName leaks: %s", got)
 	}
 	if safeName("../../etc/passwd") != ".._.._etc_passwd" || safeName("..") != "file" || safeName("") != "file" {

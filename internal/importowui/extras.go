@@ -105,7 +105,9 @@ func redact(name string, v any) any {
 		if x == "" {
 			return x
 		}
-		if secretName(name) || strings.HasPrefix(x, "sk-") || strings.HasPrefix(strings.ToLower(x), "bearer ") {
+		// gAAAA starts a Fernet token: an encrypted secret is still a secret.
+		if secretName(name) || strings.HasPrefix(x, "sk-") || strings.HasPrefix(x, "gAAAA") ||
+			strings.HasPrefix(strings.ToLower(x), "bearer ") {
 			return redacted
 		}
 		if u, err := url.Parse(x); err == nil && u.User != nil {
@@ -135,6 +137,9 @@ func redactAll(v any) any {
 // like it holds a credential.
 func secretName(name string) bool {
 	name = strings.ToLower(name)
+	if strings.Contains(name, "client_info") { // an OAuth client registration, secret included
+		return true
+	}
 	for _, seg := range strings.FieldsFunc(name, func(r rune) bool { return r == '.' || r == '_' || r == '-' }) {
 		switch seg {
 		case "key", "keys", "token", "tokens", "secret", "password", "passwd", "authorization", "cookie",
