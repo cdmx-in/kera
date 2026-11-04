@@ -15,9 +15,12 @@ COPY . .
 COPY --from=web /src/web/dist ./web/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/cdmx-in/kera/internal/version.Version=${VERSION}" -o /kera ./cmd/kera
+RUN mkdir -p /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=go /kera /usr/local/bin/kera
+# /data must belong to the runtime user; a new named volume copies this ownership.
+COPY --from=go --chown=65532:65532 /out/data /data
 ENV KERA_LISTEN=:8080 KERA_DATA_DIR=/data
 EXPOSE 8080
 USER nonroot
