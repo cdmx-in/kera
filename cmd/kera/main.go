@@ -14,6 +14,7 @@ import (
 	"github.com/cdmx-in/kera/internal/app"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/db"
+	"github.com/cdmx-in/kera/internal/identity"
 	"github.com/cdmx-in/kera/internal/version"
 )
 
@@ -24,7 +25,7 @@ Usage:
   kera db migrate         apply database migrations and exit
   kera db status          list migrations and whether they are applied
   kera version            print the version
-
+` + identity.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL.
 `
 
@@ -51,6 +52,8 @@ func run(args []string) error {
 		return serve(ctx)
 	case "db":
 		return dbCmd(ctx, args[1:])
+	case "user", "apikey":
+		return identityCmd(ctx, args)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
@@ -109,6 +112,22 @@ func dbCmd(ctx context.Context, args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown db command %q", fs.Arg(0))
+}
+
+func identityCmd(ctx context.Context, args []string) error {
+	env, err := config.Load(false)
+	if err != nil {
+		return err
+	}
+	pool, err := db.Open(ctx, env.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if args[0] == "user" {
+		return identity.UserCmd(ctx, pool, args[1:], os.Stdout)
+	}
+	return identity.APIKeyCmd(ctx, pool, args[1:], os.Stdout, os.Stderr)
 }
 
 func logLevel() slog.Level {
