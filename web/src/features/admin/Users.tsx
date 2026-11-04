@@ -9,7 +9,7 @@ import { cx } from '@/lib/format'
 import { enc, useSettings, useSaveSettings, type AdminUser, type RoleName } from './api'
 import { ago, type Perms } from './lib'
 import { PermSwitches } from './Perms'
-import { attempt, Badge, Btn, Card, Confirm, Field, inputAuto, inputCls, Loading, ManagedBadge, managedWarning, Page, tdCls, thCls } from './ui'
+import { attempt, Badge, Btn, Card, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, Page, tdCls, thCls } from './ui'
 
 const PER_PAGE = 30
 const roles: RoleName[] = ['admin', 'user', 'pending']
@@ -114,11 +114,20 @@ export function UsersPage() {
                         {self ? (
                           <Tip text="You cannot change your own role">
                             <span>
-                              <Badge tone="accent">{u.role}</Badge>
+                              <Badge tone="accent"><span className="capitalize">{u.role}</span></Badge>
                             </span>
                           </Tip>
                         ) : (
-                          <select aria-label={`Role of ${u.email}`} value={u.role} onChange={(e) => void setRole(u, e.target.value as RoleName)} className={cx(inputAuto, 'py-1')}>
+                          <select
+                            aria-label={`Role of ${u.email}`}
+                            value={u.role}
+                            onChange={(e) => void setRole(u, e.target.value as RoleName)}
+                            data-role={u.role}
+                            className={cx(
+                              'rounded-full border py-0.5 pl-3 text-xs font-medium capitalize',
+                              u.role === 'admin' ? 'border-accent/40 bg-accent-soft text-accent dark:text-accent-bright' : 'border-line bg-surface-2 text-fg',
+                            )}
+                          >
                             {roles.map((r) => (
                               <option key={r}>{r}</option>
                             ))}
