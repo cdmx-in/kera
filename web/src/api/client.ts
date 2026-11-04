@@ -1,5 +1,7 @@
 // Fetch wrapper: Bearer token from localStorage.token (the HttpOnly session
-// cookie also works), JSON in and out, 401 -> /auth.
+// cookie also works), JSON in and out, 401 -> /auth, server unreachable -> outage page.
+
+import { isOutageStatus, reportOutage } from '@/stores/outage'
 
 export class ApiError extends Error {
   status: number
@@ -48,9 +50,17 @@ export function authHeaders(extra?: HeadersInit): Headers {
 
 /** Raw authenticated fetch (streams, uploads). Throws ApiError on non-2xx. */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(path, { ...init, headers: authHeaders(init.headers), credentials: 'same-origin' })
+  let res: Response
+  try {
+    res = await fetch(path, { ...init, headers: authHeaders(init.headers), credentials: 'same-origin' })
+  } catch (err) {
+    // an aborted request (stop button, unmount) is not an outage
+    if (!(err instanceof DOMException && err.name === 'AbortError')) reportOutage()
+    throw err
+  }
   if (res.ok) return res
   if (res.status === 401) redirectToAuth()
+  if (isOutageStatus(res.status)) reportOutage()
   throw await toError(res)
 }
 

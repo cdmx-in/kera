@@ -6,6 +6,7 @@ import './styles/app.css'
 import { queryClient } from './app/query'
 import { router } from './app/router'
 import { initTheme } from './lib/theme'
+import { Unavailable } from './features/brand/Unavailable'
 
 // The server-rendered splash (inside #root) stays at least this long, so a
 // fast load does not flash it.
@@ -33,6 +34,7 @@ async function boot() {
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
+        <Unavailable />
       </QueryClientProvider>
     </StrictMode>,
   )

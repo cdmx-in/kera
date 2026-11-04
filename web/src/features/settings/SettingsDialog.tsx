@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Tabs } from 'radix-ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Copy, KeyRound, Trash2 } from 'lucide-react'
-import { api, getToken } from '@/api/client'
+import { KeyRound, Trash2 } from 'lucide-react'
+import { api } from '@/api/client'
 import { useApiKeys, useMe, useUserSettings, type UserSettings } from '@/api/queries'
 import type { ApiKey } from '@/api/types'
 import { useUI } from '@/stores/ui'
@@ -136,19 +136,8 @@ function Account() {
           <p className="truncate text-sm text-muted">{me.email}</p>
         </div>
       </div>
+      {/* no session-token copy: scripts use revocable API keys, never the browser's sign-in token */}
       {allowKeys && <ApiKeys />}
-      <Row title="Session token" hint="For scripts that act as you in this browser session.">
-        <button
-          type="button"
-          onClick={async () => {
-            await navigator.clipboard?.writeText(getToken()).catch(() => undefined)
-            toast('Token copied')
-          }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2"
-        >
-          <Copy size={14} /> Copy
-        </button>
-      </Row>
     </div>
   )
 }
