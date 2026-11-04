@@ -109,6 +109,11 @@ func (s *Service) step(ctx context.Context) (*stepResult, error) {
 	defer cancel()
 	r := &stepResult{KnowledgeID: kid, FileID: fid}
 	r.Chunks, r.Err = s.index(ctx, kid, fid)
+	// The error is recorded before the status flips to failed, so a reader
+	// never sees "failed" without its reason.
+	if err := s.setFileError(ctx, kid, fid, r.Err); err != nil {
+		return r, err
+	}
 	if r.Err != nil {
 		slog.Warn("knowledge: indexing failed", "knowledge", kid, "file", fid, "err", r.Err)
 		if _, err := s.db.Exec(ctx, `UPDATE knowledge_file SET status = 'failed' WHERE knowledge_id = $1 AND file_id = $2`, kid, fid); err != nil {
@@ -116,9 +121,6 @@ func (s *Service) step(ctx context.Context) (*stepResult, error) {
 		}
 	} else {
 		slog.Debug("knowledge: indexed", "knowledge", kid, "file", fid, "chunks", r.Chunks)
-	}
-	if err := s.setFileError(ctx, kid, fid, r.Err); err != nil {
-		return r, err
 	}
 	return r, s.finishReindex(ctx, kid)
 }
