@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"github.com/cdmx-in/kera/internal/app"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
+	"github.com/cdmx-in/kera/internal/probe"
 	"github.com/cdmx-in/kera/internal/provider"
 )
 
@@ -58,6 +58,7 @@ func Mount(a *app.App) error {
 	a.Server.Handle("GET /api/v1/configs/connections", admin(h.connections))
 	a.Server.Handle("POST /api/v1/configs/connections", admin(h.saveConnections))
 	a.Server.Handle("POST /api/v1/configs/connections/{id}/verify", admin(h.verify))
+	a.Server.Handle("POST /api/v1/configs/connections/test", admin(h.testConnection))
 	a.Server.Handle("DELETE /api/v1/configs/connections/{id}", admin(h.deleteConnection))
 	return nil
 }
@@ -423,22 +424,24 @@ func (f *connForm) validate() error {
 	switch f.Kind {
 	case provider.KindOllama, provider.KindOpenAI, provider.KindResponses:
 	default:
-		return api.Errf(http.StatusBadRequest, "bad_kind", "kind must be ollama, openai or responses")
+		return api.FieldErr("kind", "bad_kind", "kind must be ollama, openai or responses")
 	}
-	u, err := url.Parse(f.BaseURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return api.Errf(http.StatusBadRequest, "bad_url", "base_url must be an http(s) URL")
+	if err := api.CheckURL("base_url", f.BaseURL); err != nil {
+		return err
 	}
 	f.BaseURL = strings.TrimRight(f.BaseURL, "/")
+	if f.Kind == provider.KindOllama && strings.HasSuffix(f.BaseURL, "/v1") {
+		return api.FieldErr("base_url", "bad_url", "An Ollama URL has no /v1 (e.g. http://host:11434); use the OpenAI-compatible kind for /v1")
+	}
 	if strings.ContainsAny(f.Prefix, " .") {
-		return api.Errf(http.StatusBadRequest, "bad_prefix", "prefix must not contain spaces or dots")
+		return api.FieldErr("prefix", "bad_prefix", "prefix must not contain spaces or dots")
 	}
 	if len(f.Options) == 0 || string(f.Options) == "null" {
 		f.Options = json.RawMessage(`{}`)
 	}
 	var o connOptions
 	if err := json.Unmarshal(f.Options, &o); err != nil {
-		return api.Errf(http.StatusBadRequest, "bad_options", "options: "+err.Error())
+		return api.FieldErr("options", "bad_options", "options: "+err.Error())
 	}
 	if f.ModelIDs == nil {
 		f.ModelIDs = []string{}
@@ -455,7 +458,7 @@ func (h *handlers) saveConnections(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Connections []connForm `json:"connections"`
 	}
-	if err := api.Decode(r, &body); err != nil {
+	if err := api.DecodeForm(r, &body); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
@@ -468,6 +471,15 @@ func (h *handlers) saveConnections(w http.ResponseWriter, r *http.Request) {
 	for i := range body.Connections {
 		f := &body.Connections[i]
 		if err := f.validate(); err != nil {
+			api.Fail(w, r, err)
+			return
+		}
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM connection WHERE id = $1)`, f.ID).Scan(&exists); err != nil {
+			api.Fail(w, r, err)
+			return
+		}
+		if err := api.CheckID("id", f.ID); err != nil && !exists {
 			api.Fail(w, r, err)
 			return
 		}
@@ -530,4 +542,42 @@ func (h *handlers) verify(w http.ResponseWriter, r *http.Request) {
 	}
 	h.r.Invalidate(r.PathValue("id"))
 	api.JSON(w, http.StatusOK, map[string]any{"ok": true, "models": orEmpty(ms)})
+}
+
+// testConnection lists a draft connection's models without saving anything.
+// The key is the typed api_key, else the stored key of the same id.
+func (h *handlers) testConnection(w http.ResponseWriter, r *http.Request) {
+	var f connForm
+	if err := api.DecodeForm(r, &f); err != nil {
+		api.Fail(w, r, err)
+		return
+	}
+	key := ""
+	if f.APIKey != nil {
+		key = *f.APIKey
+	} else if f.ID != "" {
+		if c, err := h.r.Connection(r.Context(), f.ID); err == nil {
+			key = c.APIKey
+		}
+	}
+	if err := f.validate(); err != nil {
+		api.Fail(w, r, err)
+		return
+	}
+	hdr := http.Header{}
+	for k, v := range f.Headers {
+		hdr.Set(k, v)
+	}
+	start := time.Now()
+	res := &probe.Result{OK: true}
+	cl, err := provider.New(provider.Config{Kind: f.Kind, BaseURL: f.BaseURL, APIKey: key, Headers: hdr, HTTP: probe.Client()})
+	if err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), probe.Timeout)
+		defer cancel()
+		res.Models, err = cl.ListModels(ctx)
+	}
+	if err != nil {
+		res.Fail(err, key)
+	}
+	api.JSON(w, http.StatusOK, res.Since(start))
 }

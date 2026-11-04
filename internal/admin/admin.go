@@ -28,12 +28,15 @@ func Mount(a *app.App) error {
 
 	s.Handle("GET /api/v1/configs/tool_servers", admin(h.listToolServers))
 	s.Handle("POST /api/v1/configs/tool_servers", admin(h.saveToolServer))
+	s.Handle("POST /api/v1/configs/tool_servers/test", admin(h.testToolServer))
 	s.Handle("DELETE /api/v1/configs/tool_servers/{id...}", admin(h.deleteToolServer))
 	s.Handle("GET /api/v1/configs/hook_servers", admin(h.listHooks))
 	s.Handle("POST /api/v1/configs/hook_servers", admin(h.saveHook))
+	s.Handle("POST /api/v1/configs/hook_servers/test", admin(h.testHook))
 	s.Handle("DELETE /api/v1/configs/hook_servers/{id...}", admin(h.deleteHook))
 	s.Handle("GET /api/v1/configs/oauth_providers", admin(h.listProviders))
 	s.Handle("POST /api/v1/configs/oauth_providers", admin(h.saveProvider))
+	s.Handle("POST /api/v1/configs/oauth_providers/test", admin(h.testProvider))
 	s.Handle("DELETE /api/v1/configs/oauth_providers/{id...}", admin(h.deleteProvider))
 
 	s.Handle("GET /api/v1/analytics/summary", admin(h.summary))

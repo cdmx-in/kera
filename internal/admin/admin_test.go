@@ -126,6 +126,7 @@ func TestAdminOnly(t *testing.T) {
 		{"GET", "/api/v1/configs/tool_servers"}, {"POST", "/api/v1/configs/tool_servers"}, {"DELETE", "/api/v1/configs/tool_servers/x"},
 		{"GET", "/api/v1/configs/hook_servers"}, {"POST", "/api/v1/configs/hook_servers"}, {"DELETE", "/api/v1/configs/hook_servers/x"},
 		{"GET", "/api/v1/configs/oauth_providers"}, {"POST", "/api/v1/configs/oauth_providers"}, {"DELETE", "/api/v1/configs/oauth_providers/x"},
+		{"POST", "/api/v1/configs/tool_servers/test"}, {"POST", "/api/v1/configs/hook_servers/test"}, {"POST", "/api/v1/configs/oauth_providers/test"},
 		{"GET", "/api/v1/analytics/summary"}, {"GET", "/api/v1/analytics/daily"}, {"GET", "/api/v1/analytics/models"},
 		{"GET", "/api/v1/analytics/users"}, {"GET", "/api/v1/analytics/spend?start_date=2026-01-01&end_date=2026-01-31"},
 	}
@@ -318,11 +319,11 @@ func TestHooksAndProviders(t *testing.T) {
 	if !hk.HasKey || hk.Scope != "global" || hk.OnError != "skip" || hk.TimeoutMS != 10000 || string(hk.Config) != "{}" {
 		t.Fatalf("hook = %+v", hk)
 	}
-	e.ok("POST", "/api/v1/configs/hook_servers", map[string]any{"id": "h", "url": "http://h2"}, &hk)
+	e.ok("POST", "/api/v1/configs/hook_servers", map[string]any{"id": "h", "url": "http://h2", "scope": "global"}, &hk)
 	if !hk.HasKey || hk.URL != "http://h2" {
 		t.Fatalf("hook update lost the key: %+v", hk)
 	}
-	e.ok("POST", "/api/v1/configs/hook_servers", map[string]any{"id": "h", "url": "http://h2", "key": ""}, &hk)
+	e.ok("POST", "/api/v1/configs/hook_servers", map[string]any{"id": "h", "url": "http://h2", "scope": "global", "key": ""}, &hk)
 	if hk.HasKey {
 		t.Fatal("empty key did not clear")
 	}

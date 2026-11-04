@@ -468,3 +468,27 @@ func Truncate(s string, max int) string {
 	return s[:cut] + fmt.Sprintf("\n\n[Truncated: the result had %d characters and only the first %d are shown. "+
 		"Ask for less, e.g. a narrower query, a filter or a smaller range.]", n, utf8.RuneCountInString(s[:cut]))
 }
+
+// Probe lists the function names a draft server offers (name filter and
+// disabled functions applied), bypassing the manager, caches and access
+// checks: the admin console's Test button. key is the static key; tok the
+// user's OAuth access token for user_oauth servers.
+func Probe(ctx context.Context, hc *http.Client, r Row, key, tok string) ([]string, error) {
+	r.Auth.key = key
+	s := newServer(&Manager{http: hc}, r)
+	var c cachedSpecs
+	var err error
+	if s.mcp != nil {
+		c, err = s.listMCP(ctx, nil, tok)
+	} else {
+		c, err = s.listOpenAPI(ctx, tok)
+	}
+	if err != nil {
+		return nil, err
+	}
+	names := []string{}
+	for _, sp := range s.filter(c.specs) {
+		names = append(names, sp.Name)
+	}
+	return names, nil
+}

@@ -2,14 +2,17 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Activity, CheckCircle2, Cloud, Cpu, Loader2, Pencil, Plus, Trash2, XCircle } from 'lucide-react'
 import { api } from '@/api/client'
-import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
+import { toast } from '@/stores/toast'
+import { IconButton } from '@/ui/Dialog'
 import { Switch } from '@/ui/misc'
 import { enc, useConnections, type Connection } from '../api'
 import { parseList } from '../lib'
-import { attempt, Badge, Btn, Card, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, SecretInput } from '../ui'
+import { attempt, Badge, Btn, Card, Confirm, inputCls, Loading, ManagedBadge, SecretInput } from '../ui'
 import { Select } from '@/ui/Select'
 import { displayName } from '../labels'
 import { IconTile } from './serviceIcons'
+import { bad, EditorDialog, useDraftTest, useFormErrors, VField, type ProbeResult } from './dialogKit'
+import { validateConnection } from './validate'
 
 const kinds: [Connection['kind'], string][] = [
   ['ollama', 'Ollama'],
@@ -21,6 +24,8 @@ const kindLabel: Record<Connection['kind'], string> = { ollama: 'Ollama', openai
 
 type TestResult = { state: 'running' } | { state: 'ok'; models: number; ms: number } | { state: 'error'; message: string }
 
+const TEST = '/api/v1/configs/connections/test'
+
 const blank: Connection = { id: '', kind: 'openai', base_url: '', prefix: '', model_ids: [], enabled: true, headers: {}, options: {}, sort: 0, managed: false, has_key: false }
 
 export function ConnectionsTab() {
@@ -30,18 +35,17 @@ export function ConnectionsTab() {
   const [deleting, setDeleting] = useState<Connection | null>(null)
   const [tests, setTests] = useState<Record<string, TestResult>>({})
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ['admin', 'connections'] }), qc.invalidateQueries({ queryKey: ['models'] })])
-  const save = (c: Connection & { api_key?: string }) =>
-    attempt(async () => {
-      await api('/api/v1/configs/connections', { method: 'POST', json: { connections: [c] } })
-      await refresh()
-    }, 'Connection saved')
-  // Test = list the server's models: proves the URL, the key and the network path in one call.
+  /** Throws on failure (the dialog shows field errors inline). */
+  const save = async (c: Connection & { api_key?: string }) => {
+    await api('/api/v1/configs/connections', { method: 'POST', json: { connections: [c] } })
+    await refresh()
+  }
+  // Test = list the server's models with the stored key: proves the URL, the key and the network path in one call.
   const test = async (c: Connection) => {
     setTests((t) => ({ ...t, [c.id]: { state: 'running' } }))
-    const started = performance.now()
     try {
-      const r = await api<{ models: string[] }>(`/api/v1/configs/connections/${enc(c.id)}/verify`, { method: 'POST' })
-      setTests((t) => ({ ...t, [c.id]: { state: 'ok', models: r.models.length, ms: Math.round(performance.now() - started) } }))
+      const r = await api<ProbeResult>(TEST, { method: 'POST', json: c })
+      setTests((t) => ({ ...t, [c.id]: r.ok ? { state: 'ok', models: r.models?.length ?? 0, ms: r.ms } : { state: 'error', message: r.error ?? 'Failed' } }))
     } catch (e) {
       setTests((t) => ({ ...t, [c.id]: { state: 'error', message: (e as Error).message } }))
     }
@@ -76,7 +80,7 @@ export function ConnectionsTab() {
                 {c.model_ids.length > 0 && ` · ${c.model_ids.length} ${c.model_ids.length === 1 ? 'model' : 'models'} listed`}
               </p>
             </div>
-            <Switch checked={c.enabled} onChange={(on) => void save({ ...c, enabled: on })} label={`Enable ${c.id}`} />
+            <Switch checked={c.enabled} onChange={(on) => void attempt(() => save({ ...c, enabled: on }), 'Connection saved')} label={`Enable ${c.id}`} />
             <Btn onClick={() => void test(c)} disabled={tests[c.id]?.state === 'running'} data-testid="test-connection">
               {tests[c.id]?.state === 'running' ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Test
             </Btn>
@@ -93,7 +97,7 @@ export function ConnectionsTab() {
           </div>
         </Card>
       ))}
-      {editing && <EditConnection conn={editing} onClose={() => setEditing(null)} onSave={save} />}
+      {editing && <EditConnection conn={editing} taken={conns.data?.connections.map((x) => x.id) ?? []} onClose={() => setEditing(null)} onSave={save} />}
       <Confirm
         open={!!deleting}
         title="Delete connection"
@@ -108,65 +112,73 @@ export function ConnectionsTab() {
   )
 }
 
-function EditConnection({ conn, onClose, onSave }: { conn: Connection; onClose: () => void; onSave: (c: Connection & { api_key?: string }) => Promise<boolean> }) {
+const connFields = ['id', 'base_url', 'prefix', 'sort', 'kind', 'api_key', 'options']
+
+function EditConnection({ conn, taken, onClose, onSave }: { conn: Connection; taken: string[]; onClose: () => void; onSave: (c: Connection & { api_key?: string }) => Promise<void> }) {
   const [c, setC] = useState(conn)
   const [key, setKey] = useState<string | null>(null)
   const [models, setModels] = useState(conn.model_ids.join('\n'))
+  const isNew = !conn.id
+  const form = useFormErrors(validateConnection(c, { isNew, taken }), !isNew)
+  const test = useDraftTest(TEST, form)
   const fwd = c.options.forward_user_headers ?? {}
   const setFwd = (k: string, v: string) => setC({ ...c, options: { ...c.options, forward_user_headers: { ...fwd, [k]: v } } })
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const body: Connection & { api_key?: string } = { ...c, model_ids: parseList(models) }
-    if (key !== null) body.api_key = key
-    if (await onSave(body)) onClose()
+  const body = () => {
+    const b: Connection & { api_key?: string } = { ...c, model_ids: parseList(models) }
+    if (key !== null) b.api_key = key
+    return b
   }
-  const isNew = !conn.id
+  const submit = async () => {
+    await onSave(body())
+    toast('Connection saved')
+    onClose()
+  }
   return (
-    <Dialog open onClose={onClose} label="Edit connection" className="w-[min(40rem,calc(100vw-2rem))]">
-      <DialogHeader title={isNew ? 'Add connection' : `Edit ${displayName(conn.id)}`} onClose={onClose} />
-      <form onSubmit={submit} className="space-y-3 p-4">
-        {conn.managed && <p className="text-xs text-amber-700 dark:text-amber-400">{managedWarning}</p>}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="ID" hint={isNew ? 'Leave empty to generate one.' : undefined}>
-            <input value={c.id} disabled={!isNew} onChange={(e) => setC({ ...c, id: e.target.value })} className={inputCls} />
-          </Field>
-          <Field label="Kind">
-            <Select value={c.kind} onChange={(v) => setC({ ...c, kind: v as Connection['kind'] })} options={kinds.map(([value, label]) => ({ value, label }))} aria-label="Kind" />
-          </Field>
+    <EditorDialog title={isNew ? 'Add connection' : `Edit ${displayName(conn.id)}`} managed={conn.managed} form={form} fields={connFields} onClose={onClose} onSubmit={submit} test={test} onTest={() => void test.run(body())}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <VField label="ID" hint={isNew ? 'Leave empty to generate one.' : undefined} error={form.err('id')}>
+          <input name="id" value={c.id} disabled={!isNew} onChange={(e) => setC({ ...c, id: e.target.value })} className={inputCls + bad(form.err('id'))} />
+        </VField>
+        <VField label="Kind">
+          <Select
+            value={c.kind}
+            onChange={(v) => {
+              setC({ ...c, kind: v as Connection['kind'] })
+              form.touch('base_url')
+              test.clear()
+            }}
+            options={kinds.map(([value, label]) => ({ value, label }))}
+            aria-label="Kind"
+          />
+        </VField>
+      </div>
+      <VField label="Base URL" hint={c.kind === 'ollama' ? 'Ollama: no /v1, e.g. http://127.0.0.1:11434' : 'May end in /v1, e.g. http://litellm:4000/v1'} error={form.err('base_url')}>
+        <input name="base_url" value={c.base_url} onChange={(e) => setC({ ...c, base_url: e.target.value })} placeholder="http://127.0.0.1:11434" className={inputCls + bad(form.err('base_url'))} data-testid="connection-url" />
+      </VField>
+      <VField label="API key" hint="Write-only: the stored key is never shown." error={form.err('api_key')}>
+        <SecretInput has={conn.has_key} value={key} onChange={setKey} label="API key" />
+      </VField>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <VField label="Prefix" hint="Prepended to model ids, e.g. web." error={form.err('prefix')}>
+          <input name="prefix" value={c.prefix} onChange={(e) => setC({ ...c, prefix: e.target.value })} className={inputCls + bad(form.err('prefix'))} />
+        </VField>
+        <VField label="Sort" error={form.err('sort')}>
+          <input name="sort" type="number" step={1} value={Number.isNaN(c.sort) ? '' : c.sort} onChange={(e) => setC({ ...c, sort: e.target.valueAsNumber })} className={inputCls + bad(form.err('sort'))} />
+        </VField>
+      </div>
+      <VField label="Model IDs" hint="One per line. Empty lists whatever the server reports.">
+        <textarea value={models} rows={3} onChange={(e) => setModels(e.target.value)} className={inputCls} />
+      </VField>
+      <fieldset className="space-y-2">
+        <legend className="text-xs font-medium text-muted">Forward the user as headers (e.g. for spend tracking)</legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {['email', 'id', 'name', 'role'].map((k) => (
+            <input key={k} value={fwd[k] ?? ''} onChange={(e) => setFwd(k, e.target.value)} placeholder={`Header for ${k}`} aria-label={`Header for user ${k}`} className={inputCls} />
+          ))}
         </div>
-        <Field label="Base URL">
-          <input value={c.base_url} required type="url" onChange={(e) => setC({ ...c, base_url: e.target.value })} placeholder="http://127.0.0.1:11434" className={inputCls} />
-        </Field>
-        <Field label="API key" hint="Write-only: the stored key is never shown.">
-          <SecretInput has={conn.has_key} value={key} onChange={setKey} label="API key" />
-        </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Prefix" hint="Prepended to model ids, e.g. web.">
-            <input value={c.prefix} onChange={(e) => setC({ ...c, prefix: e.target.value })} className={inputCls} />
-          </Field>
-          <Field label="Sort">
-            <input type="number" value={c.sort} onChange={(e) => setC({ ...c, sort: Number(e.target.value) || 0 })} className={inputCls} />
-          </Field>
-        </div>
-        <Field label="Model IDs" hint="One per line. Empty lists whatever the server reports.">
-          <textarea value={models} rows={3} onChange={(e) => setModels(e.target.value)} className={inputCls} />
-        </Field>
-        <fieldset className="space-y-2">
-          <legend className="text-xs font-medium text-muted">Forward the user as headers (e.g. for spend tracking)</legend>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {['email', 'id', 'name', 'role'].map((k) => (
-              <input key={k} value={fwd[k] ?? ''} onChange={(e) => setFwd(k, e.target.value)} placeholder={`Header for ${k}`} aria-label={`Header for user ${k}`} className={inputCls} />
-            ))}
-          </div>
-        </fieldset>
-        <div className="flex justify-end gap-2">
-          <Btn onClick={onClose}>Cancel</Btn>
-          <Btn type="submit" variant="primary">
-            Save
-          </Btn>
-        </div>
-      </form>
-    </Dialog>
+        {form.err('options') && <p className="text-xs text-red-600 dark:text-red-400">{form.err('options')}</p>}
+      </fieldset>
+    </EditorDialog>
   )
 }
 

@@ -14,6 +14,7 @@ type Error struct {
 	Status  int    `json:"-"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Field   string `json:"field,omitempty"` // the form field at fault, for inline errors
 }
 
 func (e *Error) Error() string { return e.Message }
@@ -21,6 +22,11 @@ func (e *Error) Error() string { return e.Message }
 // Errf builds an API error.
 func Errf(status int, code, msg string) *Error {
 	return &Error{Status: status, Code: code, Message: msg}
+}
+
+// FieldErr is a 400 that names the form field at fault.
+func FieldErr(field, code, msg string) *Error {
+	return &Error{Status: http.StatusBadRequest, Code: code, Message: msg, Field: field}
 }
 
 // JSON writes v with status.
@@ -40,7 +46,11 @@ func Fail(w http.ResponseWriter, r *http.Request, err error) {
 		slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		e = Errf(http.StatusInternalServerError, "internal", "internal error")
 	}
-	JSON(w, e.Status, map[string]any{"detail": e.Message, "code": e.Code})
+	body := map[string]any{"detail": e.Message, "code": e.Code}
+	if e.Field != "" {
+		body["field"] = e.Field
+	}
+	JSON(w, e.Status, body)
 }
 
 // Decode reads a JSON body (max 32 MiB) into v.
