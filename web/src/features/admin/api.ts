@@ -148,3 +148,21 @@ export function useSaveSettings() {
     void qc.invalidateQueries({ queryKey: ['models'] })
   }
 }
+
+/** A brand image: uploads (deletable) or the read-only config brand dir. */
+export interface BrandAsset {
+  file: string
+  url: string
+  dir: 'uploads' | 'config'
+  size: number
+}
+
+export const useBrandAssets = () => useAdmin<BrandAsset[]>(['brand-assets'], '/api/v1/admin/brand/assets')
+
+/** Uploads an image for a brand slot; returns its /brand/ URL. */
+export async function uploadBrandAsset(file: File, slot: string): Promise<BrandAsset> {
+  const body = new FormData()
+  body.append('slot', slot)
+  body.append('file', file)
+  return api<BrandAsset>('/api/v1/admin/brand/assets', { method: 'POST', body })
+}

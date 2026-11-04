@@ -1,9 +1,13 @@
 package apply
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/cdmx-in/kera/internal/access"
 )
@@ -180,6 +184,24 @@ func checkBrand(b *Brand, errs *Errors) {
 			errs.add(0, "brand.grey.scale: needs 11 colours (50, 100..900, 950), got %d", len(g.Scale))
 		}
 	}
+	images := map[string]string{"mark": b.Mark, "favicon": b.Favicon, "apple_touch_icon": b.AppleTouchIcon}
+	if b.Logo != nil {
+		images["logo.light"], images["logo.dark"] = b.Logo.Light, b.Logo.Dark
+	}
+	if b.Splash != nil {
+		images["splash.logo"], images["splash.logo_dark"] = b.Splash.Logo, b.Splash.LogoDark
+	}
+	for i, u := range b.FaviconAlt {
+		images[fmt.Sprintf("favicon_alt[%d]", i)] = u
+	}
+	for i, u := range b.PWAIcons {
+		images[fmt.Sprintf("pwa_icons[%d]", i)] = u
+	}
+	for _, what := range slices.Sorted(maps.Keys(images)) {
+		if u := images[what]; u != "" && !imageURL(u) {
+			errs.add(0, "brand.%s: %q is not an image URL (a /path, an http(s):// URL or a data:image/ URL)", what, u)
+		}
+	}
 	optOneOf := func(what, v string, allowed ...string) {
 		if v != "" {
 			oneOf(0, what, v, errs, allowed...)
@@ -193,6 +215,27 @@ func checkBrand(b *Brand, errs *Errors) {
 	if b.Login != nil {
 		optOneOf("brand.login.style", b.Login.Style, "glass-card", "plain")
 	}
+}
+
+// ValidateBrand checks a stored ui.brand value (the JSON the frontend reads)
+// with the rules apply uses for the config file's brand section.
+func ValidateBrand(raw []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var b Brand
+	if err := dec.Decode(&b); err != nil {
+		return fmt.Errorf("brand: %w", err)
+	}
+	var errs Errors
+	checkBrand(&b, &errs)
+	if len(errs) > 0 {
+		return errs
+	}
+	return nil
+}
+
+func imageURL(u string) bool {
+	return strings.HasPrefix(u, "/") || strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "data:image/")
 }
 
 // CSSColor reports whether s is a plain colour (#hex, a colour function of

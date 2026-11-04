@@ -52,21 +52,25 @@ const cacheFor = 10 * time.Second
 
 // UI renders and caches the config and the app shell.
 type UI struct {
-	settings *settings.Store
-	db       *pgxpool.Pool // tool_server display names; nil in tests that need none
-	assets   *assets
-	tmpl     []byte
+	settings   *settings.Store
+	db         *pgxpool.Pool // tool_server display names; nil in tests that need none
+	assets     *assets
+	tmpl       []byte
+	configFile string // KERA_CONFIG, for "reset to the config file"
 
 	mu    sync.Mutex
 	until time.Time
+	gen   uint64 // settings.Gen() the cache was built at
 	cfg   *Config
 	index []byte
 }
 
 // Mount registers the routes and takes over index.html rendering.
 func Mount(a *app.App) error {
-	u := &UI{settings: a.Settings, db: a.DB, assets: &assets{dir: brandDir(a.Env.ConfigFile, a.Env.DataDir)}, tmpl: a.Server.IndexTemplate()}
+	u := &UI{settings: a.Settings, db: a.DB, tmpl: a.Server.IndexTemplate(), configFile: a.Env.ConfigFile,
+		assets: &assets{upload: filepath.Join(a.Env.DataDir, "brand"), dir: brandDir(a.Env.ConfigFile, a.Env.DataDir)}}
 	u.routes(a.Server)
+	u.adminRoutes(a.Server, func(f http.HandlerFunc) http.Handler { return a.Auth.Admin(f) })
 	mountCache(a)
 	return nil
 }
@@ -78,7 +82,8 @@ func (u *UI) routes(s *api.Server) {
 	s.SetIndexRenderer(u.renderIndex)
 }
 
-// brandDir is KERA_BRAND_DIR, else brand/ next to KERA_CONFIG, else <data>/brand.
+// brandDir is the read-only brand dir: KERA_BRAND_DIR, else brand/ next to
+// KERA_CONFIG, else <data>/brand (then the same as the uploads dir).
 func brandDir(configFile, dataDir string) string {
 	if d := os.Getenv("KERA_BRAND_DIR"); d != "" {
 		return d
@@ -107,11 +112,13 @@ func (u *UI) renderIndex(r *http.Request) []byte {
 	return idx
 }
 
-// current returns the cached config and shell, rebuilding them every cacheFor.
+// current returns the cached config and shell, rebuilding them every cacheFor
+// and right after an admin save in this process.
 func (u *UI) current(ctx context.Context) (*Config, []byte, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if u.cfg != nil && time.Now().Before(u.until) {
+	gen := u.settings.Gen()
+	if u.cfg != nil && time.Now().Before(u.until) && gen == u.gen {
 		return u.cfg, u.index, nil
 	}
 	cfg, err := load(ctx, u.settings)
@@ -127,8 +134,15 @@ func (u *UI) current(ctx context.Context) (*Config, []byte, error) {
 		}
 	}
 	u.assets.version(&cfg.Brand)
-	u.cfg, u.index, u.until = cfg, renderIndex(u.tmpl, cfg), time.Now().Add(cacheFor)
+	u.cfg, u.index, u.until, u.gen = cfg, renderIndex(u.tmpl, cfg), time.Now().Add(cacheFor), gen
 	return u.cfg, u.index, nil
+}
+
+// expire makes the next request rebuild the config (an asset changed).
+func (u *UI) expire() {
+	u.mu.Lock()
+	u.until = time.Time{}
+	u.mu.Unlock()
 }
 
 // load maps the settings `kera apply` (or the admin UI) wrote to Config.

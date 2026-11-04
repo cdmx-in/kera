@@ -8,6 +8,7 @@ import { GroupsPage } from './Groups'
 import { SkillsPage } from './Skills'
 import { SpendPage } from './Spend'
 import { UsersPage } from './Users'
+import { BrandingTab } from './settings/Branding'
 import { ConnectionsTab } from './settings/Connections'
 import { ModelsTab } from './settings/Models'
 import { HookServersTab, OAuthTab, ToolServersTab } from './settings/Servers'
@@ -20,6 +21,7 @@ const settingsTabs: [string, string, () => React.ReactNode][] = [
   ['tools', 'Tool servers', () => <ToolServersTab />],
   ['hooks', 'Hook servers', () => <HookServersTab />],
   ['oauth', 'OAuth providers', () => <OAuthTab />],
+  ['branding', 'Branding', () => <BrandingTab />],
   ['interface', 'Interface', () => <InterfaceTab />],
   ['tasks', 'Tasks', () => <TasksTab />],
   ['chat', 'Chat', () => <ChatTab />],
