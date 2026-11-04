@@ -22,7 +22,8 @@ export default function ExtensionDialog({ integration: i, mode, onClose }: { int
   const detected: OS = /win/i.test(uaData()?.platform ?? navigator.platform ?? '') ? 'windows' : 'posix'
   const available = (['windows', 'posix'] as OS[]).filter((o) => i.commands?.[o])
   const [os, setOS] = useState<OS>(available.includes(detected) ? detected : (available[0] ?? detected))
-  const folder = (i.downloadUrl.split('/').pop() ?? i.id).replace(/\.zip$/i, '')
+  // The unpacked folder is named after the extension id (what the install commands create), not the zip file.
+  const folder = i.id
   // A terminal needs an absolute URL; the config stores a site-relative path.
   const absolute = new URL(i.downloadUrl, location.origin).href
   const command = fillPlaceholders(i.commands?.[os] ?? '', { version: i.version, downloadUrl: absolute, folder })
