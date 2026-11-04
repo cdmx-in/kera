@@ -14,6 +14,7 @@ import (
 	"github.com/cdmx-in/kera/internal/app"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/db"
+	_ "github.com/cdmx-in/kera/internal/files" // registers the files feature
 	"github.com/cdmx-in/kera/internal/version"
 )
 
