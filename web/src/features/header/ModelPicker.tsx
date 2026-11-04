@@ -7,6 +7,7 @@ import { useComposer } from '@/stores/composer'
 import { useChat } from '@/stores/chat'
 import type { Model } from '@/api/types'
 import { cx } from '@/lib/format'
+import { isChatModel } from '@/features/chat/model-select'
 
 /** True when the open chat already has a reply from a local model (cloud models are then locked out). */
 export function useLocalLock(models: Model[] | undefined): boolean {
@@ -25,7 +26,7 @@ export function ModelPicker() {
   const [open, setOpen] = useState(false)
   const current = models?.find((m) => m.id === model)
   // hidden models are listed only when explicitly selected (?models=)
-  const visible = (models ?? []).filter((m) => !m.hidden || m.id === model)
+  const visible = (models ?? []).filter((m) => isChatModel(m) && (!m.hidden || m.id === model))
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/cdmx-in/kera/internal/auth"
+	"github.com/cdmx-in/kera/internal/retrieval"
 	"github.com/cdmx-in/kera/internal/tools"
 )
 
@@ -43,22 +44,31 @@ func (t *toolSet) Tools(ctx context.Context, u *auth.User) ([]tools.Spec, error)
 	return slices.Clone(toolSpecs), nil
 }
 
-// scope returns the collections a call may use.
-func (t *toolSet) scope(ctx context.Context, c tools.Call) ([]*Collection, error) {
+// scope returns the collections a call may use, and ctx marked as a local
+// run when the calling model is local (the engine marks its runs too; this
+// covers callers that only pass the model id).
+func (t *toolSet) scope(ctx context.Context, c tools.Call) ([]*Collection, context.Context, error) {
 	if t.s.models != nil && c.ModelID != "" {
-		if m, err := t.s.models.Resolve(ctx, c.User, c.ModelID); err == nil && len(m.Knowledge) > 0 {
-			refs := make([]string, 0, len(m.Knowledge))
-			for _, k := range m.Knowledge {
-				for _, v := range []string{k.ID, k.Name} {
-					if v != "" {
-						refs = append(refs, v)
+		if m, err := t.s.models.Resolve(ctx, c.User, c.ModelID); err == nil {
+			if m.Local {
+				ctx = retrieval.WithLocalRun(ctx)
+			}
+			if len(m.Knowledge) > 0 {
+				refs := make([]string, 0, len(m.Knowledge))
+				for _, k := range m.Knowledge {
+					for _, v := range []string{k.ID, k.Name} {
+						if v != "" {
+							refs = append(refs, v)
+						}
 					}
 				}
+				cs, err := t.s.readable(ctx, c.User, refs)
+				return cs, ctx, err
 			}
-			return t.s.readable(ctx, c.User, refs)
 		}
 	}
-	return t.s.readable(ctx, c.User, nil)
+	cs, err := t.s.readable(ctx, c.User, nil)
+	return cs, ctx, err
 }
 
 func (t *toolSet) Execute(ctx context.Context, c tools.Call) (tools.Result, error) {
@@ -76,7 +86,7 @@ func (t *toolSet) Execute(ctx context.Context, c tools.Call) (tools.Result, erro
 			return errResult("invalid arguments: " + err.Error()), nil
 		}
 	}
-	cs, err := t.scope(ctx, c)
+	cs, ctx, err := t.scope(ctx, c)
 	if err != nil {
 		return tools.Result{}, err
 	}

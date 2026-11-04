@@ -76,6 +76,8 @@ var Defaults = map[string]json.RawMessage{
 	"rag.embedding.batch":          raw(`32`),
 	"rag.reranker.url":             raw(`""`),
 	"rag.reranker.model":           raw(`""`),
+	"rag.reranker.local_runs":      raw(`"skip"`), // skip | allow: local-model runs and an external reranker (rag.reranker.api_key is a secret without default)
+	"rag.reranker.local_url":       raw(`""`),
 	"rag.extractor.url":            raw(`""`),
 	"rag.extractor.model":          raw(`""`),
 	"rag.template":                 raw(`""`),

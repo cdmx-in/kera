@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -183,6 +184,32 @@ func (o *ollama) ListModels(ctx context.Context) ([]string, error) {
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+// ModelKinds implements KindLister via POST /api/show: a model whose
+// capabilities lack "completion" cannot chat (embedding models report only
+// "embedding"). Models /api/show cannot describe are left out.
+func (o *ollama) ModelKinds(ctx context.Context, ids []string) (map[string]string, error) {
+	out := map[string]string{}
+	var firstErr error
+	for _, id := range ids {
+		var show struct {
+			Capabilities []string `json:"capabilities"`
+		}
+		if err := o.postJSON(ctx, o.base+"/api/show", map[string]any{"model": id}, &show); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if len(show.Capabilities) > 0 && !slices.Contains(show.Capabilities, "completion") {
+			out[id] = ModelEmbedding
+		}
+	}
+	if len(out) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return out, nil
 }
 
 // Embed implements Client via POST /api/embed.

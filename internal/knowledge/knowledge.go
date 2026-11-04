@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,6 +27,7 @@ import (
 	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/provider"
 	"github.com/cdmx-in/kera/internal/retrieval"
+	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/settings"
 	"github.com/cdmx-in/kera/internal/tools"
 )
@@ -51,6 +53,7 @@ type Service struct {
 	files    *files.Service
 	models   *models.Registry // may be nil in tests; used to read a model's knowledge
 	embedder Embedder
+	keys     *secret.Keys // decrypts rag.reranker.api_key; nil in tests without one
 	http     *http.Client
 
 	wake    chan struct{}
@@ -58,6 +61,8 @@ type Service struct {
 	stopped sync.WaitGroup
 	once    sync.Once
 	indexes sync.Map // embedding model id -> struct{} once its HNSW index exists
+
+	rerankFailed atomic.Int64 // unix nanos of the last failed rerank call
 }
 
 // New builds a service; call Start to run the ingestion worker.
@@ -89,6 +94,7 @@ func For(a *app.App) *Service {
 // routes and starts the ingestion worker.
 func Mount(a *app.App) error {
 	s := For(a)
+	s.keys = a.Keys
 	s.files.OnProcessed(func(context.Context, files.File) { s.Wake() })
 	s.files.RegisterAccessCheck(s.canReadFile)
 	retrieval.Register(s)

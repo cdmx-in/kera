@@ -18,7 +18,7 @@ import { EmptyState } from './EmptyState'
 import { AskUserCard } from './AskUserCard'
 import { ConfirmDialog } from './ConfirmDialog'
 import { sendMessage } from './actions'
-import { resolveModel } from './model-select'
+import { nextModel } from './model-select'
 import { resumeStream } from './stream'
 
 interface ChatJSON {
@@ -89,9 +89,9 @@ export default function ChatPage() {
   const requested = params.models.join(',')
   useEffect(() => {
     if (!models.data) return
-    const cur = useComposer.getState().model
-    const pick = resolveModel(models.data, { requested: params.models, chatModel: chatId ? cur : undefined, defaults: uiConfig().defaultModels })
-    if (requested || !cur || !models.data.some((m) => m.id === cur)) useComposer.getState().setModel(pick)
+    const c = useComposer.getState()
+    const next = nextModel(models.data, { current: c.model, auto: c.modelAuto, requested: params.models, inChat: !!chatId, defaults: uiConfig().defaultModels })
+    if (next) c.setModel(next.id, next.auto)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models.data, requested, chatId])
 

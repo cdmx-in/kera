@@ -491,3 +491,87 @@ func TestUndecryptableConnectionKey(t *testing.T) {
 		}
 	}
 }
+
+// Embedding and rerank models (by server report or by name) stay out of chat
+// lists, show their kind with ?kinds=all, and resolve with that kind.
+func TestModelKinds(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	keys, _ := secret.Derive(strings.Repeat("s", 32))
+	ol := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			io.WriteString(w, `{"models":[{"model":"qwen"},{"model":"all-minilm"},{"model":"bge-reranker-v2-m3"}]}`)
+		case "/api/show":
+			var b struct{ Model string }
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			caps := map[string]string{"qwen": `["completion","tools"]`, "all-minilm": `["embedding"]`, "bge-reranker-v2-m3": `["completion"]`}[b.Model]
+			io.WriteString(w, `{"capabilities":`+caps+`}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ol.Close()
+	oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			io.WriteString(w, `{"data":[{"id":"gpt-a"},{"id":"cohere-rerank"},{"id":"small-vectors"}]}`)
+		case "/v1/model/info":
+			io.WriteString(w, `{"data":[{"model_name":"gpt-a","model_info":{"mode":"chat"}},
+				{"model_name":"cohere-rerank","model_info":{"mode":"rerank"}},{"model_name":"small-vectors","model_info":{"mode":"embedding"}}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer oa.Close()
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			io.WriteString(w, `{"data":[{"id":"text-embedding-3-small"},{"id":"gpt-b"}]}`)
+			return
+		}
+		http.NotFound(w, r) // no /model/info: names decide
+	}))
+	defer plain.Close()
+	mustExec(t, db, `INSERT INTO connection (id, kind, base_url, sort) VALUES ('ol', 'ollama', $1, 0)`, ol.URL)
+	mustExec(t, db, `INSERT INTO connection (id, kind, base_url, sort) VALUES ('lite', 'openai', $1, 1)`, oa.URL)
+	mustExec(t, db, `INSERT INTO connection (id, kind, base_url, prefix, sort) VALUES ('plain', 'openai', $1, 'p', 2)`, plain.URL)
+	r := New(db, keys, settings.New(db), "")
+	ms, err := r.List(ctx, &auth.User{ID: "root", Role: "admin"}, true)
+	must(t, err)
+	got := map[string]string{}
+	for _, m := range ms {
+		got[m.ID] = m.Kind
+	}
+	want := map[string]string{"qwen": "", "all-minilm": "embedding", "bge-reranker-v2-m3": "rerank", "gpt-a": "",
+		"cohere-rerank": "rerank", "small-vectors": "embedding", "p.text-embedding-3-small": "embedding", "p.gpt-b": ""}
+	for id, k := range want {
+		if g, ok := got[id]; !ok || g != k {
+			t.Errorf("%s: kind %q (listed %v), want %q", id, g, ok, k)
+		}
+	}
+	if m, err := r.Resolve(ctx, &auth.User{ID: "root", Role: "admin"}, "all-minilm"); err != nil || m.Kind != "embedding" {
+		t.Fatalf("resolve %+v %v", m, err)
+	}
+	if modelKind("Rerank-English", nil) != "rerank" || modelKind("nomic-embed-text", nil) != "embedding" || modelKind("qwen3", nil) != "" {
+		t.Fatal("name heuristics")
+	}
+}
+
+func TestModelListHidesNonChatKinds(t *testing.T) {
+	e := setup(t)
+	e.reg.mu.Lock()
+	e.reg.cache["local"] = discovery{key: "ollama|" + e.fakes.ollama.URL, ids: []string{"qwen", "llava", "mxbai-embed-large"},
+		kinds: map[string]string{"mxbai-embed-large": "embedding"}, at: time.Now()}
+	e.reg.mu.Unlock()
+	if got := idList(e.json(t, "admin", "GET", "/api/models", nil, 200)["data"]); got != "finance,kera,llava,web.gpt-a" {
+		t.Fatalf("chat list %s", got)
+	}
+	out := e.json(t, "admin", "GET", "/api/models?include_hidden=true&kinds=all", nil, 200)
+	kinds := map[string]any{}
+	for _, m := range out["data"].([]any) {
+		kinds[m.(map[string]any)["id"].(string)] = m.(map[string]any)["kind"]
+	}
+	if kinds["mxbai-embed-large"] != "embedding" || kinds["kera"] != "chat" {
+		t.Fatalf("kinds %v", kinds)
+	}
+}

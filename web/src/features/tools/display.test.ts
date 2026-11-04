@@ -32,6 +32,11 @@ describe('display', () => {
     execute_code: { label: 'code run', kind: 'code' as const },
     special: { label: 'person', plural: 'people' },
   }
+  it("prefers a tool server's own name for its function", () => {
+    const m = { search_kb: { label: 'KB search' }, beta_search_kb: { label: 'beta search' } }
+    expect(displayFor(m, 'search_kb', 'beta').label).toBe('beta search')
+    expect(displayFor(m, 'search_kb', 'alpha').label).toBe('KB search')
+  })
   it('falls back to the humanizer', () => {
     expect(displayFor(map, 'list_chat_files')).toMatchObject({ label: 'list chat files', kind: 'other' })
   })

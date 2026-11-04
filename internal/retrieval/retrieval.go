@@ -50,6 +50,13 @@ type Retriever interface {
 	List(ctx context.Context, u *auth.User) ([]Collection, error)
 }
 
+// Reranking is optionally implemented by a Retriever: Reranks reports
+// whether searches made with ctx go through a working reranker (so the
+// passages are ranked well enough to put in a prompt unasked).
+type Reranking interface {
+	Reranks(ctx context.Context) bool
+}
+
 var (
 	mu  sync.RWMutex
 	cur Retriever
@@ -60,3 +67,17 @@ func Register(r Retriever) { mu.Lock(); cur = r; mu.Unlock() }
 
 // Get returns the registered implementation, or nil when knowledge is not mounted.
 func Get() Retriever { mu.RLock(); defer mu.RUnlock(); return cur }
+
+type localRunKey struct{}
+
+// WithLocalRun marks ctx as serving a run on a local model, so retrieval
+// keeps its documents away from external services (rag.reranker.local_runs).
+func WithLocalRun(ctx context.Context) context.Context {
+	return context.WithValue(ctx, localRunKey{}, true)
+}
+
+// IsLocalRun reports whether ctx was marked by WithLocalRun.
+func IsLocalRun(ctx context.Context) bool {
+	v, _ := ctx.Value(localRunKey{}).(bool)
+	return v
+}

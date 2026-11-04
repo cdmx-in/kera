@@ -314,3 +314,34 @@ func TestServeCache(t *testing.T) {
 		}
 	}
 }
+
+// tool_servers[].display.tools reach toolDisplay as "<server>_<fn>" and the
+// bare name, each only when nothing named it before (ui.tool_display wins).
+func TestToolServerDisplayMerged(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	st := settings.New(db)
+	must(t, st.Set(ctx, "ui.tool_display", map[string]any{"search_web": map[string]any{"label": "web search"},
+		"beta_search_kb": map[string]any{"label": "admin beta"}}, true))
+	for _, r := range [][3]string{
+		{"alpha", "0", `{"label":"KB","tools":{"search_kb":{"label":"KB search","kind":"search"},"search_web":{"label":"server web"}}}`},
+		{"beta", "1", `{"tools":{"search_kb":{"label":"beta search"}}}`},
+	} {
+		_, err := db.Exec(ctx, `INSERT INTO tool_server (id, kind, url, sort, display) VALUES ($1, 'openapi', 'http://x', $2::int, $3::jsonb)`, r[0], r[1], r[2])
+		must(t, err)
+	}
+	_, err := db.Exec(ctx, `INSERT INTO tool_server (id, kind, url, enabled, display) VALUES ('off', 'mcp', 'http://x', false, '{"tools":{"gone":{"label":"no"}}}')`)
+	must(t, err)
+	cfg, _, err := (&UI{settings: st, db: db, assets: &assets{dir: t.TempDir()}, tmpl: []byte(shell)}).current(ctx)
+	must(t, err)
+	td := cfg.ToolDisplay
+	for k, want := range map[string]string{"search_web": "web search", "alpha_search_web": "server web", "search_kb": "KB search",
+		"alpha_search_kb": "KB search", "beta_search_kb": "admin beta"} {
+		if td[k].Label != want {
+			t.Errorf("%s = %+v, want %q", k, td[k], want)
+		}
+	}
+	if _, ok := td["gone"]; ok || td["search_kb"].Kind != "search" {
+		t.Errorf("toolDisplay %+v", td)
+	}
+}

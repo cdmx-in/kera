@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router'
 import { Pencil, Search, Shield } from 'lucide-react'
 import { api } from '@/api/client'
-import { useModels } from '@/api/queries'
+import type { Model } from '@/api/types'
 import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
 import { Switch } from '@/ui/misc'
 import { cx } from '@/lib/format'
@@ -14,6 +14,7 @@ import { attempt, Badge, Card, inputCls, Loading, ManagedBadge, tdCls, thCls } f
 interface Item {
   id: string
   name: string
+  kind: string
   base: string
   local: boolean
   hidden: boolean
@@ -23,20 +24,22 @@ interface Item {
 }
 
 export function ModelsTab() {
-  const listed = useModels() // active models, hidden included (admins see all)
+  // active models of every kind (embedding and rerank too), hidden included (admins see all)
+  const listed = useAdmin<{ data: Model[] }>(['models-all'], '/api/models?include_hidden=true&kinds=all')
   const rows = useAdmin<ModelRow[]>(['model-rows'], '/api/v1/models/')
   const qc = useQueryClient()
   const [q, setQ] = useState('')
   const [access, setAccess] = useState<Item | null>(null)
   const items = useMemo(() => {
     const byId = new Map<string, Item>()
-    for (const m of listed.data ?? [])
-      byId.set(m.id, { id: m.id, name: m.name || m.id, base: '', local: !!m.local, hidden: !!m.hidden, active: true, managed: false, preset: false })
+    for (const m of listed.data?.data ?? [])
+      byId.set(m.id, { id: m.id, name: m.name || m.id, kind: m.kind ?? 'chat', base: '', local: !!m.local, hidden: !!m.hidden, active: true, managed: false, preset: false })
     for (const r of rows.data ?? []) {
       const cur = byId.get(r.id)
       byId.set(r.id, {
         id: r.id,
         name: r.name || cur?.name || r.id,
+        kind: cur?.kind ?? 'chat',
         base: r.base_model_id ?? r.connection_id ?? '',
         local: cur?.local ?? false,
         hidden: !!r.meta?.hidden,
@@ -48,7 +51,7 @@ export function ModelsTab() {
     const needle = q.trim().toLowerCase()
     return [...byId.values()].filter((m) => !needle || `${m.id} ${m.name}`.toLowerCase().includes(needle)).sort((a, b) => Number(b.preset) - Number(a.preset) || a.name.localeCompare(b.name))
   }, [listed.data, rows.data, q])
-  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ['models'] }), qc.invalidateQueries({ queryKey: ['admin', 'model-rows'] })])
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ['models'] }), qc.invalidateQueries({ queryKey: ['admin', 'model-rows'] }), qc.invalidateQueries({ queryKey: ['admin', 'models-all'] })])
   const setHidden = (m: Item, hidden: boolean) =>
     attempt(async () => {
       await api(`/api/v1/models/model/update?id=${enc(m.id)}`, { method: 'POST', json: { meta: { hidden } } })
@@ -93,6 +96,7 @@ export function ModelsTab() {
                     <span className="font-medium">{m.name}</span>
                     {m.preset && <Badge tone="accent">preset</Badge>}
                     {m.local && <Badge>local</Badge>}
+                    {m.kind !== 'chat' && <Badge title="Not offered for chat">{m.kind}</Badge>}
                     {m.managed && <ManagedBadge />}
                   </div>
                   <div className="font-mono text-[11px] text-muted">{m.id}</div>

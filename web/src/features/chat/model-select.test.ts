@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pickSuggestions, resolveModel } from './model-select'
+import { nextModel, pickSuggestions, resolveModel } from './model-select'
 import { normalizeModel } from '@/api/queries'
 
 const models = [
@@ -17,6 +17,29 @@ describe('resolveModel', () => {
     expect(resolveModel(models, { defaults: ['h', 'b'] })).toBe('b')
     expect(resolveModel(models, {})).toBe('a')
     expect(resolveModel([], {})).toBe('')
+  })
+  it('never picks an embedding or rerank model', () => {
+    const list = [{ id: 'all-minilm', name: 'all-minilm', kind: 'embedding' }, { id: 'rr', name: 'rr', kind: 'rerank' }, ...models]
+    expect(resolveModel(list, {})).toBe('a')
+    expect(resolveModel(list, { requested: ['rr'], chatModel: 'all-minilm', defaults: ['all-minilm'] })).toBe('a')
+  })
+})
+
+describe('nextModel', () => {
+  const base = { current: '', auto: false, requested: [] as string[], inChat: false, defaults: ['b'] }
+  it('redoes an automatic pick when the default shows up later', () => {
+    const partial = [{ id: 'all-minilm', name: 'x', kind: 'embedding' }, { id: 'a', name: 'A' }]
+    const first = nextModel(partial, base)
+    expect(first).toEqual({ id: 'a', auto: true })
+    expect(nextModel(models, { ...base, current: 'a', auto: true })).toEqual({ id: 'b', auto: true })
+  })
+  it("keeps the user's and the chat's choice", () => {
+    expect(nextModel(models, { ...base, current: 'a' })).toBeNull()
+    expect(nextModel(models, { ...base, current: 'a', inChat: true, auto: true })).toEqual({ id: 'a', auto: false })
+  })
+  it('follows ?models= and replaces a model that disappeared', () => {
+    expect(nextModel(models, { ...base, current: 'a', requested: ['h'] })).toEqual({ id: 'h', auto: false })
+    expect(nextModel(models, { ...base, current: 'gone' })).toEqual({ id: 'b', auto: true })
   })
 })
 

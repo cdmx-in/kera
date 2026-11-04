@@ -141,8 +141,11 @@ export function RetrievalTab() {
         {
           title: 'Reranker and extractor',
           fields: [
-            f('rag.reranker.url', 'text', 'Rerank sidecar URL (empty = no reranking).', 'Reranker URL'),
-            f('rag.reranker.model', 'text', undefined, 'Reranker model'),
+            f('rag.reranker.url', 'text', 'Cohere-style /rerank endpoint: the sidecar or LiteLLM (empty = no reranking).', 'Reranker URL'),
+            f('rag.reranker.model', 'text', 'e.g. a Cohere rerank model registered in LiteLLM.', 'Reranker model'),
+            f('rag.reranker.api_key', 'secret', 'Bearer token for a hosted reranker (write-only).', 'Reranker API key'),
+            f('rag.reranker.local_runs', { select: [['skip', 'Skip (fused order or local URL)'], ['allow', 'Allow']] }, 'Whether chats on local models may send passages to this reranker.', 'Local-model chats'),
+            f('rag.reranker.local_url', 'text', 'Reranker used for local-model chats instead (empty = none).', 'Local reranker URL'),
             f('rag.extractor.url', 'text', 'Document extraction sidecar URL.', 'Extractor URL'),
             f('rag.extractor.model', 'text', undefined, 'Extractor model'),
           ],

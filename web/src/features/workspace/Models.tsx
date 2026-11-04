@@ -375,12 +375,14 @@ function KnowledgeRefs({ f, set }: { f: ModelForm; set: SetFn }) {
             </span>
             <Select
               aria-label="Knowledge mode"
-              value={k.mode || 'retrieve'}
+              value={k.mode && k.mode !== 'auto' ? k.mode : ''}
               onChange={(v) => set('knowledge', f.knowledge.map((x, j) => (j === i ? { ...x, mode: v } : x)))}
               size="sm"
               className="w-auto"
               options={[
-                { value: 'retrieve', label: 'Search relevant parts' },
+                { value: '', label: 'Automatic', description: 'Relevant parts in the prompt when a reranker works; otherwise the model searches with tools' },
+                { value: 'retrieve', label: 'Relevant parts in the prompt' },
+                { value: 'tools', label: 'Model searches with tools' },
                 { value: 'full', label: 'Whole documents in the prompt' },
               ]}
             />
@@ -395,7 +397,7 @@ function KnowledgeRefs({ f, set }: { f: ModelForm; set: SetFn }) {
         className="max-w-sm"
         value=""
         placeholder="Attach a collection..."
-        onChange={(v) => v && set('knowledge', [...f.knowledge, { id: v, mode: 'retrieve' }])}
+        onChange={(v) => v && set('knowledge', [...f.knowledge, { id: v, mode: '' }])}
         options={colls.filter((c) => !attached(c.id, c.name)).map((c) => ({ value: c.id, label: c.name }))}
       />
     </Section>

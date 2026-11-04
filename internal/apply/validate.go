@@ -108,10 +108,14 @@ func validate(f *File, errs *Errors) {
 				errs.add(l, "%s: knowledge entries need a name or an id", what)
 			}
 			if k.Mode != "" {
-				oneOf(l, what+".knowledge.mode", k.Mode, errs, "retrieve", "full")
+				oneOf(l, what+".knowledge.mode", k.Mode, errs, "auto", "retrieve", "full", "tools")
 			}
 		}
 		checkGrants(l, what, m.Grants, errs)
+	}
+
+	if f.RAG != nil && f.RAG.Reranker != nil && f.RAG.Reranker.LocalRuns != nil {
+		oneOf(0, "rag.reranker.local_runs", *f.RAG.Reranker.LocalRuns, errs, "skip", "allow")
 	}
 
 	unique(f, "knowledge", len(f.Knowledge), func(i int) string { return f.Knowledge[i].Name }, errs)
