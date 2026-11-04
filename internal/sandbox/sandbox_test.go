@@ -93,6 +93,9 @@ func (f *fakeJupyter) channels(w http.ResponseWriter, r *http.Request) {
 		_ = wsjson.Write(ctx, c, message{Header: msgHeader{MsgType: "stream"}, ParentHeader: msgHeader{MsgID: "other"},
 			Content: json.RawMessage(`{"name":"stdout","text":"NOISE"}`), Channel: "iopub"})
 		send("status", map[string]string{"execution_state": "busy"})
+		if strings.Contains(req.Code, "KERA_LANGS") { // the language probe
+			send("stream", map[string]string{"name": "stdout", "text": "KERA_LANGS " + `{"python":[],"php":["php","{file}"],"cobol":["cobc"]}` + "\n"})
+		}
 		if mm := chdirRe.FindStringSubmatch(req.Code); mm != nil {
 			f.cwd = mm[1]
 		}
@@ -275,6 +278,13 @@ func TestExecuteHarvest(t *testing.T) {
 	if err != nil || len(specs) != 1 || specs[0].Name != "execute_code" {
 		t.Fatalf("tools: %v %v", specs, err)
 	}
+	// the probe found php (and cobol, which is not configured)
+	if p := string(specs[0].Parameters); !strings.Contains(p, `"enum":["python","php"]`) {
+		t.Fatalf("schema = %s", p)
+	}
+	if n := Prompt(ctx, e.p.Settings); !strings.HasPrefix(n, DefaultPrompt) || !strings.Contains(n, `"php" (PHP)`) {
+		t.Fatalf("prompt = %s", n)
+	}
 	if specs, _ := e.p.Tools(ctx, &auth.User{ID: "bob"}); specs != nil {
 		t.Fatal("user without the permission sees execute_code")
 	}
@@ -334,7 +344,7 @@ func TestExecuteHarvest(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("run folder left behind: %v", entries)
 	}
-	if e.fj.deleted != 1 {
+	if e.fj.deleted != 2 { // the language probe and the run
 		t.Fatalf("kernels deleted = %d", e.fj.deleted)
 	}
 	if len(e.events) != 2 || e.events[1].Data.(map[string]any)["done"] != true {
@@ -369,6 +379,13 @@ func TestExecuteInputsAndErrors(t *testing.T) {
 	res = e.call(t, " ")
 	if !res.IsError {
 		t.Fatal("empty code accepted")
+	}
+	for lang, want := range map[string]string{"cobol": `unknown language \"cobol\"; available: python, php`, "ruby": "ruby is not installed in the sandbox; available: python, php"} {
+		args, _ := json.Marshal(map[string]string{"code": "puts 1", "language": lang})
+		res, err := e.p.Execute(context.Background(), tools.Call{Name: "execute_code", Args: args, User: e.user, Emit: func(tools.Event) {}})
+		if err != nil || !res.IsError || !strings.Contains(res.Content, want) {
+			t.Fatalf("%s: %s %v", lang, res.Content, err)
+		}
 	}
 }
 

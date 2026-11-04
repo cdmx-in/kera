@@ -107,6 +107,12 @@ export function CodeTab() {
             f('code_interpreter.max_file_mb', 'int', 'Largest file harvested from a run.', 'Max file size (MB)'),
             f('code_interpreter.prompt', 'textarea', 'Instructions added to the system prompt when the tool is on.', 'Prompt'),
             f('code_interpreter.prelude', 'textarea', 'Python run before every snippet.', 'Prelude'),
+            f(
+              'code_interpreter.languages',
+              'json',
+              'Languages execute_code can run: name -> {command: [argv with {file}], ext, aliases, label, check, fallback}. Python (no command) runs in the kernel; others run as a subprocess. Only languages whose program exists in the sandbox are offered.',
+              'Languages',
+            ),
           ],
         },
       ]}
