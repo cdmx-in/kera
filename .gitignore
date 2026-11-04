@@ -11,3 +11,4 @@
 coverage.out
 /web/test-results/
 /web/playwright-report/
+web/.vitest/
