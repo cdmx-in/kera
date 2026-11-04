@@ -48,11 +48,15 @@ func Credential(r *http.Request) string {
 			return strings.TrimSpace(v)
 		}
 	}
-	if c, err := r.Cookie(CookieName); err == nil {
+	// Browsers attach the cookie on their own, so an unsafe (non-GET) request
+	// may use it only when it comes from our own origin (CSRF).
+	if c, err := r.Cookie(CookieName); err == nil && sameOrigin.Check(r) == nil {
 		return c.Value
 	}
 	return ""
 }
+
+var sameOrigin = http.NewCrossOriginProtection()
 
 // Resolve authenticates r. It returns ErrUnauthenticated when no valid credential is present.
 func (a *Authenticator) Resolve(r *http.Request) (*User, error) {
