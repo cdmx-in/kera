@@ -9,7 +9,9 @@ import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
 import { Switch } from '@/ui/misc'
 import { toast } from '@/stores/toast'
 import { AccessEditor } from '../Access'
+import { displayName } from '../labels'
 import { ProviderIcon, ToolServerIcon } from './serviceIcons'
+import { providerTemplates } from './providerTemplates'
 import { enc, useHookServers, useProviders, useToolServers, type HookServer, type OAuthProvider, type ToolServer } from '../api'
 import { parseList } from '../lib'
 import { attempt, Badge, Btn, Card, Check, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, SecretInput } from '../ui'
@@ -48,7 +50,8 @@ function ServerList<T extends { id: string; managed: boolean }>(props: {
             {props.icon?.(x)}
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold">{x.id}</span>
+                <span className="font-semibold">{displayName(x.id, (x as { name?: string }).name)}</span>
+                <code className="text-xs text-muted">{x.id}</code>
                 {props.badges(x)}
                 {x.managed && <ManagedBadge />}
               </div>
@@ -134,7 +137,7 @@ export function ToolServersTab() {
       badges={(t) => (
         <>
           <Badge>{t.kind === 'mcp' ? 'MCP' : 'OpenAPI'}</Badge>
-          {t.auth.type !== 'none' && <Badge tone={t.auth.type === 'user_oauth' || t.auth.has_key ? 'green' : 'red'}>{t.auth.type === 'user_oauth' ? `OAuth: ${t.auth.provider}` : `${t.auth.type} auth`}</Badge>}
+          {t.auth.type !== 'none' && <Badge tone={t.auth.type === 'user_oauth' || t.auth.has_key ? 'green' : 'red'}>{t.auth.type === 'user_oauth' ? `OAuth: ${t.auth.provider}` : `${t.auth.type === 'bearer' ? 'Bearer' : 'Header'} auth`}</Badge>}
         </>
       )}
       toggle={(t) => <Switch checked={t.enabled} onChange={(on) => void save({ ...t, auth: { ...t.auth, key: undefined }, enabled: on })} label={`Enable ${t.id}`} />}
@@ -180,7 +183,7 @@ function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onCl
     }
   }
   return (
-    <EditorDialog title={server ? `Edit ${server.id}` : 'Add tool server'} managed={server?.managed} onClose={onClose} onSubmit={submit} wide>
+    <EditorDialog title={server ? `Edit ${displayName(server.id, server.name)}` : 'Add tool server'} managed={server?.managed} onClose={onClose} onSubmit={submit} wide>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="ID">
           <input value={t.id} required disabled={!!server} onChange={(e) => setT({ ...t, id: e.target.value })} className={inputCls} data-testid="server-id" />
@@ -300,7 +303,7 @@ export function HookServersTab() {
           {h.events.map((e) => (
             <Badge key={e}>{e}</Badge>
           ))}
-          <Badge tone={h.scope === 'global' ? 'amber' : 'grey'}>{h.scope === 'global' ? 'all models' : `${h.model_ids.length} models`}</Badge>
+          <Badge tone={h.scope === 'global' ? 'amber' : 'grey'}>{h.scope === 'global' ? 'All models' : `${h.model_ids.length} ${h.model_ids.length === 1 ? 'model' : 'models'}`}</Badge>
         </>
       )}
       toggle={(h) => <Switch checked={h.enabled} onChange={(on) => void save({ ...h, enabled: on })} label={`Enable ${h.id}`} />}
@@ -330,7 +333,7 @@ function HookEditor({ hook, onClose, save }: { hook: HookServer | null; onClose:
     if (await save({ ...h, config: cfg, forward_oauth: parseList(forward), ...(key !== null ? { key } : {}) })) onClose()
   }
   return (
-    <EditorDialog title={hook ? `Edit ${hook.id}` : 'Add hook server'} managed={hook?.managed} onClose={onClose} onSubmit={submit} wide>
+    <EditorDialog title={hook ? `Edit ${displayName(hook.id, hook.name)}` : 'Add hook server'} managed={hook?.managed} onClose={onClose} onSubmit={submit} wide>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="ID">
           <input value={h.id} required disabled={!!hook} onChange={(e) => setH({ ...h, id: e.target.value })} className={inputCls} />
@@ -427,15 +430,15 @@ export function OAuthTab() {
       summary={(p) => (
         <span className="inline-flex max-w-full items-center gap-1.5">
           <span className="truncate">
-            {p.name ? `${p.name} · ` : ''}Redirect URI <code className="text-xs">{p.redirect_uri}</code>
+            Redirect URI <code className="text-xs">{p.redirect_uri}</code>
           </span>
           <CopyInline text={p.redirect_uri} />
         </span>
       )}
       badges={(p) => (
         <>
-          <Badge tone={p.login ? 'accent' : 'grey'}>{p.login ? 'sign-in' : 'tool server'}</Badge>
-          {!p.has_secret && <Badge tone="amber">no secret</Badge>}
+          <Badge tone={p.login ? 'accent' : 'grey'}>{p.login ? 'Sign-in' : 'Tool server'}</Badge>
+          {!p.has_secret && <Badge tone="amber">No secret</Badge>}
         </>
       )}
       editor={(p, close) => <ProviderEditor provider={p} onClose={close} save={save} />}
@@ -465,12 +468,14 @@ const blankProvider: OAuthProvider = {
 /** What the provider console must list; the server's value wins once saved (it uses KERA_URL). */
 export function redirectPreview(p: OAuthProvider, origin: string): string {
   if (p.redirect_uri) return p.redirect_uri
-  const id = encodeURIComponent(p.id || '<id>').replace(/%3A/gi, ':')
+  if (!p.id) return ''
+  const id = encodeURIComponent(p.id).replace(/%3A/gi, ':')
   return p.login ? `${origin}/oauth/${id}/callback` : `${origin}/oauth/clients/${id}/callback`
 }
 
 function ProviderEditor({ provider, onClose, save }: { provider: OAuthProvider | null; onClose: () => void; save: (b: unknown) => Promise<boolean> }) {
   const [p, setP] = useState(provider ?? blankProvider)
+  const [template, setTemplate] = useState('')
   const [secret, setSecret] = useState<string | null>(null)
   const uri = redirectPreview(provider && provider.login === p.login ? p : { ...p, redirect_uri: '' }, location.origin)
   const text = (k: keyof OAuthProvider, label: string, hint?: string, type = 'url') => (
@@ -482,7 +487,27 @@ function ProviderEditor({ provider, onClose, save }: { provider: OAuthProvider |
     if (await save({ ...p, ...(secret !== null ? { client_secret: secret } : {}) })) onClose()
   }
   return (
-    <EditorDialog title={provider ? `Edit ${provider.id}` : 'Add OAuth provider'} managed={provider?.managed} onClose={onClose} onSubmit={submit} wide>
+    <EditorDialog title={provider ? `Edit ${displayName(provider.id, provider.name)}` : 'Add OAuth provider'} managed={provider?.managed} onClose={onClose} onSubmit={submit} wide>
+      {!provider && (
+        <Field label="Start from" hint="Fills in the endpoints and scopes; you add the client ID and secret.">
+          <Select
+            aria-label="Provider template"
+            value={template}
+            placeholder="Choose a provider…"
+            onChange={(k) => {
+              setTemplate(k)
+              const t = providerTemplates.find((x) => x.key === k)
+              if (t) setP({ ...blankProvider, ...t.values })
+            }}
+            options={providerTemplates.map((t) => ({
+              value: t.key,
+              label: t.label,
+              description: t.description,
+              icon: t.key === 'custom' ? undefined : <ProviderIcon p={{ ...t.values }} size="sm" />,
+            }))}
+          />
+        </Field>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="ID" hint="For a tool server's per-user sign-in, use the tool server's id.">
           <input value={p.id} required disabled={!!provider} onChange={(e) => setP({ ...p, id: e.target.value })} className={inputCls} />
@@ -504,11 +529,13 @@ function ProviderEditor({ provider, onClose, save }: { provider: OAuthProvider |
         <div className="mb-1 text-xs font-medium text-muted">Redirect URI to register with the provider</div>
         <div className="flex items-center gap-2">
           <code className="min-w-0 flex-1 break-all text-xs" data-testid="redirect-uri">
-            {uri}
+            {uri || <span className="font-sans text-muted">Enter an ID to see the redirect URI.</span>}
           </code>
-          <IconButton label="Copy redirect URI" onClick={() => void navigator.clipboard?.writeText(uri).then(() => toast('Copied'))}>
-            <Copy size={14} />
-          </IconButton>
+          {uri && (
+            <IconButton label="Copy redirect URI" onClick={() => void navigator.clipboard?.writeText(uri).then(() => toast('Copied'))}>
+              <Copy size={14} />
+            </IconButton>
+          )}
         </div>
       </div>
       {text('issuer', 'Issuer', "Sign-in providers with empty endpoints use Google's.")}

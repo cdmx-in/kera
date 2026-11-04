@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import { Braces, KeyRound, Plug } from 'lucide-react'
 
-type Mark = 'google' | 'sheets' | 'drive' | 'microsoft' | 'github' | 'key'
+type Mark = 'google' | 'sheets' | 'drive' | 'docs' | 'gmail' | 'calendar' | 'microsoft' | 'github' | 'key'
 
 /** Picks the mark for a provider: Google APIs by scope first (Sheets, Drive), then the issuer's brand. */
 export function providerMark(p: { issuer?: string; authorization_endpoint?: string; scope?: string; id?: string }): Mark {
@@ -11,6 +11,9 @@ export function providerMark(p: { issuer?: string; authorization_endpoint?: stri
   const scope = (p.scope ?? '').toLowerCase()
   const google = where.includes('google') || (!where.trim() && /google/.test(p.id ?? '')) || scope.includes('googleapis.com')
   if (google && scope.includes('/auth/spreadsheets')) return 'sheets'
+  if (google && scope.includes('/auth/documents')) return 'docs'
+  if (google && scope.includes('/auth/gmail')) return 'gmail'
+  if (google && scope.includes('/auth/calendar')) return 'calendar'
   if (google && /\/auth\/drive/.test(scope)) return 'drive'
   if (google) return 'google'
   if (where.includes('microsoft') || where.includes('login.live.com')) return 'microsoft'
@@ -44,6 +47,29 @@ const marks: Record<Mark, ReactNode> = {
       <path fill="#FFBA00" d="M19.1 8.8l-3-5c-.2-.3-.5-.6-.8-.8L12 8.4l4 6.9h6c0-.4-.1-.8-.3-1.1l-2.6-5.4z" />
     </svg>
   ),
+  docs: (
+    <svg viewBox="0 0 24 24" aria-hidden className="size-5">
+      <path fill="#4285F4" d="M14.5 2H6.2C5 2 4 3 4 4.2v15.6C4 21 5 22 6.2 22h11.6c1.2 0 2.2-1 2.2-2.2V7.5L14.5 2z" />
+      <path fill="#A1C2FA" d="M14.5 2v4.3c0 .7.5 1.2 1.2 1.2H20L14.5 2z" />
+      <path fill="#F1F1F1" d="M7.5 11h9v1.3h-9zm0 2.6h9v1.3h-9zm0 2.6h6v1.3h-6z" />
+    </svg>
+  ),
+  gmail: (
+    <svg viewBox="0 0 24 24" aria-hidden className="size-5">
+      <path fill="#4285F4" d="M3.6 19h3.2v-7.8L2 7.6v9.8C2 18.3 2.7 19 3.6 19z" />
+      <path fill="#34A853" d="M17.2 19h3.2c.9 0 1.6-.7 1.6-1.6V7.6l-4.8 3.6V19z" />
+      <path fill="#FBBC04" d="M17.2 5v6.2L22 7.6V6.2C22 4.4 20 3.4 18.6 4.5L17.2 5z" />
+      <path fill="#EA4335" d="M6.8 11.2V5L12 8.9 17.2 5v6.2L12 15.1z" />
+      <path fill="#C5221F" d="M2 6.2v1.4l4.8 3.6V5L5.4 4.5C4 3.4 2 4.4 2 6.2z" />
+    </svg>
+  ),
+  calendar: (
+    <svg viewBox="0 0 24 24" aria-hidden className="size-5">
+      <rect x="3" y="4" width="18" height="17" rx="2.5" fill="#fff" stroke="#4285F4" strokeWidth="1.6" />
+      <path fill="#4285F4" d="M3 6.5A2.5 2.5 0 0 1 5.5 4h13A2.5 2.5 0 0 1 21 6.5V9H3z" />
+      <text x="12" y="18.2" textAnchor="middle" fontSize="8" fontWeight="700" fill="#1A73E8" fontFamily="system-ui, sans-serif">31</text>
+    </svg>
+  ),
   microsoft: (
     <svg viewBox="0 0 24 24" aria-hidden className="size-5">
       <path fill="#F25022" d="M3 3h8.5v8.5H3z" />
@@ -61,17 +87,21 @@ const marks: Record<Mark, ReactNode> = {
 }
 
 /** A square tile holding a mark, sized for list rows. */
-export function IconTile({ children, title }: { children: ReactNode; title?: string }) {
+export function IconTile({ children, title, size = 'md' }: { children: ReactNode; title?: string; size?: 'sm' | 'md' }) {
   return (
-    <span title={title} className="grid size-10 shrink-0 place-items-center rounded-xl border border-line bg-surface-2/60">
+    <span title={title} className={(size === 'sm' ? 'size-7 rounded-lg ' : 'size-10 rounded-xl ') + 'grid shrink-0 place-items-center border border-line bg-surface-2/60'}>
       {children}
     </span>
   )
 }
 
-export function ProviderIcon({ p }: { p: Parameters<typeof providerMark>[0] }) {
+export function ProviderIcon({ p, size }: { p: Parameters<typeof providerMark>[0]; size?: 'sm' | 'md' }) {
   const m = providerMark(p)
-  return <IconTile title={m === 'key' ? 'OAuth provider' : m[0].toUpperCase() + m.slice(1)}>{marks[m]}</IconTile>
+  return (
+    <IconTile size={size} title={m === 'key' ? 'OAuth provider' : m[0].toUpperCase() + m.slice(1)}>
+      {marks[m]}
+    </IconTile>
+  )
 }
 
 /** Tool servers: the sign-in provider's mark for per-user OAuth servers, else MCP / OpenAPI symbols. */

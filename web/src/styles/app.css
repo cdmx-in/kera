@@ -142,10 +142,35 @@ button:disabled {
     color: var(--fg);
     box-shadow: var(--shadow);
     max-width: calc(100vw - 2rem);
-    max-height: calc(100dvh - 2rem);
+    /* breathing room above and below: tall forms scroll inside instead of touching the window edges */
+    max-height: calc(100dvh - 5rem);
+    overflow: hidden;
+  }
+  /* open dialogs are a column: header stays, the body (second child) scrolls */
+  dialog.modal[open]:not(.drawer) {
+    display: flex;
+    flex-direction: column;
+    animation: dialog-in 0.16s ease-out;
+  }
+  dialog.modal[open]:not(.drawer) > :nth-child(2) {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
   }
   dialog.modal::backdrop {
-    background: rgb(0 0 0 / 0.4);
+    background: rgb(0 0 0 / 0.45);
+    backdrop-filter: blur(2px);
+  }
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.985);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    dialog.modal[open] {
+      animation: none;
+    }
   }
   dialog.drawer {
     margin: 0 0 0 auto;
