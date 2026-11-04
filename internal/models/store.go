@@ -314,8 +314,8 @@ func (f *form) apply(r *row) error {
 		return api.Errf(http.StatusBadRequest, "bad_file_context", "meta.fileContext must be tools or full")
 	}
 	for _, k := range r.Knowledge {
-		if k.ID == "" {
-			return api.Errf(http.StatusBadRequest, "bad_knowledge", "meta.knowledge entries need an id")
+		if k.ID == "" && k.Name == "" {
+			return api.Errf(http.StatusBadRequest, "bad_knowledge", "meta.knowledge entries need an id or a name")
 		}
 	}
 	if r.BaseModelID != nil && *r.BaseModelID == r.ID {

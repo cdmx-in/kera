@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Archive, ChevronRight, Folder as FolderIcon, FolderPlus, LayoutGrid, MoreHorizontal, PanelLeftClose, Pencil, Pin, PinOff, Search, Share2, ShieldCheck, SquarePen, Trash2 } from 'lucide-react'
 import { api } from '@/api/client'
 import { useChats, useFolders, useMe, usePinnedChats } from '@/api/queries'
@@ -161,7 +161,7 @@ export function Sidebar() {
             }
           >
             {(folders.data ?? []).map((f) => (
-              <FolderRow key={f.id} folder={f} chats={(chats.data ?? []).filter((c) => c.folder_id === f.id)} mut={mut} onOpen={closeOnMobile} />
+              <FolderRow key={f.id} folder={f} mut={mut} onOpen={closeOnMobile} />
             ))}
           </Section>
           {groups.map(([title, list]) => (
@@ -200,9 +200,11 @@ function Section({ title, children, action, onDropChat }: { title: string; child
 
 type Mut = ReturnType<typeof useChatMutations>
 
-function FolderRow({ folder, chats, mut, onOpen }: { folder: Folder; chats: ChatSummary[]; mut: Mut; onOpen: () => void }) {
+function FolderRow({ folder, mut, onOpen }: { folder: Folder; mut: Mut; onOpen: () => void }) {
   const [open, setOpen] = useState(false)
   const [over, setOver] = useState(false)
+  // A folder lists its own chats (they may be older than the first page of the main list).
+  const chats = useQuery({ queryKey: ['chats', 'folder', folder.id], queryFn: () => api<ChatSummary[]>(`/api/v1/chats/folder/${encodeURIComponent(folder.id)}`), enabled: open }).data ?? []
   return (
     <li
       onDragOver={(e) => {
