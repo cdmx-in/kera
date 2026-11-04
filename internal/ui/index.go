@@ -10,6 +10,7 @@ import (
 	_ "image/gif" // DecodeConfig for manifest icon sizes
 	_ "image/jpeg"
 	_ "image/png"
+	"math"
 	"net/http"
 	"path"
 	"strconv"
@@ -41,20 +42,20 @@ var greyLadder = [11]struct {
 func tokens(b *apply.Brand) string {
 	var p []string
 	if a := b.Accent; a != nil {
-		if a.Base != "" {
+		if apply.CSSColor(a.Base) {
 			p = append(p, "--accent:"+a.Base)
 		}
-		if a.Bright != "" {
+		if apply.CSSColor(a.Bright) {
 			p = append(p, "--accent-bright:"+a.Bright)
 		}
 	}
 	if g := b.Grey; g != nil {
 		for i, s := range greyLadder {
 			switch {
-			case len(g.Scale) == len(greyLadder):
+			case len(g.Scale) == len(greyLadder) && apply.CSSColor(g.Scale[i]):
 				p = append(p, "--gray-"+s.step+":"+g.Scale[i])
 			case g.Chroma > 0 || g.Hue != 0:
-				p = append(p, fmt.Sprintf("--gray-%s:oklch(%s %s %s)", s.step, num(s.l), num(round(g.Chroma*s.rel, 4)), num(g.Hue)))
+				p = append(p, fmt.Sprintf("--gray-%s:oklch(%s %s %s)", s.step, num(s.l), num(chroma4(g.Chroma*s.rel)), num(g.Hue)))
 			}
 		}
 	}
@@ -66,13 +67,8 @@ func tokens(b *apply.Brand) string {
 
 func num(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
 
-func round(f float64, digits int) float64 {
-	m := 1.0
-	for range digits {
-		m *= 10
-	}
-	return float64(int64(f*m+0.5)) / m
-}
+// chroma4 rounds a chroma to 4 decimals.
+func chroma4(f float64) float64 { return math.Round(f*1e4) / 1e4 }
 
 // themeScript sets data-theme and the "dark" class before first paint from
 // localStorage.theme (the key the app writes) or the brand default.
@@ -100,13 +96,10 @@ func scriptJSON(v any) string {
 // styleText keeps admin CSS from closing the <style> element.
 func styleText(s string) string { return strings.ReplaceAll(s, "</", `<\/`) }
 
-var iconTypes = map[string]string{".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon",
-	".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
-
 // iconType guesses a MIME type from a URL's extension (query ignored).
 func iconType(u string) string {
 	u, _, _ = strings.Cut(u, "?")
-	return iconTypes[strings.ToLower(path.Ext(u))]
+	return imageTypes[strings.ToLower(path.Ext(u))]
 }
 
 func head(cfg *Config) string {
@@ -156,7 +149,7 @@ func darkBackground(b *apply.Brand) string {
 		return g.Scale[len(g.Scale)-1]
 	}
 	last := greyLadder[len(greyLadder)-1]
-	return fmt.Sprintf("oklch(%s %s %s)", num(last.l), num(round(g.Chroma*last.rel, 4)), num(g.Hue))
+	return fmt.Sprintf("oklch(%s %s %s)", num(last.l), num(chroma4(g.Chroma*last.rel)), num(g.Hue))
 }
 
 // splash is the markup React's first render replaces. The web app's

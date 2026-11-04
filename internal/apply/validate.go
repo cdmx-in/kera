@@ -155,14 +155,14 @@ func unique(f *File, section string, n int, id func(int) string, errs *Errors) {
 func checkBrand(b *Brand, errs *Errors) {
 	if a := b.Accent; a != nil {
 		for what, c := range map[string]string{"base": a.Base, "bright": a.Bright} {
-			if c != "" && !cssColor.MatchString(c) {
-				errs.add(0, "brand.accent.%s: %q is not a CSS colour (#hex, rgb(), hsl(), oklch())", what, c)
+			if c != "" && !CSSColor(c) {
+				errs.add(0, "brand.accent.%s: %q is not a CSS colour (#hex, a name, rgb(), hsl(), oklch())", what, c)
 			}
 		}
 	}
 	if g := b.Grey; g != nil {
 		for _, c := range g.Scale {
-			if !cssColor.MatchString(c) {
+			if !CSSColor(c) {
 				errs.add(0, "brand.grey.scale: %q is not a CSS colour", c)
 			}
 		}
@@ -185,7 +185,12 @@ func checkBrand(b *Brand, errs *Errors) {
 	}
 }
 
-var cssColor = regexp.MustCompile(`^(#[0-9a-fA-F]{3,8}|(rgb|rgba|hsl|hsla|oklch|oklab)\([0-9a-z.,%/ +-]*\))$`)
+// CSSColor reports whether s is a plain colour (#hex, a colour function of
+// numbers, or a name) that is safe to write into a <style> element. The ui
+// feature checks it again when rendering, for rows apply did not validate.
+func CSSColor(s string) bool { return cssColor.MatchString(s) }
+
+var cssColor = regexp.MustCompile(`^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|(rgb|rgba|hsl|hsla|oklch|oklab)\([0-9a-z.,%/ +-]*\))$`)
 
 func oneOf(line int, what, v string, errs *Errors, allowed ...string) {
 	if !slices.Contains(allowed, v) {

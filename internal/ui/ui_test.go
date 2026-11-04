@@ -198,15 +198,17 @@ func TestIndexEscaping(t *testing.T) {
 }
 
 func TestTokens(t *testing.T) {
-	scale := []string{"#f0", "#e0", "#d0", "#c0", "#b0", "#a0", "#90", "#80", "#70", "#60", "#50"}
+	scale := []string{"#f00", "#e00", "#d00", "#c00", "#b00", "#a00", "#900", "#800", "#700", "#600", "#500"}
 	for _, tc := range []struct {
 		b    apply.Brand
 		want []string
 	}{
 		{apply.Brand{}, nil},
 		{apply.Brand{Grey: &apply.Grey{Hue: 260, Chroma: 0.02}}, []string{"--gray-50:oklch(0.985 0.005 260)", "--gray-300:oklch(0.87 0.02 260)", "--gray-900:oklch(0.215 0.0167 260)"}},
-		{apply.Brand{Grey: &apply.Grey{Scale: scale}}, []string{"--gray-50:#f0", "--gray-950:#50"}},
+		{apply.Brand{Grey: &apply.Grey{Scale: scale}}, []string{"--gray-50:#f00", "--gray-950:#500"}},
 		{apply.Brand{Accent: &apply.Accent{Base: "red"}}, []string{":root{--accent:red}"}},
+		// rows apply did not validate still cannot break out of the <style>
+		{apply.Brand{Accent: &apply.Accent{Base: "red}</style><script>", Bright: "#3dafc4"}}, []string{":root{--accent-bright:#3dafc4}"}},
 	} {
 		got := tokens(&tc.b)
 		if tc.want == nil && got != "" {
