@@ -444,3 +444,30 @@ func TestSecretKeyRotation(t *testing.T) {
 	}
 	assertNoChanges(t, mustApply(t, fx, f, Options{}))
 }
+
+func TestBrandValidation(t *testing.T) {
+	src := `brand:
+  accent: {base: "red;}</style>", bright: "#3dafc4"}
+  grey: {scale: ["#fff"]}
+  background: stars
+  splash: {style: spin}
+  login: {style: glass-card}
+`
+	_, err := Parse([]byte(src), ".", lookup(nil))
+	if err == nil {
+		t.Fatal("expected errors")
+	}
+	for _, want := range []string{`brand.accent.base: "red;}</style>" is not a CSS colour`, `brand.grey.scale: needs 11 colours`,
+		`brand.background: "stars"`, `brand.splash.style: "spin"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("missing %q in:\n%v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "bright") || strings.Contains(err.Error(), "login") {
+		t.Errorf("valid values rejected:\n%v", err)
+	}
+	ok := "brand:\n  accent: {base: \"oklch(0.55 0.1 210)\", bright: \"#3DAFC4\"}\n  default_theme: dark\n"
+	if _, err := Parse([]byte(ok), ".", lookup(nil)); err != nil {
+		t.Errorf("valid brand rejected: %v", err)
+	}
+}

@@ -40,9 +40,18 @@ export interface UIConfig {
     name: string
     tagline?: string
     logo?: { light?: string; dark?: string }
+    /** Small square logo (sidebar, login card); falls back to favicon. */
+    mark?: string
     favicon?: string
+    faviconAlt?: string[]
+    appleTouchIcon?: string
+    pwaIcons?: string[]
+    splash?: { logo?: string; logoDark?: string; wordmark?: string; style?: 'orbit' | 'plain' }
+    accent?: { base?: string; bright?: string }
+    grey?: { hue?: number; chroma?: number; scale?: string[] }
     defaultTheme?: 'light' | 'dark' | 'system'
     background?: 'aurora' | 'none'
+    login?: { wordmark?: string; style?: 'glass-card' | 'plain' }
   }
   features: {
     spend?: boolean

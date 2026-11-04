@@ -54,7 +54,9 @@ type Brand struct {
 	Name           string                 `yaml:"name,omitempty" json:"name,omitempty"`
 	Tagline        string                 `yaml:"tagline,omitempty" json:"tagline,omitempty"`
 	Logo           *ThemedImage           `yaml:"logo,omitempty" json:"logo,omitempty"`
+	Mark           string                 `yaml:"mark,omitempty" json:"mark,omitempty"` // small square logo (sidebar, login card); falls back to favicon
 	Favicon        string                 `yaml:"favicon,omitempty" json:"favicon,omitempty"`
+	FaviconAlt     []string               `yaml:"favicon_alt,omitempty" json:"faviconAlt,omitempty"` // other formats of the favicon (png, ico) for older browsers
 	AppleTouchIcon string                 `yaml:"apple_touch_icon,omitempty" json:"appleTouchIcon,omitempty"`
 	PWAIcons       []string               `yaml:"pwa_icons,omitempty" json:"pwaIcons,omitempty"`
 	Splash         *Splash                `yaml:"splash,omitempty" json:"splash,omitempty"`
@@ -74,6 +76,7 @@ type ThemedImage struct {
 
 type Splash struct {
 	Logo     string `yaml:"logo,omitempty" json:"logo,omitempty"`
+	LogoDark string `yaml:"logo_dark,omitempty" json:"logoDark,omitempty"` // dark-mode logo; may sit on its own dark tile (blended with lighten)
 	Wordmark string `yaml:"wordmark,omitempty" json:"wordmark,omitempty"`
 	Style    string `yaml:"style,omitempty" json:"style,omitempty"`
 }

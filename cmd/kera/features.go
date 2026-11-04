@@ -6,4 +6,5 @@ import (
 	_ "github.com/cdmx-in/kera/internal/files"
 	_ "github.com/cdmx-in/kera/internal/identity"
 	_ "github.com/cdmx-in/kera/internal/models"
+	_ "github.com/cdmx-in/kera/internal/ui"
 )

@@ -1,0 +1,19 @@
+.kera-splash{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg,#fff);overflow:hidden}
+html.dark .kera-splash{background:var(--gray-900,#1c1f22)}
+.kera-splash-stage{position:relative;display:grid;place-items:center;width:10rem;height:10rem}
+.kera-splash-logo{position:relative;width:6rem;height:6rem;object-fit:contain}
+.kera-splash-dark,html.dark .kera-splash-light{display:none}
+html.dark .kera-splash-dark{display:block;mix-blend-mode:lighten}
+.kera-splash-word{margin-top:1.5rem;font:600 .8rem/1 system-ui,sans-serif;letter-spacing:.6em;padding-left:.6em;color:var(--accent,#1e7f8c)}
+.kera-splash-orbit .kera-splash-logo{animation:ks-in .7s cubic-bezier(.2,.8,.2,1) both,ks-float 3.2s ease-in-out .7s infinite}
+.kera-splash-orbit .kera-splash-stage::before{content:"";position:absolute;inset:-4rem;border-radius:50%;background:radial-gradient(closest-side,color-mix(in srgb,var(--accent-bright,#3dafc4) 22%,transparent),transparent)}
+.kera-splash-orbit .kera-splash-stage::after{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(transparent 0 40%,var(--accent,#1e7f8c) 75%,var(--accent-bright,#3dafc4));-webkit-mask:radial-gradient(closest-side,transparent calc(100% - 3px),#000 calc(100% - 2px));mask:radial-gradient(closest-side,transparent calc(100% - 3px),#000 calc(100% - 2px));animation:ks-spin 1.2s linear infinite}
+.kera-splash-orbit .kera-splash-word{background:linear-gradient(90deg,var(--accent,#1e7f8c) 0 40%,var(--accent-bright,#3dafc4) 50%,var(--accent,#1e7f8c) 60% 100%) 0 0/300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ks-rise .7s .35s cubic-bezier(.2,.8,.2,1) both,ks-shine 2.4s linear 1s infinite}
+.kera-splash-cont .kera-splash-logo{animation:ks-float 3.2s ease-in-out infinite}
+.kera-splash-cont .kera-splash-word{animation:ks-shine 2.4s linear infinite}
+@keyframes ks-in{from{opacity:0;filter:blur(8px);transform:scale(.85)}}
+@keyframes ks-float{50%{transform:translateY(-6px)}}
+@keyframes ks-spin{to{rotate:360deg}}
+@keyframes ks-rise{from{opacity:0;transform:translateY(8px);letter-spacing:1.2em}}
+@keyframes ks-shine{from{background-position:100% 0}to{background-position:0 0}}
+@media (prefers-reduced-motion:reduce){.kera-splash *,.kera-splash ::before,.kera-splash ::after{animation:none!important}}

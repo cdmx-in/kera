@@ -2,6 +2,7 @@ package apply
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 
 	"github.com/cdmx-in/kera/internal/access"
@@ -13,6 +14,10 @@ func validate(f *File, errs *Errors) {
 	unique(f, "groups", len(f.Groups), func(i int) string { return f.Groups[i].Name }, errs)
 	for i, g := range f.Groups {
 		checkPerms("groups["+g.Name+"].permissions", f.line("groups", i), g.Permissions, errs)
+	}
+
+	if b := f.Brand; b != nil {
+		checkBrand(b, errs)
 	}
 
 	unique(f, "connections", len(f.Connections), func(i int) string { return f.Connections[i].ID }, errs)
@@ -144,6 +149,48 @@ func unique(f *File, section string, n int, id func(int) string, errs *Errors) {
 		seen[k] = true
 	}
 }
+
+// checkBrand rejects values the server writes into index.html's <style>
+// unless they are plain colours, and unknown style names.
+func checkBrand(b *Brand, errs *Errors) {
+	if a := b.Accent; a != nil {
+		for what, c := range map[string]string{"base": a.Base, "bright": a.Bright} {
+			if c != "" && !CSSColor(c) {
+				errs.add(0, "brand.accent.%s: %q is not a CSS colour (#hex, a name, rgb(), hsl(), oklch())", what, c)
+			}
+		}
+	}
+	if g := b.Grey; g != nil {
+		for _, c := range g.Scale {
+			if !CSSColor(c) {
+				errs.add(0, "brand.grey.scale: %q is not a CSS colour", c)
+			}
+		}
+		if len(g.Scale) != 0 && len(g.Scale) != 11 {
+			errs.add(0, "brand.grey.scale: needs 11 colours (50, 100..900, 950), got %d", len(g.Scale))
+		}
+	}
+	optOneOf := func(what, v string, allowed ...string) {
+		if v != "" {
+			oneOf(0, what, v, errs, allowed...)
+		}
+	}
+	optOneOf("brand.background", b.Background, "aurora", "none")
+	optOneOf("brand.default_theme", b.DefaultTheme, "light", "dark", "system")
+	if b.Splash != nil {
+		optOneOf("brand.splash.style", b.Splash.Style, "orbit", "plain")
+	}
+	if b.Login != nil {
+		optOneOf("brand.login.style", b.Login.Style, "glass-card", "plain")
+	}
+}
+
+// CSSColor reports whether s is a plain colour (#hex, a colour function of
+// numbers, or a name) that is safe to write into a <style> element. The ui
+// feature checks it again when rendering, for rows apply did not validate.
+func CSSColor(s string) bool { return cssColor.MatchString(s) }
+
+var cssColor = regexp.MustCompile(`^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|(rgb|rgba|hsl|hsla|oklch|oklab)\([0-9a-z.,%/ +-]*\))$`)
 
 func oneOf(line int, what, v string, errs *Errors, allowed ...string) {
 	if !slices.Contains(allowed, v) {
