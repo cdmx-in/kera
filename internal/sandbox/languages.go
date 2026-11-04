@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -64,12 +65,14 @@ func sortedNames[V any](m map[string]V) []string {
 	return out
 }
 
-// argv fills the {file} placeholder; the result goes to subprocess as a list,
-// never through a shell.
+// argv fills the {file} placeholder and {dir} (the folder holding the file,
+// inside the run folder: executable, unlike a noexec /tmp); the result goes to
+// subprocess as a list, never through a shell.
 func argv(command []string, file string) []string {
+	dir := path.Dir(file)
 	out := make([]string, len(command))
 	for i, a := range command {
-		out[i] = strings.ReplaceAll(a, "{file}", file)
+		out[i] = strings.ReplaceAll(strings.ReplaceAll(a, "{file}", file), "{dir}", dir)
 	}
 	return out
 }

@@ -99,7 +99,7 @@ var Defaults = map[string]json.RawMessage{
 		"php": {"label": "PHP", "ext": ".php", "command": ["php", "{file}"]},
 		"bash": {"label": "Bash", "ext": ".sh", "command": ["bash", "{file}"], "aliases": ["shell", "sh"]},
 		"ruby": {"label": "Ruby", "ext": ".rb", "command": ["ruby", "{file}"], "aliases": ["rb"]},
-		"go": {"label": "Go", "ext": ".go", "command": ["go", "run", "{file}"], "aliases": ["golang"]},
+		"go": {"label": "Go", "ext": ".go", "command": ["env", "GOTMPDIR={dir}", "go", "run", "{file}"], "aliases": ["golang"]},
 		"java": {"label": "Java (single-file source)", "ext": ".java", "command": ["java", "{file}"]},
 		"r": {"label": "R", "ext": ".R", "command": ["Rscript", "{file}"], "aliases": ["rscript"]}
 	}`),

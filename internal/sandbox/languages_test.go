@@ -148,3 +148,13 @@ func TestDriver(t *testing.T) {
 		t.Fatalf("timeout: %q after %s", out, time.Since(start))
 	}
 }
+
+// {dir} lets a toolchain build inside the run folder: sandboxes mount /tmp noexec,
+// so "go run" fails with "permission denied" unless GOTMPDIR points elsewhere.
+func TestArgvDir(t *testing.T) {
+	got := argv([]string{"env", "GOTMPDIR={dir}", "go", "run", "{file}"}, ".kera/main.go")
+	want := []string{"env", "GOTMPDIR=.kera", "go", "run", ".kera/main.go"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("argv = %v, want %v", got, want)
+	}
+}
