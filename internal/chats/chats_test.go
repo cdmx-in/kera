@@ -13,7 +13,7 @@ import (
 	"github.com/cdmx-in/kera/internal/testdb"
 )
 
-// server mounts the chat routes with a fake sign-in (X-User header).
+// server mounts the chat routes with a fake sign-in (X-User header); only u1 may use cowork.
 func server(t *testing.T) (*httptest.Server, *Store) {
 	t.Helper()
 	pool := testdb.New(t)
@@ -24,7 +24,8 @@ func server(t *testing.T) (*httptest.Server, *Store) {
 	h := &handler{s: s}
 	user := func(f http.HandlerFunc) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			f(w, r.WithContext(auth.WithUser(r.Context(), &auth.User{ID: r.Header.Get("X-User"), Role: "user"})))
+			f(w, r.WithContext(auth.WithUser(r.Context(), &auth.User{ID: r.Header.Get("X-User"), Role: "user",
+				Permissions: auth.Permissions{"features": map[string]any{"cowork": r.Header.Get("X-User") == "u1"}}})))
 		})
 	}
 	mux := http.NewServeMux()
@@ -280,5 +281,56 @@ func TestFeedback(t *testing.T) {
 	}
 	if code := do(t, srv, "u2", "POST", "/api/v1/evaluations/feedback", `not json`, nil); code != 400 {
 		t.Fatalf("bad json: %d", code)
+	}
+}
+
+// Cowork tasks are chats with mode cowork: created behind features.cowork,
+// carried in the chat JSON and kept out of every sidebar list.
+func TestCoworkModeListAndCreate(t *testing.T) {
+	srv, s := server(t)
+	ctx := context.Background()
+	var task, plain map[string]any
+	if code := do(t, srv, "u1", "POST", "/api/v1/chats/new", `{"chat":{"title":"Goal","models":["m"],"mode":"cowork"}}`, &task); code != 200 || task["mode"] != "cowork" {
+		t.Fatalf("create task %d %v", code, task)
+	}
+	if code := do(t, srv, "u1", "POST", "/api/v1/chats/new", `{"chat":{"title":"Plain"}}`, &plain); code != 200 || plain["mode"] != "chat" {
+		t.Fatalf("create chat %d %v", code, plain)
+	}
+	tid := task["id"].(string)
+	var got map[string]any
+	if do(t, srv, "u1", "GET", "/api/v1/chats/"+tid, "", &got); got["mode"] != "cowork" {
+		t.Fatalf("get task %v", got)
+	}
+	if code := do(t, srv, "u2", "POST", "/api/v1/chats/new", `{"chat":{"mode":"cowork"}}`, nil); code != 403 {
+		t.Fatalf("cowork without permission: %d", code)
+	}
+	if code := do(t, srv, "u1", "POST", "/api/v1/chats/new", `{"chat":{"mode":"agent"}}`, &got); code != 400 || got["code"] != "bad_mode" {
+		t.Fatalf("bad mode: %d %v", code, got)
+	}
+	// update never changes the mode
+	do(t, srv, "u1", "POST", "/api/v1/chats/"+tid, `{"chat":{"title":"Renamed","mode":"chat","pinned":true}}`, &got)
+	if got["mode"] != "cowork" {
+		t.Fatalf("update changed mode: %v", got["mode"])
+	}
+	do(t, srv, "u1", "POST", "/api/v1/chats/"+tid+"/tags", `{"name":"t"}`, nil)
+	for _, path := range []string{"/api/v1/chats/", "/api/v1/chats/?page=1", "/api/v1/chats/pinned", "/api/v1/chats/search?text=renamed", "/api/v1/chats/search?text=tag:t"} {
+		var list []Summary
+		do(t, srv, "u1", "GET", path, "", &list)
+		for _, c := range list {
+			if c.ID == tid {
+				t.Fatalf("%s lists the task", path)
+			}
+		}
+	}
+	var tags []map[string]string
+	if do(t, srv, "u1", "GET", "/api/v1/chats/all/tags", "", &tags); len(tags) != 0 {
+		t.Fatalf("task tags listed: %v", tags)
+	}
+	do(t, srv, "u1", "POST", "/api/v1/chats/"+tid+"/archive", "", nil)
+	if list, _ := s.List(ctx, ListFilter{UserID: "u1", Archived: true}); len(list) != 0 {
+		t.Fatalf("archived list shows the task %v", list)
+	}
+	if list, _ := s.List(ctx, ListFilter{UserID: "u1", Archived: true, Mode: "cowork"}); len(list) != 1 || list[0].ID != tid {
+		t.Fatalf("cowork filter %v", list)
 	}
 }

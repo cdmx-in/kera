@@ -15,7 +15,7 @@ function userMessage(text: string, files: FileRef[], parentId: string | null): M
 async function ensureChat(model: string): Promise<string | null> {
   const st = useChat.getState()
   if (st.temporary || st.chatId) return st.chatId
-  const chat = await api<{ id: string }>('/api/v1/chats/new', { method: 'POST', json: { chat: { title: 'New Chat', models: [model], history: { messages: {}, currentId: null } } } })
+  const chat = await api<{ id: string }>('/api/v1/chats/new', { method: 'POST', json: { chat: { title: 'New Chat', models: [model], history: { messages: {}, currentId: null }, ...(st.mode && { mode: st.mode }) } } })
   useChat.getState().setChatId(chat.id)
   useChat.getState().setTitle('New Chat')
   void queryClient.invalidateQueries({ queryKey: ['chats'] })

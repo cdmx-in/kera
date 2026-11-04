@@ -158,6 +158,12 @@ func TestApplyFullAndIdempotent(t *testing.T) {
 	if !perms["features"]["api_keys"] || !perms["chat"]["share"] || perms["workspace"]["tools"] {
 		t.Errorf("user.permissions not merged with defaults: %v", perms)
 	}
+	var coworkPrompt string
+	_ = fx.st.Get(ctx, "cowork.prompt", &coworkPrompt)
+	_ = fx.st.Get(ctx, "cowork.max_tool_iterations", &iters)
+	if coworkPrompt != "Work on the goal on your own." || iters != 80 {
+		t.Errorf("cowork = %q / %d", coworkPrompt, iters)
+	}
 	var tpl string
 	_ = fx.st.Get(ctx, "rag.template", &tpl)
 	if !strings.Contains(tpl, "{{CONTEXT}}") {

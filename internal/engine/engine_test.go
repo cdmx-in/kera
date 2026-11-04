@@ -318,6 +318,20 @@ func TestAskAnswerAndCancel(t *testing.T) {
 	}
 }
 
+// A question that times out is cleared from the stored state too, so the
+// Cowork list stops reporting needs_input while the run goes on.
+func TestAskTimeoutCheckpoints(t *testing.T) {
+	run := newRun("c1", "a1", "u1", "m1", true)
+	saved := -1
+	run.checkpoint = func() { run.mu.Lock(); saved = len(run.state.PendingCalls); run.mu.Unlock() }
+	if _, err := run.ask(context.Background(), PendingCall{Kind: "input"}, 10*time.Millisecond); !errors.Is(err, ErrNoAnswer) {
+		t.Fatalf("err %v", err)
+	}
+	if saved != 0 {
+		t.Fatalf("last checkpoint saw %d pending calls", saved)
+	}
+}
+
 func TestLocalLockAndBusy(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
@@ -785,5 +799,57 @@ func TestCodeInterpreterPrompt(t *testing.T) {
 		if got := strings.Contains(run.stateText(), "RUN-CODE-FOR-REAL"); got != want {
 			t.Errorf("%s: prompt included = %v: %q", model, got, run.stateText())
 		}
+	}
+}
+
+// A cowork chat gets the cowork prompt right after the preset prompt; a
+// plain chat does not, and a user without features.cowork cannot run a task.
+func TestCoworkPromptAndPermission(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.pool.Exec(ctx, `INSERT INTO model (id, base_model_id, name, system_prompt) VALUES ('p1', 'm1', 'Preset', 'PRESET PERSONA')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.e.Settings.Set(ctx, "cowork.prompt", "COWORK MARKER for {{USER_NAME}}", false); err != nil {
+		t.Fatal(err)
+	}
+	system := func(u *auth.User, mode string) (string, error) {
+		c := chats.Chat{UserID: u.ID, Mode: mode}
+		if err := h.e.Chats.Create(ctx, &c); err != nil {
+			t.Fatal(err)
+		}
+		run, err := h.e.Start(ctx, u, &Request{Model: "p1", StreamFormat: "events", ChatID: c.ID,
+			UserMessage: &UserMessage{Content: "echo system"}})
+		if err != nil {
+			return "", err
+		}
+		wait(t, run)
+		h.e.Wait()
+		run.mu.Lock()
+		defer run.mu.Unlock()
+		return run.roundText, nil
+	}
+	sys, err := system(h.u, "cowork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(sys, "PRESET PERSONA\n\nCOWORK MARKER for Ada") {
+		t.Fatalf("cowork system prompt %q", sys)
+	}
+	if sys, _ := system(h.u, "chat"); strings.Contains(sys, "COWORK") {
+		t.Fatalf("plain chat got the cowork prompt: %q", sys)
+	}
+	for _, q := range []string{`INSERT INTO "user" (id, email) VALUES ('u2', 'b@example.com')`,
+		`INSERT INTO access_grant (id, resource_type, resource_id, principal_type, principal_id, permission) VALUES ('g1', 'model', 'p1', 'user', 'u2', 'read')`} {
+		if _, err := h.pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u2 := &auth.User{ID: "u2", Role: "user", Permissions: auth.Permissions{"features": map[string]any{"cowork": false}}}
+	if _, err := system(u2, "cowork"); err != errCoworkForbidden {
+		t.Fatalf("task without features.cowork: %v", err)
+	}
+	if _, err := system(u2, "chat"); err != nil {
+		t.Fatalf("plain chat for the same user: %v", err)
 	}
 }

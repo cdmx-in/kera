@@ -24,6 +24,7 @@ import { resumeStream } from './stream'
 interface ChatJSON {
   id: string
   title?: string
+  mode?: string
   chat?: { title?: string; history?: { currentId?: string | null; messages?: Record<string, Record<string, unknown>> } }
   history?: { currentId?: string | null; messages?: Record<string, Record<string, unknown>> }
 }
@@ -34,7 +35,7 @@ export async function loadChat(id: string, path = `/api/v1/chats/${encodeURIComp
   const messages = normalizeHistory(hist.messages ?? {})
   let current = hist.currentId && messages[hist.currentId] ? hist.currentId : null
   if (!current) current = Object.values(messages).sort((a, b) => b.createdAt - a.createdAt)[0]?.id ?? null
-  useChat.getState().load(c.id ?? id, c.title ?? c.chat?.title ?? '', messages, current)
+  useChat.getState().load(c.id ?? id, c.title ?? c.chat?.title ?? '', messages, current, c.mode === 'cowork' ? 'cowork' : undefined)
   return messages
 }
 
@@ -44,29 +45,20 @@ function lastAssistant(messages: Record<string, Message>): Message | undefined {
     .sort((a, b) => b.createdAt - a.createdAt)[0]
 }
 
-export default function ChatPage() {
-  const { chatId } = useParams()
-  const [search, setSearch] = useSearchParams()
+/**
+ * Loads the chat (or task) named in the URL, re-attaches a running reply and adopts its model.
+ * A chat stored in the other mode moves to its own page: the chat page never renders a task.
+ */
+export function useOpenChat(chatId: string | undefined, mode: 'chat' | 'cowork' = 'chat') {
   const navigate = useNavigate()
-  const params = parseChatParams(search)
-  const me = useMe()
-  const models = useModels()
-  const tools = useTools()
   const [state, setState] = useState<'ready' | 'loading' | 'missing'>('ready')
-  const hasMessages = useChat((s) => s.currentId !== null)
-  const temporary = useChat((s) => s.temporary)
-  const model = useComposer((s) => s.model)
-
-  // Load the chat named in the URL, or start fresh on "/".
   useEffect(() => {
-    const st = useChat.getState()
-    if (!chatId) {
-      if (st.chatId && !st.chatId.startsWith('temp:')) st.reset(null, params.temporary)
-      else if (!st.currentId && st.temporary !== params.temporary) st.reset(null, params.temporary)
-      setState('ready')
-      return
+    const moveIfOther = () => {
+      const stored = useChat.getState().mode ?? 'chat'
+      if (chatId && stored !== mode) navigate(stored === 'cowork' ? `/cowork/${chatId}` : `/c/${chatId}`, { replace: true })
     }
-    if (st.chatId === chatId) return
+    if (!chatId) return setState('ready')
+    if (useChat.getState().chatId === chatId) return moveIfOther()
     let live = true
     setState('loading')
     loadChat(chatId)
@@ -77,6 +69,7 @@ export default function ChatPage() {
         if (streaming) resumeStream(chatId, streaming.id, streaming.seq ?? 0)
         const m = lastAssistant(messages)?.model
         if (m) useComposer.getState().setModel(m)
+        moveIfOther()
       })
       .catch(() => live && setState('missing'))
     return () => {
@@ -84,23 +77,36 @@ export default function ChatPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId])
+  return state
+}
+
+/** Resolves the composer model (explicit ?models= wins) and applies the model's default pills and tools. */
+export function useModelSetup(requestedModels: string[], chatId: string | undefined, toolsParamList: string[]) {
+  const models = useModels()
+  const tools = useTools()
+  const model = useComposer((s) => s.model)
 
   // Resolve the model once the list arrives (explicit ?models= wins).
-  const requested = params.models.join(',')
+  const requested = requestedModels.join(',')
   useEffect(() => {
     if (!models.data) return
     const c = useComposer.getState()
-    const next = nextModel(models.data, { current: c.model, auto: c.modelAuto, requested: params.models, inChat: !!chatId, defaults: uiConfig().defaultModels })
+    const next = nextModel(models.data, { current: c.model, auto: c.modelAuto, requested: requestedModels, inChat: !!chatId, defaults: uiConfig().defaultModels })
     if (next) c.setModel(next.id, next.auto)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models.data, requested, chatId])
 
   // Model change -> its default feature pills and tools, plus connected auto-enabled integrations.
   // ?tools= is removed from the URL once applied, so remember it for this page view.
-  const toolsParam = params.tools.join(',')
+  const toolsParam = toolsParamList.join(',')
   const urlTools = useRef<string[]>([])
-  if (params.tools.length) urlTools.current = params.tools
+  if (toolsParamList.length) urlTools.current = toolsParamList
+  // Mounting on a chat the store already holds (New task -> its task page) keeps the pills and tools
+  // chosen for it; defaults apply again once the model changes.
+  const keepFor = useRef(chatId && useChat.getState().chatId === chatId ? useComposer.getState().model : '')
   useEffect(() => {
+    if (keepFor.current && keepFor.current === model) return
+    keepFor.current = ''
     const m = models.data?.find((x) => x.id === model)
     if (!m) return
     const c = useComposer.getState()
@@ -113,6 +119,43 @@ export default function ChatPage() {
     c.setToolIds([...(m.toolIds ?? []).map(toolKey), ...auto, ...urlTools.current])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, models.data, tools.data, toolsParam])
+}
+
+/** The open reply's pending ask_user / confirm calls. */
+export function usePending() {
+  const pending = useChat((s) => {
+    const m = s.currentId ? s.messages[s.currentId] : undefined
+    return m?.role === 'assistant' && m.pendingCalls.length ? m : undefined
+  })
+  const ask = pending?.pendingCalls.find((c): c is Extract<PendingCall, { kind: 'ask_user' }> => c.kind === 'ask_user')
+  const confirm = pending?.pendingCalls.find((c): c is Extract<PendingCall, { kind: 'confirm' }> => c.kind === 'confirm')
+  return { pending, ask, confirm }
+}
+
+export default function ChatPage() {
+  const { chatId } = useParams()
+  const [search, setSearch] = useSearchParams()
+  const navigate = useNavigate()
+  const params = parseChatParams(search)
+  const me = useMe()
+  const models = useModels()
+  const tools = useTools()
+  const state = useOpenChat(chatId)
+  const hasMessages = useChat((s) => s.currentId !== null)
+  const temporary = useChat((s) => s.temporary)
+  const model = useComposer((s) => s.model)
+
+  // "/" starts fresh (also after a task, so its mode never leaks into a new chat).
+  useEffect(() => {
+    if (chatId) return
+    const st = useChat.getState()
+    if ((st.chatId && !st.chatId.startsWith('temp:')) || st.mode) st.reset(null, params.temporary)
+    else if (!st.currentId && st.temporary !== params.temporary) st.reset(null, params.temporary)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId])
+
+  useModelSetup(params.models, chatId, params.tools)
+  const toolsParam = params.tools.join(',')
 
   const onSend = useCallback(
     async (text: string, files: FileRef[]) => {
@@ -149,12 +192,7 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolsParam, tools.data])
 
-  const pending = useChat((s) => {
-    const m = s.currentId ? s.messages[s.currentId] : undefined
-    return m?.role === 'assistant' && m.pendingCalls.length ? m : undefined
-  })
-  const ask = pending?.pendingCalls.find((c): c is Extract<PendingCall, { kind: 'ask_user' }> => c.kind === 'ask_user')
-  const confirm = pending?.pendingCalls.find((c): c is Extract<PendingCall, { kind: 'confirm' }> => c.kind === 'confirm')
+  const { pending, ask, confirm } = usePending()
   const modelName = useCallback((id?: string) => models.data?.find((m) => m.id === id)?.name ?? id ?? '', [models.data])
 
   return (

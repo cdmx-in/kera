@@ -45,6 +45,9 @@ type exec struct {
 	params         map[string]any
 }
 
+// cowork reports a task run: the chat's mode decides, so follow-ups cannot forget it.
+func (x *exec) cowork() bool { return x.chat != nil && x.chat.Mode == "cowork" }
+
 // turn is one conversation message with the files attached to it.
 type turn struct {
 	ID      string
@@ -72,6 +75,9 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 			return nil, err
 		}
 		x.chat = &c
+	}
+	if x.cowork() && !u.Can("features.cowork") {
+		return nil, errCoworkForbidden
 	}
 	x.noChat = req.ChatID == "" && !req.Temporary
 	if x.chat != nil && x.chat.Locality != nil && *x.chat.Locality == "local" && !m.Local && e.Settings.Bool(ctx, "chat.local_lock") {

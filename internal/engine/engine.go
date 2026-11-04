@@ -48,9 +48,10 @@ type Engine struct {
 
 // Errors returned before a run starts.
 var (
-	errBusy      = api.Errf(http.StatusConflict, "busy", "this message is already being generated")
-	errLocalLock = api.Errf(http.StatusConflict, "local_lock", "This chat used a local model, so it stays on local models.")
-	errCancelled = errors.New("cancelled by the user")
+	errBusy            = api.Errf(http.StatusConflict, "busy", "this message is already being generated")
+	errLocalLock       = api.Errf(http.StatusConflict, "local_lock", "This chat used a local model, so it stays on local models.")
+	errCoworkForbidden = api.Errf(http.StatusForbidden, "forbidden", "Permission required: features.cowork")
+	errCancelled       = errors.New("cancelled by the user")
 )
 
 // New builds an engine; Mount uses the app's shared services.

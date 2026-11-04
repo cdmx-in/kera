@@ -1,6 +1,7 @@
 package chats
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -32,6 +33,7 @@ type ListFilter struct {
 	FolderID string // only this folder
 	Tag      string
 	Text     string // full-text over titles and messages
+	Mode     string // "" = chat (sidebar lists never show cowork tasks)
 	Page     int    // 1-based; 0 = everything
 	PageSize int
 }
@@ -44,6 +46,7 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]Summary, error) {
 		args = append(args, v)
 		where = append(where, strings.ReplaceAll(cond, "?", fmt.Sprintf("$%d", len(args))))
 	}
+	add("c.mode = ?", cmp.Or(f.Mode, "chat"))
 	if f.Pinned {
 		where = append(where, "c.pinned")
 	}
@@ -105,7 +108,7 @@ func likeEscape(s string) string {
 // UserTags lists every tag the user has used.
 func (s *Store) UserTags(ctx context.Context, userID string) ([]string, error) {
 	rows, err := s.DB.Query(ctx, `SELECT DISTINCT t.tag FROM chat_tag t JOIN chat c ON c.id = t.chat_id
-		WHERE c.user_id = $1 ORDER BY 1`, userID)
+		WHERE c.user_id = $1 AND c.mode = 'chat' ORDER BY 1`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list user tags: %w", err)
 	}

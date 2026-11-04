@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cdmx-in/kera/internal/auth"
+	"github.com/cdmx-in/kera/internal/cowork"
 	"github.com/cdmx-in/kera/internal/files"
 	"github.com/cdmx-in/kera/internal/provider"
 	"github.com/cdmx-in/kera/internal/retrieval"
@@ -52,6 +53,10 @@ func renderVars(prompt string, u *auth.User, p userProfile, now time.Time) strin
 // buildContext assembles the system prompt, knowledge, attachments and the
 // provider-native tools.
 func (e *Engine) buildContext(ctx context.Context, x *exec) error {
+	// prepended in reverse: preset persona, then the cowork prompt, then the rest
+	if x.cowork() {
+		x.system = append([]string{renderVars(cowork.Prompt(ctx, e.Settings), x.u, x.profile, time.Now())}, x.system...)
+	}
 	if p := strings.TrimSpace(x.m.SystemPrompt); p != "" {
 		x.system = append([]string{renderVars(p, x.u, x.profile, time.Now())}, x.system...)
 	}

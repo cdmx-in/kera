@@ -100,6 +100,10 @@ code_interpreter:
     php: {command: [php, "{file}"], ext: .php, label: PHP}
     typescript: {command: [node, --experimental-strip-types, "{file}"], ext: .ts, check: [node, --experimental-strip-types, -e, ""], fallback: [tsx, "{file}"]}
 
+cowork:
+  prompt_file: cowork-prompt.md
+  max_tool_iterations: 80
+
 oauth_providers:
   - id: "mcp:sheets"
     issuer: https://accounts.example.com

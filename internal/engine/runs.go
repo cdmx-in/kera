@@ -440,16 +440,22 @@ func (r *Run) ask(ctx context.Context, pc PendingCall, timeout time.Duration) (j
 	return nil, fmt.Errorf("%w: %v", ErrNoAnswer, context.Cause(ctx))
 }
 
-// withdraw removes an unanswered question.
+// withdraw removes an unanswered question and persists that, so the stored
+// pending_calls (read by the Cowork list) clear while the run goes on.
 func (r *Run) withdraw(callID string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if _, ok := r.waiters[callID]; !ok {
+		r.mu.Unlock()
 		return
 	}
 	delete(r.waiters, callID)
 	r.removePendingLocked(callID)
 	r.emitLocked("snapshot", r.snapshotLocked())
+	cp := r.checkpoint
+	r.mu.Unlock()
+	if cp != nil {
+		cp()
+	}
 }
 
 func (r *Run) removePendingLocked(callID string) {

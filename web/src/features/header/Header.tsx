@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router'
-import { EyeOff, LogOut, PanelLeft, Settings, ShieldCheck, SquarePen, LayoutGrid } from 'lucide-react'
+import { EyeOff, LogOut, PanelLeft, Settings, ShieldCheck, SquarePen, LayoutGrid, ListChecks } from 'lucide-react'
 import { api, setToken } from '@/api/client'
 import { useMe } from '@/api/queries'
 import { useChat } from '@/stores/chat'
@@ -10,6 +10,7 @@ import { Tip } from '@/ui/misc'
 import { IconButton } from '@/ui/Dialog'
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/ui/Menu'
 import { IntegrationSlots } from '@/features/integrations/registry'
+import { canCowork } from '@/features/cowork/lib'
 import { ModelPicker } from './ModelPicker'
 
 export function Avatar({ name, src, size = 28 }: { name?: string; src?: string; size?: number }) {
@@ -47,6 +48,11 @@ export function UserMenu() {
         <MenuItem onSelect={() => openSettings()} testId="open-settings">
           <Settings size={15} /> Settings
         </MenuItem>
+        {canCowork(me) && (
+          <MenuItem onSelect={() => navigate('/cowork')}>
+            <ListChecks size={15} /> Cowork
+          </MenuItem>
+        )}
         {workspace && (
           <MenuItem onSelect={() => navigate('/workspace/models')}>
             <LayoutGrid size={15} /> Workspace

@@ -16,6 +16,11 @@ import (
 // askTimeout bounds how long a tool waits for the user by default.
 var askTimeout = 30 * time.Minute
 
+// coworkAskTimeout is the default wait in a task, where the user is often away.
+// ponytail: an in-memory wait; a restart withdraws the question (the start-up
+// sweep marks the message as failed). Persist pending asks if tasks must survive restarts.
+var coworkAskTimeout = 12 * time.Hour
+
 // toolEntry is one function the model may call this run.
 type toolEntry struct {
 	spec     tools.Spec
@@ -151,8 +156,11 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 	if err != nil {
 		return err
 	}
-	maxIter := 30
-	e.setting(ctx, "chat.max_tool_iterations", &maxIter)
+	maxIter, key := 30, "chat.max_tool_iterations"
+	if x.cowork() {
+		maxIter, key = 100, "cowork.max_tool_iterations"
+	}
+	e.setting(ctx, key, &maxIter)
 	msgs := x.messages()
 	passthrough := len(x.req.Tools) > 0
 	for round := 0; ; round++ {
@@ -288,6 +296,9 @@ func (e *Engine) toolCall(x *exec, c provider.ToolCall) tools.Call {
 		Emit: func(ev tools.Event) { e.applyEvent(run, c.ID, ev.Type, ev.Data) },
 		Ask: func(ctx context.Context, r tools.AskRequest) (json.RawMessage, error) {
 			timeout := askTimeout
+			if x.cowork() {
+				timeout = coworkAskTimeout
+			}
 			if r.TimeoutMS > 0 {
 				timeout = time.Duration(r.TimeoutMS) * time.Millisecond
 			}

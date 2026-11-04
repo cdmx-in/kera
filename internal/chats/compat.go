@@ -1,6 +1,7 @@
 package chats
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -157,7 +158,7 @@ func ChatJSON(c Chat, entries []Entry, tags []string) map[string]any {
 	return map[string]any{
 		"id": c.ID, "user_id": c.UserID, "title": c.Title, "folder_id": c.FolderID, "share_id": c.ShareID,
 		"archived": c.Archived, "pinned": c.Pinned, "created_at": c.CreatedAt.Unix(), "updated_at": c.UpdatedAt.Unix(),
-		"meta": map[string]any{"tags": tags}, "tags": tags,
+		"meta": map[string]any{"tags": tags}, "tags": tags, "mode": cmp.Or(c.Mode, "chat"),
 		"chat": map[string]any{
 			"id": c.ID, "title": c.Title, "models": orStrings(c.ModelIDs), "tags": tags, "params": map[string]any{},
 			"history":   map[string]any{"currentId": curID, "messages": hist},

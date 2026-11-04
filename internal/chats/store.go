@@ -36,6 +36,7 @@ type Chat struct {
 	Locality         *string
 	ModelIDs         []string
 	Summary          string
+	Mode             string // chat | cowork (a task)
 	Meta             map[string]any
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -70,12 +71,12 @@ type Store struct {
 }
 
 const chatCols = `id, user_id, title, folder_id, pinned, archived, share_id, current_message_id, locality,
-	model_ids, summary, meta, created_at, updated_at`
+	model_ids, summary, mode, meta, created_at, updated_at`
 
 func scanChat(row pgx.Row) (Chat, error) {
 	var c Chat
 	err := row.Scan(&c.ID, &c.UserID, &c.Title, &c.FolderID, &c.Pinned, &c.Archived, &c.ShareID, &c.CurrentMessageID,
-		&c.Locality, &c.ModelIDs, &c.Summary, &c.Meta, &c.CreatedAt, &c.UpdatedAt)
+		&c.Locality, &c.ModelIDs, &c.Summary, &c.Mode, &c.Meta, &c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, ErrNotFound
 	}
@@ -105,9 +106,12 @@ func (s *Store) Create(ctx context.Context, c *Chat) error {
 	if c.ModelIDs == nil {
 		c.ModelIDs = []string{}
 	}
-	err := s.DB.QueryRow(ctx, `INSERT INTO chat (id, user_id, title, folder_id, pinned, model_ids, meta)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at, updated_at`,
-		c.ID, c.UserID, c.Title, c.FolderID, c.Pinned, c.ModelIDs, c.Meta).Scan(&c.CreatedAt, &c.UpdatedAt)
+	if c.Mode == "" {
+		c.Mode = "chat"
+	}
+	err := s.DB.QueryRow(ctx, `INSERT INTO chat (id, user_id, title, folder_id, pinned, model_ids, meta, mode)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING created_at, updated_at`,
+		c.ID, c.UserID, c.Title, c.FolderID, c.Pinned, c.ModelIDs, c.Meta, c.Mode).Scan(&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create chat: %w", err)
 	}

@@ -10,11 +10,13 @@ export interface ChatStore {
   chatId: string | null
   title: string
   temporary: boolean
+  /** 'cowork' for a task (Cowork page); unset for a plain chat. */
+  mode?: 'cowork'
   messages: Record<string, Message>
   currentId: string | null
   streamingId: string | null
-  reset(chatId: string | null, temporary?: boolean): void
-  load(chatId: string, title: string, messages: Record<string, Message>, currentId: string | null): void
+  reset(chatId: string | null, temporary?: boolean, mode?: 'cowork'): void
+  load(chatId: string, title: string, messages: Record<string, Message>, currentId: string | null, mode?: 'cowork'): void
   put(m: Message): void
   patch(id: string, fn: (m: Message) => Message): void
   setCurrent(id: string | null): void
@@ -30,8 +32,8 @@ export const useChat = create<ChatStore>((set) => ({
   messages: {},
   currentId: null,
   streamingId: null,
-  reset: (chatId, temporary = false) => set({ chatId, temporary, title: '', messages: {}, currentId: null, streamingId: null }),
-  load: (chatId, title, messages, currentId) => set({ chatId, title, messages, currentId, temporary: false, streamingId: null }),
+  reset: (chatId, temporary = false, mode) => set({ chatId, temporary, mode, title: '', messages: {}, currentId: null, streamingId: null }),
+  load: (chatId, title, messages, currentId, mode) => set({ chatId, title, messages, currentId, mode, temporary: false, streamingId: null }),
   put: (m) =>
     set((s) => {
       const messages = { ...s.messages, [m.id]: m }

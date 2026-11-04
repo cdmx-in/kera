@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, ChevronRight, Folder as FolderIcon, FolderPlus, LayoutGrid, MoreHorizontal, PanelLeftClose, Pencil, Pin, PinOff, Search, Share2, ShieldCheck, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ChevronRight, Folder as FolderIcon, FolderPlus, LayoutGrid, ListChecks, MoreHorizontal, PanelLeftClose, Pencil, Pin, PinOff, Search, Share2, ShieldCheck, SquarePen, Trash2 } from 'lucide-react'
 import { api } from '@/api/client'
 import { useChats, useFolders, useMe, usePinnedChats } from '@/api/queries'
 import type { ChatSummary, Folder } from '@/api/types'
@@ -14,6 +14,7 @@ import { IconButton } from '@/ui/Dialog'
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/ui/Menu'
 import { SearchDialog } from './SearchDialog'
 import { brandMark } from '@/features/brand/Splash'
+import { canCowork } from '@/features/cowork/lib'
 
 const DAY = 86_400_000
 
@@ -133,6 +134,11 @@ export function Sidebar() {
           <button type="button" data-testid="new-chat" onClick={newChat} className="nav-sweep flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium hover:bg-surface-2">
             <SquarePen size={16} /> New chat
           </button>
+          {canCowork(me) && (
+            <NavLink to="/cowork" data-testid="cowork-nav" onClick={closeOnMobile} className="nav-sweep flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 aria-[current=page]:bg-surface-2 aria-[current=page]:font-medium">
+              <ListChecks size={16} /> Cowork
+            </NavLink>
+          )}
           {workspace && (
             <NavLink to="/workspace/models" onClick={closeOnMobile} className="nav-sweep flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 aria-[current=page]:bg-surface-2 aria-[current=page]:font-medium">
               <LayoutGrid size={16} /> Workspace

@@ -207,4 +207,10 @@ func readFiles(f *File, dir string, errs *Errors) {
 		}
 		c.PromptFile, c.PreludeFile = "", ""
 	}
+	if c := f.Cowork; c != nil {
+		if s := read(0, "cowork.prompt_file", c.PromptFile, c.Prompt != nil); s != nil {
+			c.Prompt = s
+		}
+		c.PromptFile = ""
+	}
 }

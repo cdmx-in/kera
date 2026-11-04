@@ -16,11 +16,13 @@ import { useUploads } from './uploads'
 
 const plusIntegration = (i: Integration) => i.kind === 'oauthToolServer' && i.showInPlusMenu !== false
 
-export function Composer({ onSend, disabled }: { onSend: (text: string, files: FileRef[]) => Promise<boolean>; disabled?: boolean }) {
+/** `variant="task"` is the Cowork goal box: its own draft, wording and test ids. `initialText` (?q=) wins over a saved draft. */
+export function Composer({ onSend, disabled, variant, initialText }: { onSend: (text: string, files: FileRef[]) => Promise<boolean>; disabled?: boolean; variant?: 'task'; initialText?: string }) {
   const chatId = useChat((s) => s.chatId)
   const streaming = useChat((s) => s.streamingId !== null)
-  const draftKey = `draft:${chatId ?? 'new'}`
-  const [text, setText] = useState(() => storageGet('session', draftKey) ?? '')
+  const task = variant === 'task'
+  const draftKey = task ? 'draft:task' : `draft:${chatId ?? 'new'}`
+  const [text, setText] = useState(() => initialText || (storageGet('session', draftKey) ?? ''))
   const ta = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const uploads = useUploads()
@@ -28,7 +30,8 @@ export function Composer({ onSend, disabled }: { onSend: (text: string, files: F
 
   // Switching chats loads that chat's draft; typing saves it (sessionStorage draft:<chatId|new>).
   useEffect(() => {
-    setText(storageGet('session', draftKey) ?? '')
+    setText(initialText || (storageGet('session', draftKey) ?? ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey])
   const edit = (v: string) => {
     setText(v)
@@ -99,12 +102,12 @@ export function Composer({ onSend, disabled }: { onSend: (text: string, files: F
       <textarea
         ref={ta}
         id="chat-input"
-        data-testid="composer-input"
-        aria-label="Message"
+        data-testid={task ? 'task-goal' : 'composer-input'}
+        aria-label={task ? 'Goal' : 'Message'}
         rows={1}
         value={text}
         disabled={disabled}
-        placeholder="How can I help?"
+        placeholder={task ? "Describe the goal. The assistant plans and works on it, and asks when it needs you." : 'How can I help?'}
         onChange={(e) => edit(e.target.value)}
         onPaste={(e) => {
           const files = [...e.clipboardData.files]
@@ -134,7 +137,7 @@ export function Composer({ onSend, disabled }: { onSend: (text: string, files: F
             <Square size={14} fill="currentColor" />
           </button>
         ) : (
-          <button type="button" data-testid="send" aria-label="Send" disabled={!canSend} onClick={() => void send()} className="grid size-9 place-items-center rounded-full bg-accent text-white transition-[opacity,background-color] enabled:hover:bg-accent-bright disabled:opacity-35">
+          <button type="button" data-testid={task ? 'start-task' : 'send'} aria-label={task ? 'Start task' : 'Send'} disabled={!canSend} onClick={() => void send()} className="grid size-9 place-items-center rounded-full bg-accent text-white transition-[opacity,background-color] enabled:hover:bg-accent-bright disabled:opacity-35">
             <ArrowUp size={18} />
           </button>
         )}

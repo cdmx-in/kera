@@ -1,6 +1,7 @@
 package chats
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -251,6 +252,7 @@ type chatForm struct {
 		} `json:"history"`
 		FolderID *string `json:"folder_id"`
 		Pinned   *bool   `json:"pinned"`
+		Mode     string  `json:"mode"` // create only: chat (default) | cowork
 	} `json:"chat"`
 	FolderID *string `json:"folder_id"`
 }
@@ -273,7 +275,18 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	c := Chat{UserID: uid(r), ModelIDs: f.Chat.Models}
+	c := Chat{UserID: uid(r), ModelIDs: f.Chat.Models, Mode: cmp.Or(f.Chat.Mode, "chat")}
+	switch c.Mode {
+	case "chat":
+	case "cowork":
+		if !auth.FromContext(ctx).Can("features.cowork") {
+			api.Fail(w, r, api.Errf(http.StatusForbidden, "forbidden", "Permission required: features.cowork"))
+			return
+		}
+	default:
+		api.Fail(w, r, api.Errf(http.StatusBadRequest, "bad_mode", "mode must be chat or cowork"))
+		return
+	}
 	if f.Chat.Title != nil {
 		c.Title = strings.TrimSpace(*f.Chat.Title)
 	}

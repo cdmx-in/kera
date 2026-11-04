@@ -28,6 +28,7 @@ export const router = createBrowserRouter([
       { index: true, Component: ChatPage },
       { path: 'c/:chatId', Component: ChatPage },
       { path: 'admin/*', lazy: page(() => import('@/features/admin/AdminPage')) },
+      { path: 'cowork/*', lazy: page(() => import('@/features/cowork/CoworkPage')) },
       { path: 'workspace/*', lazy: page(() => import('@/features/workspace/WorkspacePage')) },
       { path: '*', Component: NotFound },
     ],

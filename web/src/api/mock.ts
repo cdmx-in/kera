@@ -6,7 +6,7 @@ import type { StreamEvent } from './types'
 type Json = Record<string, unknown>
 type RawMsg = Json & { id: string; parentId: string | null; childrenIds: string[] }
 
-const me = { id: 'u1', name: 'Ada Lovelace', email: 'ada@example.com', role: 'admin', profile_image_url: '', token: 'mock-token', permissions: { features: { api_keys: true }, workspace: { models: true } } }
+const me = { id: 'u1', name: 'Ada Lovelace', email: 'ada@example.com', role: 'admin', profile_image_url: '', token: 'mock-token', permissions: { features: { api_keys: true, cowork: true }, workspace: { models: true } } }
 
 const models = [
   {
@@ -27,6 +27,8 @@ const models = [
       { title: ['Copy rows', 'to a spreadsheet (asks to confirm)'], content: 'Copy the totals to my spreadsheet' },
     ],
   },
+  // a preset: an ordinary /api/models entry the picker lists like any model
+  { id: 'pm-assistant', name: 'PM Assistant', info: { base_model_id: 'assistant', meta: { description: 'Preset: project tasks, docs and reports' } }, features: [{ id: 'code_interpreter', label: 'Code', icon: 'terminal', default: true }] },
   { id: 'local-private', name: 'Local Private', local: true, info: { meta: { description: 'Runs on our own GPU' } }, features: [] },
   { id: 'reasoner', name: 'Reasoner', info: { meta: { description: 'Slower, thinks longer' } } },
   { id: 'base-hidden', name: 'Base model (hidden)', hidden: true },
@@ -53,7 +55,7 @@ const ui = {
   ],
 }
 
-const chats = new Map<string, { id: string; title: string; updated_at: number; created_at: number; pinned: boolean; folder_id: string | null; messages: Record<string, RawMsg>; currentId: string | null }>()
+const chats = new Map<string, { id: string; title: string; updated_at: number; created_at: number; pinned: boolean; folder_id: string | null; messages: Record<string, RawMsg>; currentId: string | null; mode?: 'cowork'; model?: string }>()
 const folders: { id: string; name: string }[] = [{ id: 'fold1', name: 'Research' }]
 const files = new Map<string, { id: string; name: string; size: number; type: string; polls: number }>()
 const keys: Json[] = [{ id: 'k1', name: 'Laptop script', prefix: 'sk-4f2a', created_at: 1_760_000_000, last_used_at: 1_761_000_000 }]
@@ -80,6 +82,22 @@ function seed() {
     },
   })
   chats.set('seed-2', { id: 'seed-2', title: '✈️ Lisbon trip ideas', updated_at: now() - 3 * 86400, created_at: now() - 3 * 86400, pinned: true, folder_id: null, currentId: null, messages: {} })
+  chats.set('seed-task-1', {
+    id: 'seed-task-1',
+    title: '📋 Weekly status report',
+    updated_at: now() - 2 * 86400,
+    created_at: now() - 2 * 86400,
+    pinned: false,
+    folder_id: null,
+    mode: 'cowork',
+    model: 'pm-assistant',
+    currentId: 'm-ta1',
+    messages: {
+      'm-tu1': { id: 'm-tu1', parentId: null, childrenIds: ['m-ta1'], role: 'user', content: 'Write the weekly status report from the open tasks', timestamp: now() - 2 * 86400 },
+      'm-ta1': { id: 'm-ta1', parentId: 'm-tu1', childrenIds: [], role: 'assistant', model: 'pm-assistant', content: 'Done. The report covers 12 open tasks; two are blocked.', files: [{ id: 'f-report', name: 'weekly-report.md', size: 2048, contentType: 'text/markdown' }], timestamp: now() - 2 * 86400 + 90, status: 'done' },
+    },
+  })
+  files.set('f-report', { id: 'f-report', name: 'weekly-report.md', size: 2048, type: 'text/markdown', polls: 9 })
   chats.set('seed-3', { id: 'seed-3', title: '📚 Vector search notes', updated_at: now() - 10 * 86400, created_at: now() - 10 * 86400, pinned: false, folder_id: 'fold1', currentId: null, messages: {} })
 }
 
@@ -125,7 +143,7 @@ function sse(run: Run, after: number): Response {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-async function play(chatId: string | null, messageId: string, userText: string, model: string) {
+async function play(chatId: string | null, messageId: string, userText: string, model: string, cowork = false) {
   const run: Run = { log: [], listeners: new Set(), finished: false, cancelled: false, answers: new Map() }
   runs.set(messageId, run)
   let seq = 0
@@ -152,6 +170,14 @@ async function play(chatId: string | null, messageId: string, userText: string, 
       return
     }
     await step(250)
+    if (cowork) {
+      await words('**Plan**\n1. Search for current figures\n2. Write working notes\n3. Build the comparison file\n4. Ask how you want the report\n\n')
+      emit('tool_call', { callId: 'c0', name: 'execute_code', args: { code: "open('notes.md', 'w').write('# Notes')" } })
+      emit('status', { callId: 'c0', id: 's0', action: 'execute_code', description: 'Writing notes.md', done: false })
+      await step(700)
+      emit('tool_result', { callId: 'c0', status: 'ok', preview: 'notes.md written', files: [{ id: 'f-notes', name: 'notes.md', size: 512, contentType: 'text/markdown' }] })
+      files.set('f-notes', { id: 'f-notes', name: 'notes.md', size: 512, type: 'text/markdown', polls: 9 })
+    }
     await words('The user wants a concise comparison. I should search first, then read the most relevant page and cite it. ', 'reasoning')
     emit('reasoning', { done: true, durationMs: 2300 })
     emit('tool_call', { callId: 'c1', name: 'search_web', server: '', args: { query: userText.slice(0, 60) } })
@@ -285,15 +311,32 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
   }
   if (p === '/api/v1/chats/' || p === '/api/v1/chats/pinned' || p === '/api/v1/chats/search') {
     const q = url.searchParams.get('text')?.toLowerCase() ?? ''
-    const list = [...chats.values()].sort((a, b) => b.updated_at - a.updated_at)
+    const list = [...chats.values()].filter((c) => c.mode !== 'cowork').sort((a, b) => b.updated_at - a.updated_at)
     if (p.endsWith('pinned')) return json(list.filter((c) => c.pinned).map(summary))
     return json(list.filter((c) => !q || c.title.toLowerCase().includes(q)).map(summary))
   }
   if (p === '/api/v1/chats/new') {
     const id = uid()
-    chats.set(id, { id, title: 'New Chat', updated_at: now(), created_at: now(), pinned: false, folder_id: null, messages: {}, currentId: null })
-    return json({ id })
+    const c = ((await body(init)).chat ?? {}) as Json
+    const mode = c.mode === 'cowork' ? 'cowork' : undefined
+    chats.set(id, { id, title: 'New Chat', updated_at: now(), created_at: now(), pinned: false, folder_id: null, messages: {}, currentId: null, mode, model: (c.models as string[] | undefined)?.[0] })
+    return json({ id, mode: mode ?? 'chat' })
   }
+  if (p === '/api/v1/cowork') {
+    const tasks = [...chats.values()].filter((c) => c.mode === 'cowork').sort((a, b) => b.updated_at - a.updated_at)
+    return json(
+      tasks.map((c) => {
+        const cur = c.currentId ? c.messages[c.currentId] : undefined
+        const st = (cur?.status as string) ?? 'done'
+        const status = st === 'streaming' ? (runs.get(cur!.id)?.answers.size ? 'needs_input' : 'running') : st
+        const out = Object.values(c.messages)
+          .filter((m) => m.role === 'assistant')
+          .flatMap((m) => [...((m.files as Json[]) ?? []), ...((m.parts as Json[]) ?? []).flatMap((x) => (x.type === 'steps' ? (x.steps as Json[]).flatMap((s) => (s.files as Json[]) ?? []) : []))])
+        return { id: c.id, title: c.title, status, model: (cur?.model as string) ?? c.model, files: new Set(out.map((f) => f.id)).size, created_at: c.created_at, updated_at: c.updated_at }
+      }),
+    )
+  }
+  if (p === '/api/v1/knowledge/') return json({ items: [{ id: 'kb-handbook', name: 'Team handbook', description: 'Policies and how-tos', write_access: false, status: { files: 3, chunks: 40, pending: 0, processing: 0, completed: 3, failed: 0 }, created_at: now(), updated_at: now() }] })
   if ((m = p.match(/^\/api\/v1\/chats\/folder\/([^/]+)$/))) {
     const id = decodeURIComponent(m[1])
     return json([...chats.values()].filter((c) => c.folder_id === id).map(summary))
@@ -326,7 +369,7 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
     if (m[3] === 'share') return json({ share_id: 'share-' + c.id })
     if (m[3] === 'folder') c.folder_id = ((await body(init)).folder_id as string) ?? null
     if (!m[3] && method === 'POST') c.title = String(((await body(init)).chat as Json)?.title ?? c.title)
-    return json({ id: c.id, title: c.title, pinned: c.pinned, chat: { title: c.title, history: { currentId: c.currentId, messages: c.messages } } })
+    return json({ id: c.id, title: c.title, pinned: c.pinned, mode: c.mode ?? 'chat', chat: { title: c.title, history: { currentId: c.currentId, messages: c.messages } } })
   }
   if (p === '/api/v1/files/' && method === 'POST') {
     const f = (init?.body as FormData).get('file') as File
@@ -361,7 +404,7 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
       c.updated_at = now()
     }
     const last = (b.messages as Json[] | undefined)?.at(-1)?.content
-    void play(chatId, messageId, String(last ?? ''), String(b.model))
+    void play(chatId, messageId, String(last ?? ''), String(b.model), c?.mode === 'cowork')
     await sleep(50)
     return sse(runs.get(messageId)!, 0)
   }

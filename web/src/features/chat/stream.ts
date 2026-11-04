@@ -197,9 +197,10 @@ export function resumeStream(chatId: string, messageId: string, after = 0) {
   void drive(newRun(chatId, messageId), null, after)
 }
 
+/** Stops the reply streaming in the open chat; a run left running in another chat is not touched. */
 export async function stopStream() {
   const run = current
-  if (!run) return
+  if (!run || useChat.getState().streamingId !== run.messageId) return
   run.controller.abort()
   if (run.chatId) {
     await api(`/api/v1/chats/${encodeURIComponent(run.chatId)}/messages/${encodeURIComponent(run.messageId)}/cancel`, { method: 'POST' }).catch(() => undefined)

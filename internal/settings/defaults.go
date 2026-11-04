@@ -22,7 +22,7 @@ var Defaults = map[string]json.RawMessage{
 
 	// Default permissions for every non-admin user; groups can only add.
 	"user.permissions": raw(`{
-		"features": {"api_keys": false, "web_search": true, "code_interpreter": true, "memory": true, "temporary_chat": true},
+		"features": {"api_keys": false, "web_search": true, "code_interpreter": true, "memory": true, "temporary_chat": true, "cowork": true},
 		"chat": {"file_upload": true, "share": true, "export": true, "delete": true, "edit": true, "temporary": true},
 		"workspace": {"models": false, "knowledge": false, "prompts": false, "tools": false}
 	}`),
@@ -43,6 +43,10 @@ var Defaults = map[string]json.RawMessage{
 	"chat.memory.review_every":  raw(`5`),
 	"chat.memory.local_only":    raw(`true`),
 	"compat.throwaway_chats":    raw(`true`),
+
+	// Cowork (task mode): the prompt added after the preset prompt ("" = cowork.DefaultPrompt) and its tool-round cap.
+	"cowork.prompt":              raw(`""`),
+	"cowork.max_tool_iterations": raw(`100`),
 
 	"rag.chunk_size":             raw(`1000`),
 	"rag.chunk_overlap":          raw(`100`),

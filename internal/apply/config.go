@@ -23,6 +23,7 @@ type Config struct {
 	RAG             *RAG             `yaml:"rag,omitempty"`
 	Web             *Web             `yaml:"web,omitempty"`
 	CodeInterpreter *CodeInterpreter `yaml:"code_interpreter,omitempty"`
+	Cowork          *Cowork          `yaml:"cowork,omitempty"`
 	OAuthProviders  []OAuthProvider  `yaml:"oauth_providers,omitempty"`
 	ToolServers     []ToolServer     `yaml:"tool_servers,omitempty"`
 	HookServers     []HookServer     `yaml:"hook_servers,omitempty"`
@@ -277,6 +278,13 @@ type CodeInterpreter struct {
 	MaxFileMB   *int    `yaml:"max_file_mb,omitempty"`
 	// Languages replaces the whole code_interpreter.languages map.
 	Languages map[string]CodeLanguage `yaml:"languages,omitempty"`
+}
+
+// Cowork is task mode: the prompt added to task runs ("" = built-in) and their tool-round cap.
+type Cowork struct {
+	Prompt            *string `yaml:"prompt,omitempty"`
+	PromptFile        string  `yaml:"prompt_file,omitempty" apply:"-"`
+	MaxToolIterations *int    `yaml:"max_tool_iterations,omitempty"`
 }
 
 // CodeLanguage is one language execute_code can run. An empty Command means
