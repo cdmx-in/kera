@@ -120,7 +120,15 @@ func (e *Engine) prepareMessages(ctx context.Context, x *exec) error {
 			return err
 		}
 		x.parentID = um.ID
-		if err := e.Chats.LinkFiles(ctx, c.ID, um.ID, fileIDsOf(um.Files)); err != nil {
+		// A chat link grants read access (files.CanRead), so link only files
+		// the user can already read; anything else is someone else's file id.
+		var readable []string
+		for _, id := range fileIDsOf(um.Files) {
+			if ok, err := e.Files.CanRead(ctx, x.u, id); err == nil && ok {
+				readable = append(readable, id)
+			}
+		}
+		if err := e.Chats.LinkFiles(ctx, c.ID, um.ID, readable); err != nil {
 			return err
 		}
 	case req.ParentID != "":
@@ -260,6 +268,10 @@ func (e *Engine) save(x *exec) {
 		return
 	}
 	run := x.run
+	// saves come from the run and from answer handlers; holding saveMu across
+	// the read and the write keeps an older state from landing after a newer one
+	run.saveMu.Lock()
+	defer run.saveMu.Unlock()
 	run.mu.Lock()
 	p := chats.Progress{Content: run.state.Text(), Parts: json.RawMessage(mustMarshal(run.state.Parts, "[]")),
 		Files: json.RawMessage(mustMarshal(run.state.Files, "[]")), Sources: json.RawMessage(mustMarshal(run.state.Sources, "[]")),
@@ -403,16 +415,14 @@ func summaryBlock(s string) string {
 func (e *Engine) features(ctx context.Context, x *exec) map[string]bool {
 	out := map[string]bool{}
 	for _, id := range []string{"web_search", "code_interpreter", "memory"} {
-		var on bool
-		if v, ok := x.req.Features[id]; ok {
-			on = v
-		} else if x.req.Features != nil {
-			on = id == "memory" // toggles the web app does not show: memory follows the user's setting
-		} else {
+		v, set := x.req.Features[id]
+		on := v
+		switch {
+		case set:
+		case id == "memory":
+			on = true // unless switched off, memory follows the user's own setting
+		case x.req.Features == nil:
 			on = containsStr(x.m.DefaultFeatures, id)
-		}
-		if id == "memory" && x.req.Features == nil {
-			on = true // memory follows the user's own setting
 		}
 		out[id] = on && x.u.Can("features."+id) && (id == "memory" || supported(x.m.Features[id]))
 	}

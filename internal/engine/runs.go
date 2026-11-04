@@ -64,7 +64,8 @@ type Run struct {
 	usage       Usage
 	finish      string // stop | tool_calls | length
 
-	checkpoint func() // persists the state (set by the engine; may be nil)
+	checkpoint func()     // persists the state (set by the engine; may be nil)
+	saveMu     sync.Mutex // orders saves: state read + write happen together
 }
 
 func newRun(chatID, messageID, userID, modelID string, persisted bool) *Run {
@@ -403,6 +404,13 @@ func (r *Run) ask(ctx context.Context, pc PendingCall, timeout time.Duration) (j
 	}
 	r.waiters[pc.CallID] = ch
 	r.state.PendingCalls = append(r.state.PendingCalls, pc)
+	cp := r.checkpoint
+	r.mu.Unlock()
+	// persist before the card goes out, so a reload right after it shows the card
+	if cp != nil {
+		cp()
+	}
+	r.mu.Lock()
 	data := map[string]any{"callId": pc.CallID}
 	if pc.Kind == "confirm" {
 		data["title"], data["message"] = pc.Title, pc.Message
@@ -416,11 +424,7 @@ func (r *Run) ask(ctx context.Context, pc PendingCall, timeout time.Duration) (j
 		data["questions"] = pc.Questions
 	}
 	r.emitLocked(pc.Kind, data)
-	cp := r.checkpoint
 	r.mu.Unlock()
-	if cp != nil {
-		cp()
-	}
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {

@@ -610,3 +610,47 @@ func TestKnowledgeFullAndRetrieve(t *testing.T) {
 		t.Fatalf("no sources event: %s", types(evs))
 	}
 }
+
+// A chat link grants read access, so attaching someone else's file id must not link it.
+func TestAttachingAnotherUsersFileDoesNotLinkIt(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	for _, q := range []string{
+		`INSERT INTO "user" (id, name, email, role) VALUES ('u2', 'Bob', 'bob@example.com', 'user')`,
+		`INSERT INTO file (id, user_id, filename, path) VALUES ('f-ada', 'u1', 'secret.txt', '/x')`,
+		`INSERT INTO file (id, user_id, filename, path, status, text) VALUES ('f-bob', 'u2', 'mine.txt', '/y', 'completed', 'hello')`,
+	} {
+		if _, err := h.pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.e.Settings.Set(ctx, "models.base_public", true, false); err != nil {
+		t.Fatal(err)
+	}
+	bob := &auth.User{ID: "u2", Name: "Bob", Email: "bob@example.com", Role: "user"}
+	c := chats.Chat{UserID: "u2"}
+	if err := h.e.Chats.Create(ctx, &c); err != nil {
+		t.Fatal(err)
+	}
+	run, err := h.e.Start(ctx, bob, &Request{Model: "m1", StreamFormat: "events", ChatID: c.ID,
+		UserMessage: &UserMessage{Content: "hi", Files: json.RawMessage(`[{"type":"file","id":"f-ada"},{"type":"file","id":"f-bob"}]`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait(t, run)
+	h.e.Wait()
+	if ok, _ := h.e.Files.CanRead(ctx, bob, "f-ada"); ok {
+		t.Fatal("bob can read ada's file after attaching its id")
+	}
+	var linked []string
+	rows, _ := h.pool.Query(ctx, `SELECT file_id FROM chat_file WHERE chat_id = $1`, c.ID)
+	for rows.Next() {
+		var id string
+		_ = rows.Scan(&id)
+		linked = append(linked, id)
+	}
+	rows.Close()
+	if len(linked) != 1 || linked[0] != "f-bob" {
+		t.Fatalf("linked %v, want only f-bob", linked)
+	}
+}
