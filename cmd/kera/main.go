@@ -6,16 +6,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log/slog"
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/cdmx-in/kera/internal/app"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/db"
 	"github.com/cdmx-in/kera/internal/identity"
 	"github.com/cdmx-in/kera/internal/version"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	_ "github.com/cdmx-in/kera/internal/files" // registers the files feature
 )
 
 const usage = `kera - self-hosted team chat for Ollama and OpenAI-compatible models

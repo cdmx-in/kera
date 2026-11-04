@@ -19,10 +19,15 @@ Every route accepts `Authorization: Bearer <token>` where the token is either a 
 
 | Route | Status | Notes |
 |---|---|---|
-| `POST /api/v1/files/` | planned | multipart field `file`. Returns `{id, filename, meta: {name, content_type, size}, data: {status}}`. |
-| `GET /api/v1/files/{id}` | planned | `data.status` moves `pending` -> `processing` -> `completed` or `failed` (`data.error`). Clients poll this. |
-| `GET /api/v1/files/{id}/content` | planned | raw bytes; `?attachment=true` forces download. |
-| `DELETE /api/v1/files/{id}` | planned | |
+| `POST /api/v1/files/` | done | multipart field `file`, optional `metadata` (JSON, stored as `meta.data`). Returns `{id, user_id, hash, filename, meta: {name, content_type, size}, data: {status: "pending"}, created_at, updated_at}` (epoch seconds). `?process=false` stores without extraction (status `completed`). Over the size limit (`files.max_mb`, default 100) -> 413. |
+| `GET /api/v1/files/` | done | the caller's files, newest first; admins may add `?all=true`. |
+| `GET /api/v1/files/{id}` | done | same object; `data.status` moves `pending` -> `processing` -> `completed` or `failed` (`data.error`). Clients poll this. Files the caller cannot read answer 404. |
+| `GET /api/v1/files/{id}/process/status` | done | `{status}`. |
+| `GET /api/v1/files/{id}/content` | done | raw bytes with Range support. Inline for images, PDF and plain text, otherwise attachment; `?attachment=true` forces download. `Content-Disposition` carries `filename` plus RFC 6266 `filename*`. HTML, SVG and XML are always attachments with `Content-Security-Policy: sandbox`; `X-Content-Type-Options: nosniff` always. Session cookie or bearer. |
+| `GET /api/v1/files/{id}/content/{name}` | done | same as `/content`; the name is ignored. |
+| `GET /api/v1/files/{id}/data/content` | done | `{content: <extracted text>}`. |
+| `GET /api/v1/files/{id}/preview?sheet=n` | done | Kera extension: `{kind: csv\|xlsx\|text\|pdf\|image\|docx\|other, sheets, sheet, rows: string[][], truncated}`, capped at 2,000 rows x 200 columns (text: first 200 KB, one column per line). |
+| `DELETE /api/v1/files/{id}` | done | owner or admin; removes the stored blob. `{message}`. |
 | `GET /api/v1/knowledge/` | planned | `{items: [...], total}`. |
 | `POST /api/v1/knowledge/create` | planned | `{name, description}`. |
 | `GET /api/v1/knowledge/{id}/files` | planned | `{items: [{id, filename, meta, data: {status}}], total}`. |
