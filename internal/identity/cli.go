@@ -19,6 +19,7 @@ import (
 // CLIUsage documents the identity subcommands for `kera help`.
 const CLIUsage = `  kera user list                                  list users
   kera user promote <email>                       make a user an admin
+  kera user login-link [--ttl 12h] <email>        print a sign-in link (no OAuth needed)
   kera apikey create --user <email> --name <n>    create an API key (printed once)
   kera apikey list --user <email>                 list a user's API keys
 `

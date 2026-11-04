@@ -10,12 +10,17 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/db"
 	"github.com/cdmx-in/kera/internal/identity"
 	"github.com/cdmx-in/kera/internal/importowui"
+	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/version"
 )
 
@@ -136,10 +141,50 @@ func identityCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	defer pool.Close()
+	if args[0] == "user" && len(args) > 1 && args[1] == "login-link" {
+		return loginLink(ctx, pool, args[2:])
+	}
 	if args[0] == "user" {
 		return identity.UserCmd(ctx, pool, args[1:], os.Stdout)
 	}
 	return identity.APIKeyCmd(ctx, pool, args[1:], os.Stdout, os.Stderr)
+}
+
+// loginLink prints a sign-in link for an existing user. It is the way into
+// the web app before an OAuth provider is configured for this host (for
+// example while running on a LAN address that Google will not redirect to).
+func loginLink(ctx context.Context, pool *pgxpool.Pool, args []string) error {
+	fs := flag.NewFlagSet("user login-link", flag.ContinueOnError)
+	ttl := fs.Duration("ttl", 12*time.Hour, "how long the session lasts")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: kera user login-link [--ttl 12h] <email>")
+	}
+	env, err := config.Load(true)
+	if err != nil {
+		return err
+	}
+	keys, err := secret.Derive(env.SecretKey)
+	if err != nil {
+		return err
+	}
+	var id, role string
+	err = pool.QueryRow(ctx, `SELECT id, role FROM "user" WHERE lower(email) = lower($1)`, fs.Arg(0)).Scan(&id, &role)
+	if err != nil {
+		return fmt.Errorf("user %s: %w", fs.Arg(0), err)
+	}
+	if role == "pending" {
+		return errors.New("user is pending approval")
+	}
+	tok, err := auth.IssueToken(keys, id, *ttl)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "This link signs in as that user until it expires. Do not share it.")
+	fmt.Printf("%s/auth#token=%s\n", env.PublicURL, tok)
+	return nil
 }
 
 func logLevel() slog.Level {
