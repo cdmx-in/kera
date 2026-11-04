@@ -310,7 +310,9 @@ func TestHooksAndProviders(t *testing.T) {
 	e.fails(400, "bad_client_id", "POST", "/api/v1/configs/oauth_providers", map[string]any{"id": "g", "issuer": "https://accounts.example.com"})
 	e.exec(`INSERT INTO oauth_provider (id, client_id, options, managed) VALUES ('google', 'old', '{"login": true, "extra": 1}', true)`)
 	var p provider
-	e.ok("POST", "/api/v1/configs/oauth_providers", map[string]any{"id": "google", "login": true, "issuer": "https://accounts.example.com",
+	e.fails(400, "bad_endpoints", "POST", "/api/v1/configs/oauth_providers", map[string]any{"id": "tool", "client_id": "c"})
+	// The Google login row apply writes has no endpoints; editing it must work.
+	e.ok("POST", "/api/v1/configs/oauth_providers", map[string]any{"id": "google", "login": true,
 		"client_id": "cid", "client_secret": "cs-secret"}, &p)
 	if p.Managed || !p.HasSecret || !p.PKCE || p.RedirectURI != "https://chat.example.com/oauth/google/callback" {
 		t.Fatalf("provider = %+v", p)

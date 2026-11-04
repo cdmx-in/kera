@@ -523,7 +523,9 @@ func (f *providerForm) validate() error {
 			errs = append(errs, checkURL(field, v))
 		}
 	}
-	if f.Issuer == "" && (f.AuthorizationEndpoint == "" || f.TokenEndpoint == "") {
+	// Login providers may leave endpoints empty: sign-in fills Google's (the
+	// row `kera apply` writes for auth.oauth.google has none).
+	if !f.Login && f.Issuer == "" && (f.AuthorizationEndpoint == "" || f.TokenEndpoint == "") {
 		errs = append(errs, api.Errf(http.StatusBadRequest, "bad_endpoints", "set issuer, or the authorization and token endpoints"))
 	}
 	return firstErr(errs)

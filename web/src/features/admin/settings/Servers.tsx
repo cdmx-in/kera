@@ -482,7 +482,7 @@ function ProviderEditor({ provider, onClose, save }: { provider: OAuthProvider |
           </IconButton>
         </div>
       </div>
-      {text('issuer', 'Issuer', 'OIDC discovery fills unset endpoints.')}
+      {text('issuer', 'Issuer', "Sign-in providers with empty endpoints use Google's.")}
       <div className="grid gap-3 sm:grid-cols-2">
         {text('authorization_endpoint', 'Authorization endpoint')}
         {text('token_endpoint', 'Token endpoint')}
