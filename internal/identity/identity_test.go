@@ -6,11 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -478,6 +480,37 @@ func TestUsersAdmin(t *testing.T) {
 		t.Fatalf("page 2 %+v", page)
 	}
 
+	// ?size= pages with a stable order (created_at, id) and a bounded size.
+	all := []string{adminID, uid}
+	for i := range 23 {
+		id, _ := e.mkUser("user", fmt.Sprintf("p%02d@example.com", i))
+		all = append(all, id)
+	}
+	_, _ = e.a.DB.Exec(ctx, `UPDATE "user" SET created_at = '2026-01-01'`) // ties fall back to id
+	slices.Sort(all)
+	var got []string
+	for p := 1; p <= 3; p++ {
+		e.ok("GET", fmt.Sprintf("/api/v1/users/?size=10&page=%d", p), admin, nil, &page)
+		if page.Total != 25 {
+			t.Fatalf("size=10 page %d total %d", p, page.Total)
+		}
+		for _, u := range page.Users {
+			got = append(got, u.ID)
+		}
+	}
+	if !slices.Equal(got, all) {
+		t.Fatalf("paged order %v, want %v", got, all)
+	}
+	for size, want := range map[string]int{"1": 10, "-5": 10, "x": 25, "": 25, "500": 25} {
+		e.ok("GET", "/api/v1/users/?size="+size, admin, nil, &page)
+		if len(page.Users) != want {
+			t.Fatalf("size=%q: %d users, want %d", size, len(page.Users), want)
+		}
+	}
+	if s := pageSize(httptest.NewRequest("GET", "/?size=500", nil)); s != maxUsersPerPage {
+		t.Fatalf("size=500 -> %d", s)
+	}
+
 	var u userOut
 	e.ok("POST", "/api/v1/users/"+uid+"/update", admin, map[string]string{"name": "Zed", "role": "admin"}, &u)
 	if u.Name != "Zed" || u.Role != "admin" {
@@ -560,7 +593,7 @@ func TestGroupsAndGrants(t *testing.T) {
 
 	var list []groupOut
 	e.ok("GET", "/api/v1/groups/", admin, nil, &list)
-	if len(list) != 1 || list[0].MemberCount != 1 || list[0].Description != "money" {
+	if len(list) != 1 || list[0].MemberCount != 1 || list[0].Description != "money" || string(list[0].MemberPreview) != `["`+uid+`"]` {
 		t.Fatalf("list %+v", list)
 	}
 	var page struct{ Users []userOut }

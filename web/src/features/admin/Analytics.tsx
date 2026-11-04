@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { cx } from '@/lib/format'
 import { useAdmin } from './api'
-import { compact, lastDays, num } from './lib'
+import { compact, lastDays, num, pageSlice } from './lib'
+import { Pagination, useUrlPager } from './Pagination'
 import { UserAvatar } from './Users'
-import { Bar, Card, DateRange, DayBars, Kpi, Loading, Page, tdCls, thCls } from './ui'
+import { Bar, Card, DateRange, DayBars, Kpi, Loading, Page, scrollCls, tdCls, theadCls, thCls } from './ui'
 
 interface Summary {
   users_total: number
@@ -48,6 +49,8 @@ export function AnalyticsPage() {
   const models = useAdmin<ModelRow[]>(['analytics', 'models', ...range], '/api/v1/analytics/models' + qs)
   const users = useAdmin<UserRow[]>(['analytics', 'users', ...range], '/api/v1/analytics/users' + qs)
   const s = summary.data
+  const modelPager = useUrlPager('models')
+  const userPager = useUrlPager()
   const maxModel = Math.max(0, ...(models.data ?? []).map((m) => m.messages))
   const maxUser = Math.max(0, ...(users.data ?? []).map((u) => u.messages))
 
@@ -70,9 +73,9 @@ export function AnalyticsPage() {
       </section>
       <Card title="Per model">
         <Loading q={models} />
-        <div className="overflow-x-auto">
+        <div className={scrollCls}>
           <table className="w-full text-sm" data-testid="analytics-models">
-            <thead className="border-b border-line">
+            <thead className={theadCls}>
               <tr>
                 <th className={thCls}>Model</th>
                 <th className={cx(thCls, 'text-right')}>Replies</th>
@@ -84,7 +87,7 @@ export function AnalyticsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-line tabular-nums">
-              {models.data?.map((m) => (
+              {pageSlice(models.data ?? [], modelPager.page, modelPager.size).map((m) => (
                 <tr key={m.model}>
                   <td className={cx(tdCls, 'font-medium')}>{m.model || '(none)'}</td>
                   <td className={cx(tdCls, 'text-right')}>{num(m.messages)}</td>
@@ -101,12 +104,13 @@ export function AnalyticsPage() {
             </tbody>
           </table>
         </div>
+        {!!models.data?.length && <Pagination pager={modelPager} total={models.data.length} label="Models pages" />}
       </Card>
       <Card title="Per user">
         <Loading q={users} />
-        <div className="overflow-x-auto">
+        <div className={scrollCls}>
           <table className="w-full text-sm" data-testid="analytics-users">
-            <thead className="border-b border-line">
+            <thead className={theadCls}>
               <tr>
                 <th className={thCls}>User</th>
                 <th className={cx(thCls, 'text-right')}>Replies</th>
@@ -118,7 +122,7 @@ export function AnalyticsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-line tabular-nums">
-              {users.data?.map((u) => (
+              {pageSlice(users.data ?? [], userPager.page, userPager.size).map((u) => (
                 <tr key={u.user_id}>
                   <td className={tdCls}>
                     <div className="flex min-w-48 items-center gap-2">
@@ -143,6 +147,7 @@ export function AnalyticsPage() {
             </tbody>
           </table>
         </div>
+        {!!users.data?.length && <Pagination pager={userPager} total={users.data.length} label="Users pages" />}
       </Card>
     </Page>
   )

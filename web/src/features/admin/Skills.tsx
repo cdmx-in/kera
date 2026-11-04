@@ -9,7 +9,9 @@ import { Switch } from '@/ui/misc'
 import { toast } from '@/stores/toast'
 import { AccessEditor } from './Access'
 import { enc } from './api'
-import { attempt, Badge, Btn, Card, Check, Confirm, Loading, ManagedBadge, Page, tdCls, thCls } from './ui'
+import { pageSlice } from './lib'
+import { Pagination, useUrlPager } from './Pagination'
+import { attempt, Badge, Btn, Card, Check, Confirm, Loading, ManagedBadge, Page, scrollCls, tdCls, theadCls, thCls } from './ui'
 
 export interface SkillRow {
   id: string
@@ -44,6 +46,7 @@ const KEY = ['admin', 'skills']
 export function SkillsPage() {
   const qc = useQueryClient()
   const skills = useQuery({ queryKey: KEY, queryFn: () => api<SkillRow[]>('/api/v1/skills/') })
+  const pager = useUrlPager()
   const [open, setOpen] = useState<SkillRow | null>(null)
   const [deleting, setDeleting] = useState<SkillRow | null>(null)
   const [busy, setBusy] = useState(false)
@@ -95,42 +98,45 @@ export function SkillsPage() {
       <Loading q={skills} />
       {skills.data && !skills.data.length && <p className="text-sm text-muted">No skills yet. Import a .zip of skill folders.</p>}
       {!!skills.data?.length && (
-        <Card className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line">
-                <th className={thCls}>Skill</th>
-                <th className={thCls}>Files</th>
-                <th className={thCls}>Enabled</th>
-                <th className={thCls} />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {skills.data.map((s) => (
-                <tr key={s.id} data-testid="skill-row">
-                  <td className={tdCls}>
-                    <button type="button" className="block max-w-xl text-left" onClick={() => setOpen(s)}>
-                      <span className="flex flex-wrap items-center gap-1.5 font-medium">
-                        {s.name}
-                        {s.managed && <ManagedBadge />}
-                        {!s.lazy && <Badge tone="amber">always loaded</Badge>}
-                      </span>
-                      <span className="line-clamp-2 text-xs text-muted">{s.description || 'No description'}</span>
-                    </button>
-                  </td>
-                  <td className={tdCls}>{s.files}</td>
-                  <td className={tdCls}>
-                    <Switch checked={s.enabled} label={`Enable ${s.name}`} onChange={(v) => void patch(s, { enabled: v })} />
-                  </td>
-                  <td className={tdCls + ' text-right'}>
-                    <IconButton label={`Delete ${s.name}`} onClick={() => setDeleting(s)} className="hover:text-red-600">
-                      <Trash2 size={15} />
-                    </IconButton>
-                  </td>
+        <Card>
+          <div className={scrollCls}>
+            <table className="w-full text-sm">
+              <thead className={theadCls}>
+                <tr>
+                  <th className={thCls}>Skill</th>
+                  <th className={thCls}>Files</th>
+                  <th className={thCls}>Enabled</th>
+                  <th className={thCls} />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {pageSlice(skills.data, pager.page, pager.size).map((s) => (
+                  <tr key={s.id} data-testid="skill-row">
+                    <td className={tdCls}>
+                      <button type="button" className="block max-w-xl text-left" onClick={() => setOpen(s)}>
+                        <span className="flex flex-wrap items-center gap-1.5 font-medium">
+                          {s.name}
+                          {s.managed && <ManagedBadge />}
+                          {!s.lazy && <Badge tone="amber">always loaded</Badge>}
+                        </span>
+                        <span className="line-clamp-2 text-xs text-muted">{s.description || 'No description'}</span>
+                      </button>
+                    </td>
+                    <td className={tdCls}>{s.files}</td>
+                    <td className={tdCls}>
+                      <Switch checked={s.enabled} label={`Enable ${s.name}`} onChange={(v) => void patch(s, { enabled: v })} />
+                    </td>
+                    <td className={tdCls + ' text-right'}>
+                      <IconButton label={`Delete ${s.name}`} onClick={() => setDeleting(s)} className="hover:text-red-600">
+                        <Trash2 size={15} />
+                      </IconButton>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination pager={pager} total={skills.data.length} label="Skills pages" />
         </Card>
       )}
       {open && <SkillDialog id={open.id} onClose={() => setOpen(null)} onPatch={(b) => patch(open, b)} />}

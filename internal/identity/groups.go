@@ -22,19 +22,23 @@ type groupOut struct {
 	Description string          `json:"description"`
 	Permissions json.RawMessage `json:"permissions"`
 	MemberCount int             `json:"member_count"`
-	CreatedAt   int64           `json:"created_at"`
-	UpdatedAt   int64           `json:"updated_at"`
-	UserIDs     *[]string       `json:"user_ids,omitempty"` // set on single-group reads
+	// MemberPreview holds up to four member ids (by name) for the avatar stack in the admin list.
+	MemberPreview json.RawMessage `json:"member_preview"`
+	CreatedAt     int64           `json:"created_at"`
+	UpdatedAt     int64           `json:"updated_at"`
+	UserIDs       *[]string       `json:"user_ids,omitempty"` // set on single-group reads
 }
 
 const groupSelect = `SELECT g.id, g.name, g.description, g.permissions,
 	(SELECT count(*) FROM group_member m WHERE m.group_id = g.id),
+	(SELECT COALESCE(json_agg(p.id), '[]') FROM (SELECT u.id FROM group_member m JOIN "user" u ON u.id = m.user_id
+		WHERE m.group_id = g.id ORDER BY lower(u.name), u.id LIMIT 4) p),
 	extract(epoch FROM g.created_at)::bigint, extract(epoch FROM g.updated_at)::bigint
 	FROM "group" g `
 
 func scanGroup(row pgx.Row) (groupOut, error) {
 	var g groupOut
-	err := row.Scan(&g.ID, &g.Name, &g.Description, &g.Permissions, &g.MemberCount, &g.CreatedAt, &g.UpdatedAt)
+	err := row.Scan(&g.ID, &g.Name, &g.Description, &g.Permissions, &g.MemberCount, &g.MemberPreview, &g.CreatedAt, &g.UpdatedAt)
 	return g, err
 }
 

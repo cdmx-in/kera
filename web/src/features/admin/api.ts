@@ -23,6 +23,8 @@ export interface Group {
   description: string
   permissions: Perms
   member_count: number
+  /** Up to four member ids for the avatar stack (list reads). */
+  member_preview?: string[]
   user_ids?: string[]
 }
 

@@ -82,7 +82,7 @@ Native event dialect (`text/event-stream`, `id:` = seq, `: ping` every 15 s, `X-
 | `GET /api/v1/auths/api_key` | done | `{api_key: "<prefix>..."}` of the newest key (full keys are never stored); 404 when none. Needs `features.api_keys` (admins always). |
 | `POST /api/v1/auths/api_key` | done | `{api_key}`: a new full key, shown once. Rotates the one key these single-key routes manage; named keys stay. |
 | `DELETE /api/v1/auths/api_key` | done | deletes every key of the caller; returns `true`. |
-| `GET /api/v1/users/?query=&page=` | done | admin; `{users: [{id, name, email, role, profile_image_url, last_active_at, created_at, groups: [{id, name}], api_key_count}], total}`, 30 per page, epoch seconds. |
+| `GET /api/v1/users/?query=&page=&size=` | done | admin; `{users: [{id, name, email, role, profile_image_url, last_active_at, created_at, groups: [{id, name}], api_key_count}], total}`, oldest first (created_at, id), `size` per page (10–200, default 30), epoch seconds. |
 | `GET /api/v1/users/{id}` | done | admin; one user in the list shape. |
 | `POST /api/v1/users/{id}/update` | done | admin; `{name?, role?}`. 403 on your own role, 409 `last_admin` when no admin would remain. |
 | `DELETE /api/v1/users/{id}` | done | admin; not yourself. |
@@ -90,7 +90,7 @@ Native event dialect (`text/event-stream`, `id:` = seq, `: ping` every 15 s, `X-
 | `GET /api/v1/users/user/settings` | done | the caller's settings object. |
 | `POST /api/v1/users/user/settings/update` | done | top-level keys of the body replace the stored ones (shallow merge); returns the result. |
 | `GET /api/v1/users/{id}/profile/image` | done | redirect to an http(s) picture, the decoded raster `data:` image, or a generated SVG initial. |
-| `GET /api/v1/groups/` | done | admin; `[{id, name, description, permissions, member_count, created_at, updated_at}]`. |
+| `GET /api/v1/groups/` | done | admin; `[{id, name, description, permissions, member_count, member_preview, created_at, updated_at}]`; `member_preview` is up to four member ids, by name. |
 | `POST /api/v1/groups/create` | done | admin; `{name, description, permissions}`; 409 on a duplicate name. |
 | `GET /api/v1/groups/id/{id}` | done | admin; the group plus `user_ids`. |
 | `POST /api/v1/groups/id/{id}/update` | done | admin; partial `{name?, description?, permissions?}`. |

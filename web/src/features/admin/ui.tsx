@@ -11,6 +11,10 @@ export const inputCls = 'w-full min-w-0 rounded-lg border border-line bg-surface
 export const inputAuto = inputCls.replace('w-full ', 'w-auto ')
 export const thCls = 'whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted'
 export const tdCls = 'px-3 py-2 align-middle'
+/** Table scroll area inside a card: grows with its rows up to about a screen, then scrolls under a sticky header. */
+export const scrollCls = 'max-h-[max(20rem,calc(100dvh-15rem))] overflow-auto'
+/** Sticky <thead> for tables inside scrollCls (the inset shadow is the bottom border, which sticky cells lose). */
+export const theadCls = 'sticky top-0 z-10 bg-surface shadow-[inset_0_-1px_0_var(--color-line)]'
 
 export function Btn({ variant = 'secondary', className, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'ghost' }) {
   return (
@@ -93,12 +97,19 @@ export function Card({ title, hint, actions, children, className }: { title?: Re
   )
 }
 
-export function Field({ label, hint, children, className }: { label: ReactNode; hint?: ReactNode; children: ReactNode; className?: string }) {
+/** A labelled field; error (inline validation or a field-specific API error) replaces the hint. */
+export function Field({ label, hint, error, children, className }: { label: ReactNode; hint?: ReactNode; error?: string; children: ReactNode; className?: string }) {
   return (
     <label className={cx('block space-y-1', className)}>
       <span className="block text-xs font-medium text-muted">{label}</span>
       {children}
-      {hint && <span className="block text-xs text-muted">{hint}</span>}
+      {error ? (
+        <span role="alert" className="block text-xs text-red-600 dark:text-red-400" data-testid="field-error">
+          {error}
+        </span>
+      ) : (
+        hint && <span className="block text-xs text-muted">{hint}</span>
+      )}
     </label>
   )
 }
