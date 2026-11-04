@@ -23,7 +23,9 @@ func (u *User) Can(path string) bool { return u.IsAdmin() || u.Permissions.Allow
 type ctxKey struct{}
 
 // WithUser stores u in ctx.
-func WithUser(ctx context.Context, u *User) context.Context { return context.WithValue(ctx, ctxKey{}, u) }
+func WithUser(ctx context.Context, u *User) context.Context {
+	return context.WithValue(ctx, ctxKey{}, u)
+}
 
 // FromContext returns the request user or nil.
 func FromContext(ctx context.Context) *User { u, _ := ctx.Value(ctxKey{}).(*User); return u }

@@ -6,17 +6,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/cdmx-in/kera/internal/app"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/db"
 	"github.com/cdmx-in/kera/internal/identity"
 	"github.com/cdmx-in/kera/internal/importowui"
 	"github.com/cdmx-in/kera/internal/version"
-	"log/slog"
-	"os"
-	"os/signal"
-	"syscall"
-	_ "github.com/cdmx-in/kera/internal/files" // registers the files feature
 )
 
 const usage = `kera - self-hosted team chat for Ollama and OpenAI-compatible models
@@ -31,8 +31,6 @@ Usage:
   kera migrate from-openwebui|verify  import an Open WebUI database (kera migrate help)
   kera version            print the version
 ` + identity.CLIUsage + `
-Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL.
-
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
 KERA_CONFIG (default file for kera apply).
 `

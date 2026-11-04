@@ -17,10 +17,10 @@ import (
 
 // Server holds shared dependencies for handlers.
 type Server struct {
-	Env  config.Env
-	DB   *pgxpool.Pool
-	mux  *http.ServeMux
-	spa  *spa
+	Env config.Env
+	DB  *pgxpool.Pool
+	mux *http.ServeMux
+	spa *spa
 }
 
 // New builds the server with core routes; feature packages add theirs via Handle.

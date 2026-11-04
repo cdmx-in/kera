@@ -332,11 +332,11 @@ func TestCrossOrigin(t *testing.T) {
 		resp.Body.Close()
 		return resp.StatusCode
 	}
-	if c := cookieReq("DELETE", "/api/v1/files/"+f.ID, nil, ""); c != 403 {
+	if c := cookieReq("DELETE", "/api/v1/files/"+f.ID, nil, ""); c != http.StatusUnauthorized { // cookie ignored cross-site (auth.Credential)
 		t.Fatalf("cross-site cookie DELETE: %d", c)
 	}
 	body, ct := multipartBody(t, "x.txt", []byte("x"), "")
-	if c := cookieReq("POST", "/api/v1/files/", body, ct); c != 403 {
+	if c := cookieReq("POST", "/api/v1/files/", body, ct); c != http.StatusUnauthorized {
 		t.Fatalf("cross-site cookie upload: %d", c)
 	}
 	if c := cookieReq("GET", "/api/v1/files/"+f.ID+"/content", nil, ""); c != 200 {

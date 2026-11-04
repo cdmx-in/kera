@@ -19,7 +19,9 @@ type Error struct {
 func (e *Error) Error() string { return e.Message }
 
 // Errf builds an API error.
-func Errf(status int, code, msg string) *Error { return &Error{Status: status, Code: code, Message: msg} }
+func Errf(status int, code, msg string) *Error {
+	return &Error{Status: status, Code: code, Message: msg}
+}
 
 // JSON writes v with status.
 func JSON(w http.ResponseWriter, status int, v any) {

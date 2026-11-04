@@ -42,11 +42,9 @@ func init() { app.Register("models", Mount) }
 // Mount registers the model and connection routes.
 func Mount(a *app.App) error {
 	h := &handlers{r: For(a)}
-	// The session cookie is SameSite=Lax, which still lets same-site origins
-	// post; cross-origin browser writes are refused (GET is always allowed).
-	csrf := http.NewCrossOriginProtection()
-	user := func(f http.HandlerFunc) http.Handler { return csrf.Handler(a.Auth.Required(f)) }
-	admin := func(f http.HandlerFunc) http.Handler { return csrf.Handler(a.Auth.Admin(f)) }
+	// CSRF: auth.Credential ignores the session cookie on cross-origin writes.
+	user := func(f http.HandlerFunc) http.Handler { return a.Auth.Required(f) }
+	admin := func(f http.HandlerFunc) http.Handler { return a.Auth.Admin(f) }
 	for _, p := range []string{"/api/models", "/api/v1/models", "/v1/models"} {
 		a.Server.Handle("GET "+p, user(h.list))
 	}

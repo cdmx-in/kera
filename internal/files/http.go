@@ -59,25 +59,9 @@ func Mount(a *app.App) error {
 		"DELETE /api/v1/files/{id}":                h.delete,
 	}
 	for p, fn := range routes {
-		a.Server.Handle(p, a.Auth.Required(sameOrigin(fn)))
+		a.Server.Handle(p, a.Auth.Required(fn)) // CSRF: see auth.Credential
 	}
 	return nil
-}
-
-var csrf = http.NewCrossOriginProtection()
-
-// sameOrigin rejects cross-origin browser requests that change state and ride
-// on the session cookie; a Bearer header cannot be forged cross-site.
-func sameOrigin(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") == "" {
-			if err := csrf.Check(r); err != nil {
-				api.Fail(w, r, api.Errf(http.StatusForbidden, "cross_origin", "Cross-origin request rejected"))
-				return
-			}
-		}
-		next(w, r)
-	}
 }
 
 type handler struct{ svc *Service }

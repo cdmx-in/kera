@@ -452,7 +452,7 @@ func TestModelWriteGuards(t *testing.T) {
 		e.srv.ServeHTTP(rec, req)
 		return rec.Code
 	}
-	if code := post("cross-site"); code != 403 {
+	if code := post("cross-site"); code != http.StatusUnauthorized { // cookie ignored cross-site (auth.Credential)
 		t.Fatalf("cross-site toggle %d", code)
 	}
 	if code := post("same-origin"); code != 200 {
