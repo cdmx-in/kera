@@ -250,7 +250,7 @@ func TestCollectionsIngestSearchAccess(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
 	var c coll
-	e.req("alice", "POST", "/api/v1/knowledge/create", map[string]any{"name": "Astra KB", "description": "payments", "access_control": map[string]any{}}, 200, &c)
+	e.req("alice", "POST", "/api/v1/knowledge/create", map[string]any{"name": "Payments KB", "description": "payments", "access_control": map[string]any{}}, 200, &c)
 	e.req("bob", "POST", "/api/v1/knowledge/create", map[string]any{"name": ""}, 400, nil)
 
 	// A file added while still pending is indexed once extraction completes.
@@ -276,7 +276,7 @@ func TestCollectionsIngestSearchAccess(t *testing.T) {
 		Total int    `json:"total"`
 	}
 	e.req("alice", "GET", "/api/v1/knowledge/", nil, 200, &list)
-	if list.Total != 1 || list.Items[0].Name != "Astra KB" || !list.Items[0].WriteAccess || list.Items[0].Status["completed"] != 1 ||
+	if list.Total != 1 || list.Items[0].Name != "Payments KB" || !list.Items[0].WriteAccess || list.Items[0].Status["completed"] != 1 ||
 		list.Items[0].Embedding == nil || list.Items[0].Embedding.Dim != 16 {
 		t.Fatalf("list %+v", list)
 	}
@@ -327,7 +327,7 @@ func TestCollectionsIngestSearchAccess(t *testing.T) {
 
 	// Retriever: Resolve by name or id, Documents, List.
 	bob := e.users2["bob"]
-	rc, err := e.s.Resolve(ctx, bob, []string{"missing", "Astra KB"})
+	rc, err := e.s.Resolve(ctx, bob, []string{"missing", "Payments KB"})
 	if err != nil || len(rc) != 1 || rc[0].ID != c.ID {
 		t.Fatalf("resolve by name %+v %v", rc, err)
 	}
@@ -335,11 +335,11 @@ func TestCollectionsIngestSearchAccess(t *testing.T) {
 	if len(rc) != 1 {
 		t.Fatal("resolve by id")
 	}
-	docs, err := e.s.Documents(ctx, bob, "Astra KB")
+	docs, err := e.s.Documents(ctx, bob, "Payments KB")
 	if err != nil || len(docs) != 1 || !strings.Contains(docs[0].Text, "Four-eyes") || docs[0].Name != "payouts.md" {
 		t.Fatalf("documents %+v %v", docs, err)
 	}
-	hits, err = e.s.Search(ctx, bob, []string{"Astra KB"}, "maker checker approval", 1)
+	hits, err = e.s.Search(ctx, bob, []string{"Payments KB"}, "maker checker approval", 1)
 	if err != nil || len(hits) != 1 || !strings.Contains(hits[0].Text, "checker") || hits[0].FileName != "payouts.md" {
 		t.Fatalf("search %+v %v", hits, err)
 	}

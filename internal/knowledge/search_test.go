@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
+	"time"
 )
 
 func TestFuseWeightedRRF(t *testing.T) {
@@ -73,5 +75,22 @@ func TestVectorLiteralAndIndexName(t *testing.T) {
 	}
 	if safeID.MatchString("x'; DROP TABLE chunk; --") {
 		t.Fatal("unsafe id accepted")
+	}
+}
+
+// TestRerankSidecar runs against a real reranker (sidecars/rerank, TEI, ...)
+// when KERA_TEST_RERANK_URL is set.
+func TestRerankSidecar(t *testing.T) {
+	url := os.Getenv("KERA_TEST_RERANK_URL")
+	if url == "" {
+		t.Skip("KERA_TEST_RERANK_URL not set")
+	}
+	docs := []string{"Berlin is the capital of Germany.", "Paris is the capital and largest city of France.", "Bananas are yellow."}
+	res, err := rerankCall(context.Background(), &http.Client{Timeout: 10 * time.Minute}, url, "", "What is the capital of France?", docs, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 || res[0].Index != 1 || res[0].Score <= res[1].Score || res[0].Score < 0.5 {
+		t.Fatalf("got %+v", res)
 	}
 }
