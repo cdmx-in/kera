@@ -209,6 +209,14 @@ func (r *run) all() error {
 		if m.Connection != "" {
 			r.mustExist(l, "models["+m.ID+"].connection", "connection", m.Connection)
 		}
+		if m.Tools != nil {
+			for _, s := range m.Tools.Servers {
+				r.mustExist(l, "models["+m.ID+"].tools.servers", "tool_server", s)
+			}
+		}
+		for _, h := range m.Hooks {
+			r.mustExist(l, "models["+m.ID+"].hooks", "hook_server", h)
+		}
 		models = append(models, item{m.ID, normModel(m), l, len(r.errs) > n})
 	}
 	if err := r.reconcile("model", f.Models != nil, models, r.readModels,

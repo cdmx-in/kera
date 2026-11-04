@@ -86,6 +86,9 @@ func validate(f *File, errs *Errors) {
 		if m.Base != "" && m.Base == m.ID {
 			errs.add(l, "%s: base cannot be the model itself", what)
 		}
+		if m.Base != "" && m.Connection != "" {
+			errs.add(l, "%s: set base (a preset) or connection (a base-model override), not both", what)
+		}
 		if m.FileContext != "" {
 			oneOf(l, what+".file_context", m.FileContext, errs, "tools", "full")
 		}
@@ -105,7 +108,14 @@ func validate(f *File, errs *Errors) {
 
 	unique(f, "knowledge", len(f.Knowledge), func(i int) string { return f.Knowledge[i].Name }, errs)
 	for i, k := range f.Knowledge {
-		checkGrants(f.line("knowledge", i), "knowledge["+k.Name+"]", k.Grants, errs)
+		l := f.line("knowledge", i)
+		if len(k.Grants) == 0 { // an entry without grants would plan a create on every run
+			errs.add(l, "knowledge[%s]: grants is required (to remove them, drop the entry and apply with --prune)", k.Name)
+		}
+		checkGrants(l, "knowledge["+k.Name+"]", k.Grants, errs)
+	}
+	if f.Skills != nil {
+		checkGrants(0, "skills", f.Skills.Grants, errs)
 	}
 	for i, it := range f.Integrations {
 		if it.ID == "" || it.Kind == "" {

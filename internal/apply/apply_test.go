@@ -360,6 +360,8 @@ models:
     file_context: everything
     grants: [{principal: nobody}]
   - id: a
+    base: x
+    connection: y
 tool_servers:
   - id: t
     kind: grpc
@@ -367,6 +369,8 @@ tool_servers:
     auth: {type: bearer}
 permissions:
   features: {teleport: true}
+knowledge:
+  - name: Handbook
 `
 	_, err := Parse([]byte(src), ".", lookup(nil))
 	if err == nil {
@@ -378,9 +382,11 @@ permissions:
 		`line 5: models[a].file_context: "everything"`,
 		`line 5: models[a].grants: bad principal "nobody"`,
 		`line 10: models: duplicate "a"`,
-		`line 12: tool_servers[t].kind: "grpc"`,
-		`line 12: tool_servers[t]: auth.key is required for bearer auth`,
+		`line 14: tool_servers[t].kind: "grpc"`,
+		`line 14: tool_servers[t]: auth.key is required for bearer auth`,
 		`permissions: unknown permission features.teleport`,
+		`line 10: models[a]: set base (a preset) or connection (a base-model override), not both`,
+		`line 21: knowledge[Handbook]: grants is required`,
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("missing %q in:\n%v", want, err)
@@ -393,14 +399,19 @@ func TestApplyResolutionErrors(t *testing.T) {
 	f, err := Parse([]byte(`models:
   - id: m
     connection: nowhere
+    tools: {servers: [no-such-server]}
+    hooks: [no-such-hook]
     grants: [{principal: "group:Ghosts"}]
 `), ".", lookup(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = Apply(context.Background(), fx.db, fx.keys, nil, f, Options{})
-	if err == nil || !strings.Contains(err.Error(), `unknown group "Ghosts"`) || !strings.Contains(err.Error(), `connection "nowhere" does not exist`) {
-		t.Fatalf("err = %v", err)
+	for _, want := range []string{`unknown group "Ghosts"`, `connection "nowhere" does not exist`,
+		`tool_server "no-such-server" does not exist`, `hook_server "no-such-hook" does not exist`} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing %q in err = %v", want, err)
+		}
 	}
 	if n := count(t, fx.db, `SELECT count(*) FROM model`); n != 0 {
 		t.Error("a failed apply wrote rows")

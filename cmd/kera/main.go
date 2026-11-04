@@ -28,7 +28,8 @@ Usage:
   kera export [-o FILE]   print the managed config as YAML (secrets as ${...})
   kera version            print the version
 
-Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL.
+Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
+KERA_CONFIG (default file for kera apply).
 `
 
 func main() {
