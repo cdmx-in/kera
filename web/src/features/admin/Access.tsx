@@ -12,7 +12,7 @@ import { UserAvatar } from './Users'
 import { attempt, Btn, inputAuto, inputCls, Loading } from './ui'
 import { collapse } from './lib'
 
-export type ResourceType = 'model' | 'tool_server' | 'knowledge' | 'prompt'
+export type ResourceType = 'model' | 'tool_server' | 'knowledge' | 'prompt' | 'skill'
 
 export function AccessEditor({ type, id, hint }: { type: ResourceType; id: string; hint?: string }) {
   const path = `/api/v1/grants/${type}/${enc(id)}`

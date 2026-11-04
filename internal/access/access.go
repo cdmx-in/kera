@@ -21,6 +21,7 @@ const (
 	Prompt     = "prompt"
 	Chat       = "chat"
 	Folder     = "folder"
+	Skill      = "skill"
 )
 
 // Permissions.

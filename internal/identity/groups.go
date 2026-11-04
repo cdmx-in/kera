@@ -240,7 +240,7 @@ func (h *handler) deleteGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 var resourceTypes = map[string]bool{access.Model: true, access.ToolServer: true, access.Knowledge: true,
-	access.Prompt: true, access.Chat: true, access.Folder: true}
+	access.Prompt: true, access.Chat: true, access.Folder: true, access.Skill: true}
 
 func grantTarget(r *http.Request) (typ, id string, err error) {
 	typ, id = r.PathValue("type"), r.PathValue("id")

@@ -421,8 +421,11 @@ type Compat struct {
 	ThrowawayChats *bool `yaml:"throwaway_chats,omitempty"`
 }
 
-// Skills is stored for the skills feature (post-cutover); principals are kept as written.
+// Skills imports every SKILL.md under Dir and in ImportZip (paths relative to
+// the config file); Grants apply to each of them (none = admins only). Skills
+// are matched by name; enabled/lazy set in the admin console are kept.
 type Skills struct {
-	Dir    *string        `yaml:"dir,omitempty"`
-	Grants []access.Grant `yaml:"grants,omitempty"`
+	Dir       string         `yaml:"dir,omitempty"`
+	ImportZip string         `yaml:"import_zip,omitempty"`
+	Grants    []access.Grant `yaml:"grants,omitempty"`
 }

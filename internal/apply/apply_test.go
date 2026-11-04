@@ -102,7 +102,7 @@ func TestApplyFullAndIdempotent(t *testing.T) {
 		t.Fatalf("fresh apply should only create: %+v", res.Changes)
 	}
 	for kind, want := range map[string]int{"group": 2, "connection": 3, "oauth_provider": 2, "tool_server": 3,
-		"hook_server": 1, "model": 3, "knowledge": 1} {
+		"hook_server": 1, "model": 3, "knowledge": 1, "skill": 1} {
 		got := 0
 		for _, c := range res.Changes {
 			if c.Kind == kind {
@@ -115,7 +115,7 @@ func TestApplyFullAndIdempotent(t *testing.T) {
 	}
 
 	// every row is managed
-	for _, table := range []string{"config", `"group"`, "connection", "oauth_provider", "tool_server", "hook_server", "model", "access_grant"} {
+	for _, table := range []string{"config", `"group"`, "connection", "oauth_provider", "tool_server", "hook_server", "model", "access_grant", "skill"} {
 		if n := count(t, fx.db, "SELECT count(*) FROM "+table+" WHERE NOT managed"); n != 0 {
 			t.Errorf("%s: %d unmanaged rows", table, n)
 		}
@@ -128,6 +128,12 @@ func TestApplyFullAndIdempotent(t *testing.T) {
 	}
 	if !strings.HasPrefix(prompt, "You are a helpful assistant.") || base != "web.big-model" {
 		t.Errorf("assistant prompt/base = %q / %q", prompt, base)
+	}
+	// skills: read relative to the config file, frontmatter folded, resources kept, group grant
+	if n := count(t, fx.db, `SELECT count(*) FROM skill s JOIN access_grant a ON a.resource_type = 'skill' AND a.resource_id = s.id
+		WHERE s.name = 'demo-skill' AND s.description = 'Shows how a skill is laid out. Use it in tests.'
+		AND s.resources->>'refs/notes.md' = 'Some notes.' || chr(10)`); n != 1 {
+		t.Errorf("demo-skill rows with grant = %d, want 1", n)
 	}
 	// group grants resolve names to ids
 	if n := count(t, fx.db, `SELECT count(*) FROM access_grant a JOIN "group" g ON g.id = a.principal_id
@@ -203,7 +209,14 @@ func TestPrune(t *testing.T) {
 	f.Groups = []Group{}          // declared but empty: Finance goes, Ops has a member and stays
 	f.ToolServers[1].Grants = nil // search no longer references the groups
 	f.Knowledge[0].Grants = f.Knowledge[0].Grants[:1]
-	f.Skills = nil
+	other := t.TempDir()
+	if err := os.MkdirAll(other+"/other", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other+"/other/SKILL.md", []byte("---\nname: other\n---\nBody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.Skills.Dir = other
 	f.HookServers = nil // not declared: kept even with --prune
 
 	// without --prune nothing is deleted
@@ -218,7 +231,7 @@ func TestPrune(t *testing.T) {
 			deleted[c.Kind+" "+c.ID] = true
 		}
 	}
-	for _, want := range []string{"model researcher", "model local-model:8b", "group Finance", "setting skills.dir"} {
+	for _, want := range []string{"model researcher", "model local-model:8b", "group Finance", "skill demo-skill"} {
 		if !deleted[want] {
 			t.Errorf("not deleted: %s (got %v)", want, deleted)
 		}

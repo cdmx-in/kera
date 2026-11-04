@@ -191,6 +191,13 @@ func readFiles(f *File, dir string, errs *Errors) {
 		}
 		r.TemplateFile = ""
 	}
+	if s := f.Skills; s != nil {
+		for _, p := range []*string{&s.Dir, &s.ImportZip} {
+			if *p != "" && !filepath.IsAbs(*p) {
+				*p = filepath.Join(dir, *p)
+			}
+		}
+	}
 	if c := f.CodeInterpreter; c != nil {
 		if s := read(0, "code_interpreter.prompt_file", c.PromptFile, c.Prompt != nil); s != nil {
 			c.Prompt = s

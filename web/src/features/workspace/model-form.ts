@@ -71,7 +71,7 @@ export interface ModelForm {
   active: boolean
 }
 
-export const BUILTINS = ['ask_user', 'memory', 'knowledge', 'files', 'web', 'code', 'time', 'chats'] as const
+export const BUILTINS = ['ask_user', 'memory', 'knowledge', 'files', 'web', 'code', 'time', 'chats', 'skills'] as const
 export const CAPABILITIES = ['vision', 'file_upload', 'citations', 'status_updates', 'usage'] as const
 export const FEATURES = ['web_search', 'code_interpreter', 'memory'] as const
 

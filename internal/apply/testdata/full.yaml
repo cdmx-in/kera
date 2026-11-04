@@ -199,4 +199,4 @@ spend:
 
 compat: {throwaway_chats: true}
 
-skills: {dir: /srv/skills, grants: [{principal: "group:Ops"}]}
+skills: {dir: skills, grants: [{principal: "group:Ops"}]}
