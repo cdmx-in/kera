@@ -226,7 +226,7 @@ export async function attempt(fn: () => Promise<unknown>, ok?: string): Promise<
 }
 
 /** Write-only secret input: empty keeps the stored value; "Clear" removes it. */
-export function SecretInput({ has, value, onChange, label }: { has: boolean; value: string | null; onChange: (v: string | null) => void; label: string }) {
+export function SecretInput({ has, value, onChange, label, error }: { has: boolean; value: string | null; onChange: (v: string | null) => void; label: string; error?: string }) {
   const cleared = value === ''
   return (
     <div className="flex gap-2">
@@ -237,7 +237,8 @@ export function SecretInput({ has, value, onChange, label }: { has: boolean; val
         value={value ?? ''}
         placeholder={cleared ? 'Will be removed on save' : has ? '•••••••• stored (type to replace)' : 'Not set'}
         onChange={(e) => onChange(e.target.value || null)}
-        className={inputCls}
+        aria-invalid={!!error}
+        className={inputCls + (error ? ' border-red-500! focus:border-red-500!' : '')}
       />
       {has && (
         <Btn variant="ghost" title={cleared ? 'Keep the stored value' : 'Remove the stored value on save'} onClick={() => onChange(cleared ? null : '')}>

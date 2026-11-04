@@ -250,7 +250,7 @@ function ToolEditor({ server, taken, onClose, save }: { server: ToolServer | nul
                 form.touch('auth.key')
               }}
               label="Tool server key"
-            />
+             error={form.err('auth.key')} />
           </VField>
         )}
         {auth.type === 'user_oauth' && (
@@ -375,7 +375,7 @@ function HookEditor({ hook, taken, onClose, save }: { hook: HookServer | null; t
         <input name="url" value={h.url} onChange={(e) => setH({ ...h, url: e.target.value })} placeholder="http://hooks:8080" className={inputCls + bad(form.err('url'))} />
       </VField>
       <VField label="Key" hint="Sent as a bearer token. Write-only." error={form.err('key')}>
-        <SecretInput has={h.has_key} value={key} onChange={setKey} label="Hook key" />
+        <SecretInput has={h.has_key} value={key} onChange={setKey} label="Hook key" error={form.err('key')} />
       </VField>
       <div>
         <div className="flex flex-wrap gap-5">
@@ -605,7 +605,7 @@ function ProviderEditor({ provider, taken, onClose, save }: { provider: OAuthPro
           <input name="client_id" value={p.client_id} onChange={(e) => setP({ ...p, client_id: e.target.value })} className={inputCls + bad(form.err('client_id'))} />
         </VField>
         <VField label="Client secret" hint="Write-only. Never sent by Test." error={form.err('client_secret')}>
-          <SecretInput has={p.has_secret} value={secret} onChange={setSecret} label="Client secret" />
+          <SecretInput has={p.has_secret} value={secret} onChange={setSecret} label="Client secret" error={form.err('client_secret')} />
         </VField>
       </div>
       {text('scope', 'Scope', p.login ? 'Space-separated; sign-in needs openid or email.' : 'Space-separated.')}

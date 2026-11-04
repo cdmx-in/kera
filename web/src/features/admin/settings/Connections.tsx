@@ -156,7 +156,7 @@ function EditConnection({ conn, taken, onClose, onSave }: { conn: Connection; ta
         <input name="base_url" value={c.base_url} onChange={(e) => setC({ ...c, base_url: e.target.value })} placeholder="http://127.0.0.1:11434" className={inputCls + bad(form.err('base_url'))} data-testid="connection-url" />
       </VField>
       <VField label="API key" hint="Write-only: the stored key is never shown." error={form.err('api_key')}>
-        <SecretInput has={conn.has_key} value={key} onChange={setKey} label="API key" />
+        <SecretInput has={conn.has_key} value={key} onChange={setKey} label="API key" error={form.err('api_key')} />
       </VField>
       <div className="grid gap-3 sm:grid-cols-2">
         <VField label="Prefix" hint="Prepended to model ids, e.g. web." error={form.err('prefix')}>
