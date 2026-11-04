@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveModel } from './model-select'
+import { pickSuggestions, resolveModel } from './model-select'
 import { normalizeModel } from '@/api/queries'
 
 const models = [
@@ -31,5 +31,18 @@ describe('normalizeModel', () => {
   it('keeps feature objects as they are', () => {
     const f = [{ id: 'memory', label: 'Memory', icon: 'brain', default: true }]
     expect(normalizeModel({ id: 'k', name: 'K', features: f }).features?.[0]).toBe(f[0])
+  })
+})
+
+describe('pickSuggestions', () => {
+  const global = [{ content: 'g' }]
+  it('prefers the model prompts, then info.meta, then the global list', () => {
+    expect(pickSuggestions({ id: 'a', name: 'A', suggestionPrompts: [{ content: 'm' }] }, global)).toEqual([{ content: 'm' }])
+    expect(pickSuggestions({ id: 'a', name: 'A', info: { meta: { suggestion_prompts: [{ content: 'i' }] } } }, global)).toEqual([{ content: 'i' }])
+    expect(pickSuggestions({ id: 'a', name: 'A', suggestionPrompts: [] }, global)).toEqual(global)
+    expect(pickSuggestions(undefined, global)).toEqual(global)
+  })
+  it('caps at six', () => {
+    expect(pickSuggestions(undefined, Array.from({ length: 9 }, (_, i) => ({ content: String(i) })))).toHaveLength(6)
   })
 })

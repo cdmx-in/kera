@@ -99,6 +99,11 @@ export interface ModelFeature {
   default?: boolean
 }
 
+export interface Suggestion {
+  title?: string | string[]
+  content: string
+}
+
 export interface Model {
   id: string
   name: string
@@ -106,10 +111,10 @@ export interface Model {
   local?: boolean
   features?: ModelFeature[]
   toolIds?: string[]
-  suggestionPrompts?: { title?: string | string[]; content: string }[]
+  suggestionPrompts?: Suggestion[]
   profileImageUrl?: string
   capabilities?: Record<string, boolean>
-  info?: { meta?: { description?: string } }
+  info?: { meta?: { description?: string; suggestion_prompts?: Suggestion[] | null } }
 }
 
 export interface Me {

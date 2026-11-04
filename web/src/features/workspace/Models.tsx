@@ -12,6 +12,8 @@ import { toast } from '@/stores/toast'
 import { useCollections, useModelRow, useModelRows } from './api'
 import { BUILTINS, CAPABILITIES, formToBody, rowToForm, validModelId, type ModelForm, type ModelRow, type Toggle } from './model-form'
 import { AccessEditor, Badge, Field, ManagedNote, Section, btn, btnPrimary, errorText, input } from './ui'
+import { Select } from '@/ui/Select'
+import { ModelIcon } from '@/features/header/ModelPicker'
 
 const editLink = (id: string) => `/workspace/models/edit?id=${encodeURIComponent(id)}`
 
@@ -201,18 +203,17 @@ function General({ f, set, create, isPreset }: { f: ModelForm; set: SetFn; creat
         </Field>
         {isPreset && (
           <Field label="Base model">
-            <select className={input} value={f.baseModelId} onChange={(e) => set('baseModelId', e.target.value)} data-testid="base-model">
-              <option value="">Choose...</option>
-              {models
-                .filter((m) => m.id !== f.id)
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name || m.id}
-                    {m.hidden ? ' (hidden)' : ''}
-                  </option>
-                ))}
-              {f.baseModelId && !models.some((m) => m.id === f.baseModelId) && <option value={f.baseModelId}>{f.baseModelId} (unavailable)</option>}
-            </select>
+            <Select
+              value={f.baseModelId}
+              onChange={(v) => set('baseModelId', v)}
+              aria-label="Base model"
+              placeholder="Choose..."
+              data-testid="base-model"
+              options={[
+                ...models.filter((m) => m.id !== f.id).map((m) => ({ value: m.id, label: (m.name || m.id) + (m.hidden ? ' (hidden)' : ''), icon: <ModelIcon m={m} size="sm" /> })),
+                ...(f.baseModelId && !models.some((m) => m.id === f.baseModelId) ? [{ value: f.baseModelId, label: `${f.baseModelId} (unavailable)` }] : []),
+              ]}
+            />
           </Field>
         )}
         <Field label="Description">
@@ -255,17 +256,27 @@ function Capabilities({ f, set }: { f: ModelForm; set: SetFn }) {
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Web search" hint="Native: the provider's own search (Responses connections).">
-          <select className={input} value={f.webSearch} onChange={(e) => set('webSearch', e.target.value as ModelForm['webSearch'])}>
-            <option value="off">Off</option>
-            <option value="builtin">Kera web tools</option>
-            <option value="native">Native</option>
-          </select>
+          <Select
+            value={f.webSearch}
+            onChange={(v) => set('webSearch', v as ModelForm['webSearch'])}
+            aria-label="Web search"
+            options={[
+              { value: 'off', label: 'Off' },
+              { value: 'builtin', label: 'Kera web tools' },
+              { value: 'native', label: 'Native' },
+            ]}
+          />
         </Field>
         <Field label="Chat attachments" hint="Tools: the model reads files with tools. Full: text goes into the prompt.">
-          <select className={input} value={f.fileContext} onChange={(e) => set('fileContext', e.target.value as ModelForm['fileContext'])}>
-            <option value="tools">Read with tools</option>
-            <option value="full">Whole text in the prompt</option>
-          </select>
+          <Select
+            value={f.fileContext}
+            onChange={(v) => set('fileContext', v as ModelForm['fileContext'])}
+            aria-label="Chat attachments"
+            options={[
+              { value: 'tools', label: 'Read with tools' },
+              { value: 'full', label: 'Whole text in the prompt' },
+            ]}
+          />
         </Field>
         <div className="space-y-2 pt-6">
           <label className="flex items-center gap-2 text-sm">
@@ -328,11 +339,18 @@ function Tools({ f, set }: { f: ModelForm; set: SetFn }) {
           {[...new Set([...BUILTINS, ...Object.keys(f.builtins)])].map((b) => (
             <label key={b} className="flex items-center justify-between gap-2 rounded-lg border border-line px-2 py-1 text-sm">
               {b.replace('_', ' ')}
-              <select aria-label={`Built-in ${b}`} className="bg-transparent text-sm" value={f.builtins[b] ?? 'default'} onChange={(e) => set('builtins', { ...f.builtins, [b]: e.target.value as Toggle })}>
-                <option value="default">default</option>
-                <option value="on">on</option>
-                <option value="off">off</option>
-              </select>
+              <Select
+                aria-label={`Built-in ${b}`}
+                value={f.builtins[b] ?? 'default'}
+                onChange={(v) => set('builtins', { ...f.builtins, [b]: v as Toggle })}
+                size="sm"
+                className="w-auto border-transparent bg-transparent px-1.5"
+                options={[
+                  { value: 'default', label: 'default' },
+                  { value: 'on', label: 'on' },
+                  { value: 'off', label: 'off' },
+                ]}
+              />
             </label>
           ))}
         </div>
@@ -355,26 +373,31 @@ function KnowledgeRefs({ f, set }: { f: ModelForm; set: SetFn }) {
               {label(k)} {!k.id && <Badge title="Referenced by name">by name</Badge>}
               {!colls.some((c) => c.id === k.id || c.name === k.name) && <Badge tone="busy">not found</Badge>}
             </span>
-            <select aria-label="Knowledge mode" className="rounded-md border border-line bg-surface px-2 py-1 text-sm" value={k.mode || 'retrieve'} onChange={(e) => set('knowledge', f.knowledge.map((x, j) => (j === i ? { ...x, mode: e.target.value } : x)))}>
-              <option value="retrieve">Search relevant parts</option>
-              <option value="full">Whole documents in the prompt</option>
-            </select>
+            <Select
+              aria-label="Knowledge mode"
+              value={k.mode || 'retrieve'}
+              onChange={(v) => set('knowledge', f.knowledge.map((x, j) => (j === i ? { ...x, mode: v } : x)))}
+              size="sm"
+              className="w-auto"
+              options={[
+                { value: 'retrieve', label: 'Search relevant parts' },
+                { value: 'full', label: 'Whole documents in the prompt' },
+              ]}
+            />
             <IconButton label="Detach" onClick={() => set('knowledge', f.knowledge.filter((_, j) => j !== i))}>
               <Trash2 size={15} />
             </IconButton>
           </li>
         ))}
       </ul>
-      <select aria-label="Attach knowledge" className={cx(input, 'max-w-sm')} value="" onChange={(e) => e.target.value && set('knowledge', [...f.knowledge, { id: e.target.value, mode: 'retrieve' }])}>
-        <option value="">Attach a collection...</option>
-        {colls
-          .filter((c) => !attached(c.id, c.name))
-          .map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-      </select>
+      <Select
+        aria-label="Attach knowledge"
+        className="max-w-sm"
+        value=""
+        placeholder="Attach a collection..."
+        onChange={(v) => v && set('knowledge', [...f.knowledge, { id: v, mode: 'retrieve' }])}
+        options={colls.filter((c) => !attached(c.id, c.name)).map((c) => ({ value: c.id, label: c.name }))}
+      />
     </Section>
   )
 }

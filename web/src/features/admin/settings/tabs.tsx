@@ -7,6 +7,7 @@ import { cx } from '@/lib/format'
 import { move } from '../lib'
 import { Btn, Card, Check, inputCls } from '../ui'
 import { SettingRow, SettingsForm, type Draft, type FieldSpec } from './form'
+import { Select } from '@/ui/Select'
 
 const f = (key: string, kind: FieldSpec['kind'], hint?: string, label?: string): FieldSpec => ({ key, kind, hint, label })
 
@@ -254,14 +255,7 @@ function ModelOrder({ d }: { d: Draft }) {
         {!order.length && <li className="p-3 text-sm text-muted">No explicit order: models are sorted by name.</li>}
       </ol>
       {rest.length > 0 && (
-        <select aria-label="Add a model to the order" value="" onChange={(e) => e.target.value && set([...order, e.target.value])} className={inputCls}>
-          <option value="">Add a model…</option>
-          {rest.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name || m.id}
-            </option>
-          ))}
-        </select>
+        <Select aria-label="Add a model to the order" value="" placeholder="Add a model…" onChange={(v) => v && set([...order, v])} options={rest.map((m) => ({ value: m.id, label: m.name || m.id }))} />
       )}
     </div>
   )

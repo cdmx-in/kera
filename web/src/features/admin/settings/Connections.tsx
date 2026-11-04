@@ -7,6 +7,7 @@ import { Switch } from '@/ui/misc'
 import { enc, useConnections, type Connection } from '../api'
 import { parseList } from '../lib'
 import { attempt, Badge, Btn, Card, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, SecretInput } from '../ui'
+import { Select } from '@/ui/Select'
 
 const kinds: [Connection['kind'], string][] = [
   ['ollama', 'Ollama'],
@@ -117,13 +118,7 @@ function EditConnection({ conn, onClose, onSave }: { conn: Connection; onClose: 
             <input value={c.id} disabled={!isNew} onChange={(e) => setC({ ...c, id: e.target.value })} className={inputCls} />
           </Field>
           <Field label="Kind">
-            <select value={c.kind} onChange={(e) => setC({ ...c, kind: e.target.value as Connection['kind'] })} className={inputCls}>
-              {kinds.map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
-            </select>
+            <Select value={c.kind} onChange={(v) => setC({ ...c, kind: v as Connection['kind'] })} options={kinds.map(([value, label]) => ({ value, label }))} aria-label="Kind" />
           </Field>
         </div>
         <Field label="Base URL">

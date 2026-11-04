@@ -7,6 +7,7 @@ import { cx } from '@/lib/format'
 import { IconButton } from '@/ui/Dialog'
 import { toast } from '@/stores/toast'
 import { useGroups, type Grant } from './api'
+import { Select } from '@/ui/Select'
 
 export const input = 'w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-accent disabled:opacity-60'
 export const btn = 'inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50'
@@ -113,16 +114,18 @@ export function AccessEditor({ url, canEdit }: { url: string; canEdit: boolean }
           <li key={g.principal} className="flex items-center gap-2 px-3 py-2 text-sm">
             <span className="min-w-0 flex-1 truncate">{label(g.principal)}</span>
             {g.managed && <Badge>kera apply</Badge>}
-            <select
+            <Select
               aria-label={`Permission for ${label(g.principal)}`}
-              className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
               value={g.permission}
               disabled={!canEdit}
-              onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, permission: e.target.value as Grant['permission'] } : r)))}
-            >
-              <option value="read">Can use</option>
-              <option value="write">Can edit</option>
-            </select>
+              onChange={(v) => setRows(rows.map((r, j) => (j === i ? { ...r, permission: v as Grant['permission'] } : r)))}
+              size="sm"
+              className="w-auto"
+              options={[
+                { value: 'read', label: 'Can use' },
+                { value: 'write', label: 'Can edit' },
+              ]}
+            />
             {canEdit && (
               <IconButton label="Remove" onClick={() => setRows(rows.filter((_, j) => j !== i))}>
                 <Trash2 size={15} />
@@ -137,14 +140,14 @@ export function AccessEditor({ url, canEdit }: { url: string; canEdit: boolean }
             <Plus size={14} /> Everyone
           </button>
           {groups.length > 0 && (
-            <select aria-label="Add a group" className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm" value="" onChange={(e) => add(e.target.value)}>
-              <option value="">Add a group...</option>
-              {groups.map((g) => (
-                <option key={g.id} value={`group:${g.id}`}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
+            <Select
+              aria-label="Add a group"
+              className="w-auto"
+              value=""
+              placeholder="Add a group..."
+              onChange={add}
+              options={groups.map((g) => ({ value: `group:${g.id}`, label: g.name }))}
+            />
           )}
           <input className={cx(input, 'w-56 flex-none py-1.5')} placeholder="user:<id> or group:<id>" value={principal} onChange={(e) => setPrincipal(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add(principal))} />
           <button type="button" className={btn} onClick={() => add(principal)} disabled={!principal.trim()}>

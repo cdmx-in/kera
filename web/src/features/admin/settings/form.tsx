@@ -7,6 +7,8 @@ import { cx } from '@/lib/format'
 import { useConnections, useSettings, useSaveSettings, type Setting } from '../api'
 import { humanize } from '../lib'
 import { attempt, Btn, Card, inputCls, Loading, ManagedBadge, managedWarning } from '../ui'
+import { Select } from '@/ui/Select'
+import { ModelIcon } from '@/features/header/ModelPicker'
 
 export type Kind = 'bool' | 'int' | 'float' | 'text' | 'textarea' | 'secret' | 'model' | 'connection' | { select: [string, string][] }
 
@@ -170,13 +172,7 @@ function SettingField({ spec, d }: { spec: FieldSpec; d: Draft }) {
   else if (kind === 'connection') control = <ConnectionSelect value={String(v ?? '')} onChange={(x) => d.set(key, x)} label={spec.label ?? key} />
   else if (typeof kind === 'object')
     control = (
-      <select value={String(v ?? '')} onChange={(e) => d.set(key, e.target.value)} aria-label={spec.label ?? key} className={inputCls}>
-        {kind.select.map(([val, label]) => (
-          <option key={val} value={val}>
-            {label}
-          </option>
-        ))}
-      </select>
+      <Select value={String(v ?? '')} onChange={(x) => d.set(key, x)} aria-label={spec.label ?? key} options={kind.select.map(([value, label]) => ({ value, label }))} />
     )
   else
     control = (
@@ -200,30 +196,31 @@ export function ModelSelect({ value, onChange, label }: { value: string; onChang
   const models = useModels().data ?? []
   const known = models.some((m) => m.id === value)
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className={inputCls}>
-      <option value="">(none)</option>
-      {!known && value && <option value={value}>{value}</option>}
-      {models.map((m) => (
-        <option key={m.id} value={m.id}>
-          {m.name || m.id}
-          {m.hidden ? ' (hidden)' : ''}
-        </option>
-      ))}
-    </select>
+    <Select
+      value={value}
+      onChange={onChange}
+      aria-label={label}
+      options={[
+        { value: '', label: '(none)' },
+        ...(!known && value ? [{ value, label: value }] : []),
+        ...models.map((m) => ({ value: m.id, label: (m.name || m.id) + (m.hidden ? ' (hidden)' : ''), icon: <ModelIcon m={m} size="sm" /> })),
+      ]}
+    />
   )
 }
 
 function ConnectionSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   const conns = useConnections().data?.connections ?? []
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className={inputCls}>
-      <option value="">(none)</option>
-      {!conns.some((c) => c.id === value) && value && <option value={value}>{value}</option>}
-      {conns.map((c) => (
-        <option key={c.id} value={c.id}>
-          {c.id} ({c.kind})
-        </option>
-      ))}
-    </select>
+    <Select
+      value={value}
+      onChange={onChange}
+      aria-label={label}
+      options={[
+        { value: '', label: '(none)' },
+        ...(!conns.some((c) => c.id === value) && value ? [{ value, label: value }] : []),
+        ...conns.map((c) => ({ value: c.id, label: `${c.id} (${c.kind})` })),
+      ]}
+    />
   )
 }

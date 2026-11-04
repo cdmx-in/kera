@@ -9,10 +9,16 @@ import { IconButton } from '@/ui/Dialog'
 import { enc, useGroups, type AdminUser, type Grant } from './api'
 import { UserPicker } from './UserPicker'
 import { UserAvatar } from './Users'
-import { attempt, Btn, inputAuto, inputCls, Loading } from './ui'
+import { attempt, Btn, Loading } from './ui'
 import { collapse } from './lib'
+import { Select } from '@/ui/Select'
 
 export type ResourceType = 'model' | 'tool_server' | 'knowledge' | 'prompt' | 'skill'
+
+const permissionOptions = [
+  { value: 'read', label: 'can use' },
+  { value: 'write', label: 'can edit' },
+]
 
 export function AccessEditor({ type, id, hint }: { type: ResourceType; id: string; hint?: string }) {
   const path = `/api/v1/grants/${type}/${enc(id)}`
@@ -39,15 +45,14 @@ export function AccessEditor({ type, id, hint }: { type: ResourceType; id: strin
         {grants.map((g, i) => (
           <li key={g.principal} className="flex items-center gap-2 px-3 py-1.5 text-sm" data-testid="grant-row">
             <Principal p={g.principal} groupName={(gid) => groups.data?.find((x) => x.id === gid)?.name} />
-            <select
+            <Select
               aria-label={`Permission for ${g.principal}`}
               value={g.permission}
-              onChange={(e) => setDraft(grants.map((x, j) => (j === i ? { ...x, permission: e.target.value as Grant['permission'] } : x)))}
-              className={inputAuto + ' py-1'}
-            >
-              <option value="read">can use</option>
-              <option value="write">can edit</option>
-            </select>
+              onChange={(v) => setDraft(grants.map((x, j) => (j === i ? { ...x, permission: v as Grant['permission'] } : x)))}
+              options={permissionOptions}
+              size="sm"
+              className="w-auto"
+            />
             <IconButton label={`Remove ${g.principal}`} onClick={() => setDraft(grants.filter((_, j) => j !== i))}>
               <X size={14} />
             </IconButton>
@@ -59,14 +64,7 @@ export function AccessEditor({ type, id, hint }: { type: ResourceType; id: strin
         <Btn disabled={has('user:*')} onClick={() => add('user:*')}>
           <Globe size={14} /> Everyone
         </Btn>
-        <select aria-label="Add a group" value="" onChange={(e) => e.target.value && add(`group:${e.target.value}`)} className={inputCls}>
-          <option value="">Add a group…</option>
-          {freeGroups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name}
-            </option>
-          ))}
-        </select>
+        <Select aria-label="Add a group" value="" placeholder="Add a group…" onChange={(v) => v && add(`group:${v}`)} options={freeGroups.map((g) => ({ value: g.id, label: g.name }))} disabled={!freeGroups.length} />
         <UserPicker placeholder="Add a user…" exclude={grants.filter((g) => g.principal.startsWith('user:')).map((g) => g.principal.slice(5))} onPick={(u) => add(`user:${u.id}`)} />
       </div>
       <div className="flex justify-end gap-2">
