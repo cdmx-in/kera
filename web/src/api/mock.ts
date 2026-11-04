@@ -293,6 +293,10 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
     chats.set(id, { id, title: 'New Chat', updated_at: now(), created_at: now(), pinned: false, folder_id: null, messages: {}, currentId: null })
     return json({ id })
   }
+  if ((m = p.match(/^\/api\/v1\/chats\/folder\/([^/]+)$/))) {
+    const id = decodeURIComponent(m[1])
+    return json([...chats.values()].filter((c) => c.folder_id === id).map(summary))
+  }
   if ((m = p.match(/^\/api\/v1\/chats\/share\/([^/]+)$/))) {
     const c = [...chats.values()][0]
     return c ? json({ id: c.id, title: c.title, chat: { history: { currentId: c.currentId, messages: c.messages } } }) : json({ detail: 'not found' }, 404)

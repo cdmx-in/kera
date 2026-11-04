@@ -75,5 +75,11 @@ export function switchBranch(id: string, dir: -1 | 1) {
   const st = useChat.getState()
   const sibs = siblingsOf(st.messages, id)
   const next = sibs[sibs.indexOf(id) + dir]
-  if (next) st.setCurrent(leafOf(st.messages, next))
+  if (!next) return
+  const leaf = leafOf(st.messages, next)
+  st.setCurrent(leaf)
+  // remember the visible branch so a reload (and the next reply) continues from it
+  if (st.chatId && !st.temporary && !st.chatId.startsWith('temp:')) {
+    void api(`/api/v1/chats/${encodeURIComponent(st.chatId)}`, { method: 'POST', json: { chat: { history: { currentId: leaf } } } }).catch(() => undefined)
+  }
 }
