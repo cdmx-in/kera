@@ -372,6 +372,8 @@ permissions:
   features: {teleport: true}
 knowledge:
   - name: Handbook
+rag:
+  reranker: {url: http://r, local_runs: always}
 `
 	_, err := Parse([]byte(src), ".", lookup(nil))
 	if err == nil {
@@ -387,6 +389,7 @@ knowledge:
 		`line 15: tool_servers[t].kind: "grpc"`,
 		`line 15: tool_servers[t]: auth.key is required for bearer auth`,
 		`permissions: unknown permission features.teleport`,
+		`rag.reranker.local_runs: "always" is not one of [skip allow]`,
 		`line 11: models[a]: set base (a preset) or connection (a base-model override), not both`,
 		`line 22: knowledge[Handbook]: grants is required`,
 	} {

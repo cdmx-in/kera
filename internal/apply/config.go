@@ -384,9 +384,10 @@ type ModelTools struct {
 
 // KnowledgeRef points at a collection by name (resolved at run time, so the
 // collection may be created after apply) or by id. Mode is auto (unset:
-// tools when the model has tool servers, else retrieve), retrieve (passages
-// in the prompt), full (whole documents in the prompt) or tools (the model
-// searches with the knowledge tools; nothing is injected).
+// retrieve when a working reranker serves the run, else tools when the model
+// has tool servers, else retrieve), retrieve (passages in the prompt), full
+// (whole documents in the prompt) or tools (the model searches with the
+// knowledge tools; nothing is injected).
 type KnowledgeRef struct {
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	ID   string `yaml:"id,omitempty" json:"id,omitempty"`

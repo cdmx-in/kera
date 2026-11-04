@@ -111,6 +111,10 @@ func validate(f *File, errs *Errors) {
 		checkGrants(l, what, m.Grants, errs)
 	}
 
+	if f.RAG != nil && f.RAG.Reranker != nil && f.RAG.Reranker.LocalRuns != nil {
+		oneOf(0, "rag.reranker.local_runs", *f.RAG.Reranker.LocalRuns, errs, "skip", "allow")
+	}
+
 	unique(f, "knowledge", len(f.Knowledge), func(i int) string { return f.Knowledge[i].Name }, errs)
 	for i, k := range f.Knowledge {
 		l := f.line("knowledge", i)

@@ -118,6 +118,9 @@ func (u *UI) current(ctx context.Context) (*Config, []byte, error) {
 		return nil, nil, err
 	}
 	if u.db != nil {
+		if cfg.ToolDisplay == nil { // ui.tool_display stored as null
+			cfg.ToolDisplay = map[string]apply.ToolDisplay{}
+		}
 		if err := mergeServerDisplay(ctx, u.db, cfg.ToolDisplay); err != nil {
 			slog.Warn("ui: tool server display names", "err", err)
 		}
@@ -163,9 +166,9 @@ func load(ctx context.Context, st *settings.Store) (*Config, error) {
 }
 
 // mergeServerDisplay adds tool_servers[].display.tools to the tool display
-// map: "<server id>_<function>" always (the web app tries it for a server's
-// steps first), the bare function name only when ui.tool_display or an
-// earlier server (sort order) has not named it.
+// map as "<server id>_<function>" (the web app tries it for a server's steps
+// first) and as the bare function name, each only when ui.tool_display or an
+// earlier server (sort order) has not named it: the admin's names win.
 func mergeServerDisplay(ctx context.Context, db *pgxpool.Pool, m map[string]apply.ToolDisplay) error {
 	rows, err := db.Query(ctx, `SELECT id, display FROM tool_server WHERE enabled ORDER BY sort, id`)
 	if err != nil {
@@ -179,9 +182,10 @@ func mergeServerDisplay(ctx context.Context, db *pgxpool.Pool, m map[string]appl
 			return err
 		}
 		for _, name := range slices.Sorted(maps.Keys(d.Tools)) {
-			m[id+"_"+name] = d.Tools[name]
-			if _, ok := m[name]; !ok {
-				m[name] = d.Tools[name]
+			for _, k := range []string{id + "_" + name, name} {
+				if _, ok := m[k]; !ok {
+					m[k] = d.Tools[name]
+				}
 			}
 		}
 	}

@@ -356,7 +356,7 @@ function KnowledgeRefs({ f, set }: { f: ModelForm; set: SetFn }) {
               {!colls.some((c) => c.id === k.id || c.name === k.name) && <Badge tone="busy">not found</Badge>}
             </span>
             <select aria-label="Knowledge mode" className="rounded-md border border-line bg-surface px-2 py-1 text-sm" value={k.mode && k.mode !== 'auto' ? k.mode : ''} onChange={(e) => set('knowledge', f.knowledge.map((x, j) => (j === i ? { ...x, mode: e.target.value } : x)))}>
-              <option value="" title="The model searches with tools when it has tool servers; otherwise relevant parts go in the prompt">Automatic</option>
+              <option value="" title="Relevant parts go in the prompt when a reranker is working; otherwise the model searches with tools when it has tool servers">Automatic</option>
               <option value="retrieve">Relevant parts in the prompt</option>
               <option value="tools">Model searches with tools</option>
               <option value="full">Whole documents in the prompt</option>

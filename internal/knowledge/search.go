@@ -160,7 +160,9 @@ func (s *Service) search(ctx context.Context, cs []*Collection, query string, cf
 		if err == nil {
 			return rr, nil
 		}
-		s.rerankFailed.Store(time.Now().UnixNano())
+		if ctx.Err() == nil { // a stopped run is not a reranker outage
+			s.rerankFailed.Store(time.Now().UnixNano())
+		}
 		slog.Warn("knowledge: rerank failed, using fused order", "err", err)
 	}
 	if len(hits) > cfg.TopKRerank {
