@@ -239,11 +239,14 @@ type WebSearch struct {
 	Engine          *string `yaml:"engine,omitempty"`
 	ResultCount     *int    `yaml:"result_count,omitempty"`
 	MaxCallsPerTurn *int    `yaml:"max_calls_per_turn,omitempty"`
+	URL             *string `yaml:"url,omitempty"`                   // searxng base URL
+	APIKey          *string `yaml:"api_key,omitempty" secret:"true"` // brave subscription token
 }
 
 type WebFetch struct {
-	MaxChars        *int `yaml:"max_chars,omitempty"`
-	MaxCallsPerTurn *int `yaml:"max_calls_per_turn,omitempty"`
+	MaxChars        *int  `yaml:"max_chars,omitempty"`
+	MaxCallsPerTurn *int  `yaml:"max_calls_per_turn,omitempty"`
+	AllowPrivate    *bool `yaml:"allow_private,omitempty"` // let fetch_url reach private networks
 }
 
 type CodeInterpreter struct {

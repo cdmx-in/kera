@@ -71,6 +71,12 @@ Every route accepts `Authorization: Bearer <token>` where the token is either a 
 | `POST /api/v1/configs/connections` | done | admin. `{connections: [...]}` upserted by id; an absent `api_key` keeps the stored key, `""` clears it. Connections not listed are kept. |
 | `POST /api/v1/configs/connections/{id}/verify` | done | admin. Lists the connection's models live: `{ok: true, models: [...]}`, 502 on failure. |
 | `DELETE /api/v1/configs/connections/{id}` | done | admin. |
+| `GET /api/v1/memories/` | done | needs `features.memory`. The caller's memories `[{id, user_id, content, created_at, updated_at}]`, newest first, epoch seconds. |
+| `POST /api/v1/memories/add` | done | `{content}` (max 4,000 characters) -> the memory. Embedded with `rag.embedding` when configured. |
+| `POST /api/v1/memories/query` | done | `{content, k}` -> memories best first with `score` (Kera returns the list shape, not the vector-store result shape). Cosine similarity when `rag.embedding` is configured, full-text otherwise. |
+| `POST /api/v1/memories/{id}/update` | done | `{content}` -> the memory; 404 for another user's id. |
+| `DELETE /api/v1/memories/{id}` | done | `true`; 404 when missing. |
+| `DELETE /api/v1/memories/delete/user` | done | deletes every memory of the caller; `true`. |
 | `POST /api/v1/evaluations/feedback` | planned | `{type, data: {rating, model_id, comment}, meta, snapshot}`. |
 | `GET /api/version` | done | `{version}`. |
 
@@ -84,6 +90,7 @@ Every route accepts `Authorization: Bearer <token>` where the token is either a 
 | `GET/POST /api/v1/auths/api_keys` | done | named keys: list `[{id, name, prefix, created_at, last_used_at}]`; POST `{name}` -> `{id, name, key, prefix}` (key shown once). |
 | `DELETE /api/v1/auths/api_keys/{id}` | done | one of the caller's keys. |
 | `GET/PUT /api/v1/grants/{type}/{id}` | done | admin; `[{principal: "user:<id>" \| "user:*" \| "group:<id>", permission: "read" \| "write"}]`. PUT replaces every grant of the resource, including ones `kera apply` made; the new rows are not managed. |
+| `GET /api/v1/favicon?domain=` | done | signed-in users; the site's icon (`/favicon.ico`, else the home page's `<link rel=icon>`), raster images or SVG of at most 32 KB, private-network targets refused, 24 h in-memory cache; 404 when none, 400 for anything but a hostname. |
 ## Database import (`kera migrate from-openwebui`)
 Observed source schema (0.13, Postgres) and how `internal/importowui` maps it. Status: **done**.
 | Source | Meaning | Kera |

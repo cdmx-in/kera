@@ -58,6 +58,8 @@ var Defaults = map[string]json.RawMessage{
 	"web.search.max_calls_per_turn": raw(`3`),
 	"web.fetch.max_chars":           raw(`30000`),
 	"web.fetch.max_calls_per_turn":  raw(`3`),
+	"web.search.url":                raw(`""`), // searxng base URL; web.search.api_key (brave) is a secret without default
+	"web.fetch.allow_private":       raw(`false`),
 
 	// Added for `kera apply` (internal/apply). Secrets apply writes as {"enc": ...}
 	// (code_interpreter.token, spend.source.dsn) have no default; read them with apply.ReadSecret.
