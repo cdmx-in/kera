@@ -23,6 +23,7 @@ describe('parseChatParams', () => {
   it('strips one-shot params', () => {
     expect(withoutOneShot('?models=a&q=x&tools=t')).toBe('?models=a')
     expect(withoutOneShot('?q=x')).toBe('')
+    expect(withoutOneShot('?oauth_error=provider_denied&models=a')).toBe('?models=a')
   })
 })
 

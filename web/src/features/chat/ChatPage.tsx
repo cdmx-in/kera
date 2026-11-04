@@ -8,6 +8,8 @@ import { useComposer } from '@/stores/composer'
 import { uiConfig } from '@/lib/ui-config'
 import { Aurora } from '@/features/brand/Splash'
 import { parseChatParams, withoutOneShot } from '@/app/search-params'
+import { toolKey } from '@/features/tools/ids'
+import { toast } from '@/stores/toast'
 import { Spinner } from '@/ui/misc'
 import { Header } from '@/features/header/Header'
 import { MessageList } from './messages/MessageList'
@@ -103,8 +105,12 @@ export default function ChatPage() {
     if (!m) return
     const c = useComposer.getState()
     c.setFeatures(Object.fromEntries((m.features ?? []).map((f) => [f.id, !!f.default])))
-    const auto = uiConfig().integrations.flatMap((i) => (i.kind === 'oauthToolServer' && i.autoEnable && tools.data?.some((t) => t.id === i.toolServerId && t.authenticated) ? [i.toolServerId] : []))
-    c.setToolIds([...(m.toolIds ?? []), ...auto, ...urlTools.current])
+    const connected = (id: string) => tools.data?.some((t) => t.id === id && t.authenticated)
+    const auto = [
+      ...uiConfig().integrations.flatMap((i) => (i.kind === 'oauthToolServer' && i.autoEnable && connected(i.toolServerId) ? [i.toolServerId] : [])),
+      ...(tools.data ?? []).filter((t) => t.auto_enable && t.authenticated).map((t) => t.id),
+    ]
+    c.setToolIds([...(m.toolIds ?? []).map(toolKey), ...auto, ...urlTools.current])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, models.data, tools.data, toolsParam])
 
@@ -127,6 +133,15 @@ export default function ChatPage() {
     void onSend(q, [])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.q, me.data, model, models.data, chatId])
+
+  // A failed integration connect comes back as ?oauth_error=<code>.
+  const oauthError = search.get('oauth_error')
+  useEffect(() => {
+    if (!oauthError) return
+    toast(oauthError === 'provider_denied' ? 'Connection cancelled' : `Could not connect the integration (${oauthError.replace(/_/g, ' ')})`, 'error')
+    setSearch(withoutOneShot(`?${search}`), { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oauthError])
 
   // ?tools= is one-shot too (OAuth return); drop it once applied.
   useEffect(() => {

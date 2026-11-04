@@ -16,5 +16,6 @@ describe('integrations', () => {
   })
   it('builds the authorize URL with a return to ?tools=', () => {
     expect(authorizeUrl({ id: 'sheets', kind: 'oauthToolServer', toolServerId: 'mcp:sheets', label: 'Sheets' })).toBe('/oauth/clients/mcp:sheets/authorize?next=%2F%3Ftools%3Dmcp%3Asheets')
+    expect(authorizeUrl({ id: 'drive', kind: 'oauthToolServer', toolServerId: 'drive-tools', label: 'Drive' }, 'mcp:google')).toBe('/oauth/clients/mcp:google/authorize?next=%2F%3Ftools%3Ddrive-tools')
   })
 })

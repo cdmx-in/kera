@@ -8,6 +8,7 @@ import { iconFor } from '@/lib/icons'
 import { cx, storageGet, storageSet } from '@/lib/format'
 import { Menu, MenuCheckItem, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuTrigger } from '@/ui/Menu'
 import { IntegrationSlots, hasSlot } from '@/features/integrations/registry'
+import { toolKey } from '@/features/tools/ids'
 import { uiConfig, type Integration } from '@/lib/ui-config'
 import { ExtBadge } from '../messages/FileChip'
 import { stopStream } from '../stream'
@@ -152,8 +153,10 @@ function PlusMenu({ onFiles }: { onFiles: () => void }) {
     // oauth integrations are listed in their own slot
     uiConfig().integrations.flatMap((i) => (i.kind === 'oauthToolServer' ? [i.toolServerId] : [])),
   )
-  const modelTools = models?.find((m) => m.id === model)?.toolIds ?? []
-  const tools = [...new Set([...modelTools, ...(servers ?? []).map((s) => s.id)])].filter((id) => !integrationIds.has(id))
+  const modelTools = (models?.find((m) => m.id === model)?.toolIds ?? []).map(toolKey)
+  // servers the user can use now: builtin sets ride on the model, OAuth servers appear once connected
+  const usable = (servers ?? []).filter((s) => s.kind !== 'builtin' && s.authenticated !== false).map((s) => s.id)
+  const tools = [...new Set([...modelTools, ...usable])].filter((id) => !integrationIds.has(id))
   const label = (id: string) => servers?.find((s) => s.id === id)?.name ?? id.replace(/^(server|builtin):/, '')
   return (
     <Menu>
