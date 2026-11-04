@@ -132,7 +132,7 @@ func readCSV(r io.Reader, comma rune, lazy bool) ([][]string, bool, error) {
 
 // xlsxRows returns sheet names and the display values of one sheet.
 func xlsxRows(r io.Reader, sheet int) ([]string, [][]string, bool, error) {
-	x, err := excelize.OpenReader(r)
+	x, err := excelize.OpenReader(r, xlsxLimits)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("open workbook: %w", err)
 	}

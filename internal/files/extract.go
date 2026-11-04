@@ -160,9 +160,12 @@ func htmlText(b []byte) string {
 	return strings.TrimSpace(out)
 }
 
+// xlsxLimits caps how far a workbook may inflate (excelize defaults to 16 GB).
+var xlsxLimits = excelize.Options{UnzipSizeLimit: 1 << 30}
+
 // xlsxText renders one "## Sheet: <name>" section per sheet with CSV rows of display values.
 func (s *Service) xlsxText(f File) (string, map[string]any, error) {
-	x, err := excelize.OpenFile(s.abs(f))
+	x, err := excelize.OpenFile(s.abs(f), xlsxLimits)
 	if err != nil {
 		return "", nil, fmt.Errorf("open workbook: %w", err)
 	}

@@ -299,6 +299,61 @@ func TestUploadOptions(t *testing.T) {
 	if r := e.do("alice", "POST", "/api/v1/files/", strings.NewReader("x"), "text/plain"); r.StatusCode != 400 {
 		t.Fatalf("non-multipart: %d", r.StatusCode)
 	}
+	// bad metadata after the file part: 400 and the stored blob is dropped
+	buf.Reset()
+	mw = multipart.NewWriter(&buf)
+	fw, _ = mw.CreateFormFile("file", "orphan.txt")
+	_, _ = fw.Write([]byte("z"))
+	_ = mw.WriteField("metadata", `{bad`)
+	_ = mw.Close()
+	before, _ := e.svc.List(context.Background(), "alice")
+	if r := e.do("alice", "POST", "/api/v1/files/", &buf, mw.FormDataContentType()); r.StatusCode != 400 {
+		t.Fatalf("bad late metadata: %d", r.StatusCode)
+	}
+	if after, _ := e.svc.List(context.Background(), "alice"); len(after) != len(before) {
+		t.Fatalf("orphan row left: %d -> %d", len(before), len(after))
+	}
+}
+
+func TestCrossOrigin(t *testing.T) {
+	e := setup(t)
+	f := e.upload("alice", "c.txt", []byte("c"), "")
+	cookieReq := func(method, path string, body io.Reader, ctype string) int {
+		req, _ := http.NewRequest(method, e.url+path, body)
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: e.users["alice"]})
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
+		if ctype != "" {
+			req.Header.Set("Content-Type", ctype)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if c := cookieReq("DELETE", "/api/v1/files/"+f.ID, nil, ""); c != 403 {
+		t.Fatalf("cross-site cookie DELETE: %d", c)
+	}
+	body, ct := multipartBody(t, "x.txt", []byte("x"), "")
+	if c := cookieReq("POST", "/api/v1/files/", body, ct); c != 403 {
+		t.Fatalf("cross-site cookie upload: %d", c)
+	}
+	if c := cookieReq("GET", "/api/v1/files/"+f.ID+"/content", nil, ""); c != 200 {
+		t.Fatalf("cross-site cookie GET: %d", c)
+	}
+	// a Bearer header is not ambient, so it passes
+	req, _ := http.NewRequest("DELETE", e.url+"/api/v1/files/"+f.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+e.users["alice"])
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("bearer DELETE: %d", resp.StatusCode)
+	}
 }
 
 func preview(e *env, id, q string) Preview {

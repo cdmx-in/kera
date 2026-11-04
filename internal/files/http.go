@@ -59,9 +59,25 @@ func Mount(a *app.App) error {
 		"DELETE /api/v1/files/{id}":                h.delete,
 	}
 	for p, fn := range routes {
-		a.Server.Handle(p, a.Auth.Required(fn))
+		a.Server.Handle(p, a.Auth.Required(sameOrigin(fn)))
 	}
 	return nil
+}
+
+var csrf = http.NewCrossOriginProtection()
+
+// sameOrigin rejects cross-origin browser requests that change state and ride
+// on the session cookie; a Bearer header cannot be forged cross-site.
+func sameOrigin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			if err := csrf.Check(r); err != nil {
+				api.Fail(w, r, api.Errf(http.StatusForbidden, "cross_origin", "Cross-origin request rejected"))
+				return
+			}
+		}
+		next(w, r)
+	}
 }
 
 type handler struct{ svc *Service }
@@ -96,19 +112,25 @@ func (h *handler) upload(w http.ResponseWriter, r *http.Request) {
 	var f *File
 	var md any
 	lateMeta := false
+	fail := func(err error) { // drop a blob already stored so no orphan is left
+		if f != nil {
+			_ = h.svc.Delete(context.WithoutCancel(ctx), f.ID)
+		}
+		api.Fail(w, r, err)
+	}
 	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			api.Fail(w, r, uploadErr(err))
+			fail(uploadErr(err))
 			return
 		}
 		switch part.FormName() {
 		case "metadata":
 			if md, err = readMetadata(part); err != nil {
-				api.Fail(w, r, err)
+				fail(err)
 				return
 			}
 			lateMeta = f != nil
@@ -134,7 +156,7 @@ func (h *handler) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	if lateMeta && md != nil {
 		if err := h.svc.setMeta(ctx, f, "data", md); err != nil {
-			api.Fail(w, r, err)
+			fail(err)
 			return
 		}
 	}
