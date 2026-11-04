@@ -14,6 +14,7 @@ import (
 	"github.com/cdmx-in/kera/internal/app"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/db"
+	"github.com/cdmx-in/kera/internal/importowui"
 	"github.com/cdmx-in/kera/internal/version"
 )
 
@@ -23,6 +24,7 @@ Usage:
   kera serve              run the server (applies database migrations first)
   kera db migrate         apply database migrations and exit
   kera db status          list migrations and whether they are applied
+  kera migrate from-openwebui|verify  import an Open WebUI database (kera migrate help)
   kera version            print the version
 
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL.
@@ -51,6 +53,8 @@ func run(args []string) error {
 		return serve(ctx)
 	case "db":
 		return dbCmd(ctx, args[1:])
+	case "migrate":
+		return importowui.Command(ctx, args[1:], os.Stdout)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
