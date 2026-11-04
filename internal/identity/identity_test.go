@@ -616,18 +616,57 @@ func TestSignoutAndCookie(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !refreshed {
 		t.Fatalf("cookie session %d refreshed=%v", resp.StatusCode, refreshed)
 	}
-	req, _ = http.NewRequest("POST", e.srv.URL+"/api/v1/auths/signout", nil)
-	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
+	for _, method := range []string{"POST", "GET"} {
+		req, _ = http.NewRequest(method, e.srv.URL+"/api/v1/auths/signout", nil)
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		var cleared bool
+		for _, c := range resp.Cookies() {
+			cleared = cleared || (c.Name == auth.CookieName && c.MaxAge < 0)
+		}
+		if !cleared {
+			t.Fatalf("%s signout kept the cookie", method)
+		}
 	}
-	resp.Body.Close()
-	var cleared bool
-	for _, c := range resp.Cookies() {
-		cleared = cleared || (c.Name == auth.CookieName && c.MaxAge < 0)
+}
+
+// A state-changing request authenticated only by the cookie must come from
+// our own origin; a Bearer credential is not sent by browsers on their own.
+func TestCookieCSRF(t *testing.T) {
+	e := setup(t)
+	_, tok := e.mkUser("user", "u@example.com")
+	post := func(site string, cookie, bearer bool) int {
+		req, _ := http.NewRequest("POST", e.srv.URL+"/api/v1/users/user/settings/update", strings.NewReader(`{"a":1}`))
+		req.Header.Set("Sec-Fetch-Site", site)
+		if cookie {
+			req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: tok})
+		}
+		if bearer {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
 	}
-	if !cleared {
-		t.Fatal("signout kept the cookie")
+	for _, c := range []struct {
+		site           string
+		cookie, bearer bool
+		want           int
+	}{
+		{"same-origin", true, false, http.StatusOK},
+		{"cross-site", true, false, http.StatusUnauthorized},
+		{"same-site", true, false, http.StatusUnauthorized},
+		{"cross-site", false, true, http.StatusOK},
+	} {
+		if got := post(c.site, c.cookie, c.bearer); got != c.want {
+			t.Errorf("%+v: status %d", c, got)
+		}
 	}
 }
 

@@ -6,7 +6,7 @@ Status legend: **planned**, **done**.
 
 ## Authentication
 
-Every route accepts `Authorization: Bearer <token>` where the token is either a session token or a personal API key starting with `sk-`. Browser sessions also send the `kera_session` cookie. Errors use `{"detail": "<message>"}` with the HTTP status.
+Every route accepts `Authorization: Bearer <token>` where the token is either a session token or a personal API key starting with `sk-`. Browser sessions also send the `kera_session` cookie; a POST/PUT/PATCH/DELETE authenticated only by that cookie is accepted from the same origin only (CSRF), so scripts should use the header. Errors use `{"detail": "<message>"}` with the HTTP status.
 
 ## OpenAI-compatible
 
@@ -40,7 +40,7 @@ Every route accepts `Authorization: Bearer <token>` where the token is either a 
 | `GET /api/v1/models/model?id=` | planned | model with `meta.toolIds` and `meta.knowledge`. |
 | `POST /api/v1/models/model/update?id=` | planned | partial update of name, description, meta, params. |
 | `GET /api/v1/auths/` | done | current user `{id, email, name, role, profile_image_url, permissions, groups}` (group ids). A session caller (not an API key) also gets `{token, token_type, expires_at}` and a refreshed `kera_session` cookie. |
-| `POST /api/v1/auths/signout` | done | clears the session cookie. |
+| `GET/POST /api/v1/auths/signout` | done | clears the session cookie. |
 | `GET /api/v1/auths/api_key` | done | `{api_key: "<prefix>..."}` of the newest key (full keys are never stored); 404 when none. Needs `features.api_keys` (admins always). |
 | `POST /api/v1/auths/api_key` | done | `{api_key}`: a new full key, shown once. Rotates the one key these single-key routes manage; named keys stay. |
 | `DELETE /api/v1/auths/api_key` | done | deletes every key of the caller; returns `true`. |

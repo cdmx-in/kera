@@ -51,7 +51,7 @@ func (h *handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := strings.TrimSpace(r.URL.Query().Get("query"))
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	page = max(page, 1)
+	page = min(max(page, 1), 1_000_000) // keeps OFFSET from overflowing
 	const match = `($1 = '' OR strpos(lower(u.name), lower($1)) > 0 OR strpos(lower(u.email), lower($1)) > 0)`
 	var total int
 	if err := h.a.DB.QueryRow(ctx, `SELECT count(*) FROM "user" u WHERE `+match, q).Scan(&total); err != nil {

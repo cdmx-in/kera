@@ -25,6 +25,7 @@ func Mount(a *app.App) error {
 
 	s.Handle("GET /api/v1/auths/{$}", user(h.me))
 	s.HandleFunc("POST /api/v1/auths/signout", h.signout)
+	s.HandleFunc("GET /api/v1/auths/signout", h.signout) // Open WebUI clients sign out with GET
 	s.HandleFunc("GET /api/v1/auths/providers", h.providers)
 	s.Handle("GET /api/v1/auths/api_keys", keys(h.listKeys))
 	s.Handle("POST /api/v1/auths/api_keys", keys(h.createKey))
