@@ -28,12 +28,31 @@ Every route accepts `Authorization: Bearer <token>` where the token is either a 
 | `GET /api/v1/files/{id}/data/content` | done | `{content: <extracted text>}`. |
 | `GET /api/v1/files/{id}/preview?sheet=n` | done | Kera extension: `{kind: csv\|xlsx\|text\|pdf\|image\|docx\|other, sheets, sheet, rows: string[][], truncated}`, capped at 2,000 rows x 200 columns (text: first 200 KB, one column per line). |
 | `DELETE /api/v1/files/{id}` | done | owner or admin; removes the stored blob. `{message}`. |
-| `GET /api/v1/knowledge/` | planned | `{items: [...], total}`. |
-| `POST /api/v1/knowledge/create` | planned | `{name, description}`. |
-| `GET /api/v1/knowledge/{id}/files` | planned | `{items: [{id, filename, meta, data: {status}}], total}`. |
-| `POST /api/v1/knowledge/{id}/file/add` | planned | `{file_id}`; accepts a file still being processed. |
-| `POST /api/v1/knowledge/{id}/file/remove` | planned | `{file_id}`. |
-| `POST /api/v1/retrieval/query/collection` | planned | `{collection_names, query, k}` -> `{documents: [[...]], metadatas: [[...]], distances: [[...]]}`. |
+| `GET /api/v1/knowledge/` | done | `{items: [...], total}`: collections the caller can read (owner, admin or a read/write grant), newest first. Each item: `{id, user_id, name, description, meta, created_at, updated_at, write_access, embedding_model: {id, connection, model, dim} \| null, fts_config, reindexing, status: {files, chunks, pending, processing, completed, failed}}`. |
+| `POST /api/v1/knowledge/create` | done | `{name, description}` (other fields such as `access_control` are ignored; new collections are private). Needs `workspace.knowledge`. Returns the collection. |
+| `GET /api/v1/knowledge/{id}` | done | the collection plus `files` (the `/files` items). 404 when the caller cannot read it. |
+| `GET /api/v1/knowledge/{id}/files` | done | `{items: [{id, user_id, filename, meta, size, chunks, data: {status, file_status, error?}, created_at, updated_at}], total}`. `data.status` is the indexing state (`pending` -> `processing` -> `completed` or `failed`); `file_status` is the extraction state. |
+| `POST /api/v1/knowledge/{id}/file/add` | done | `{file_id}`; a file still being extracted is indexed when extraction completes. Adding a file again re-queues it only when it failed. Needs write access to the collection and read access to the file. Returns the collection with `files`. |
+| `POST /api/v1/knowledge/{id}/file/remove` | done | `{file_id}`; drops the link and its chunks, the file itself stays (delete it with `DELETE /api/v1/files/{id}`). |
+| `POST /api/v1/knowledge/{id}/file/update` | done | `{file_id}`; indexes the file again. |
+| `POST /api/v1/knowledge/{id}/update` | done | `{name?, description?}`. |
+| `DELETE /api/v1/knowledge/{id}/delete` | done | removes the collection, its chunks and grants; returns `true`. |
+| `POST /api/v1/knowledge/{id}/reindex?embedding_model=&connection=` | done | Kera extension: re-embeds every file. With `embedding_model` the collection moves to that model (on `connection`, default `rag.embedding.connection`); the old chunks answer queries until every file is done. `{status: true, queued}`. |
+| `GET/PUT /api/v1/knowledge/{id}/grants` | done | Kera extension: the collection's grants `[{principal, permission, managed}]` (`user:<id>`, `user:*`, `group:<id>`; read or write). PUT replaces them; owner, admins and write-grant holders. |
+| `POST /api/v1/retrieval/query/collection` | done | `{collection_names, query, k, k_reranker?}` (ids or names) -> `{documents: [[text...]], metadatas: [[{name, source, file_id, knowledge_id, page?, headers?}]], distances: [[score...]]}`, one inner list, best first. Hybrid vector + full-text search fused by weighted reciprocal rank, then the reranker when `rag.reranker.url` is set; scores are reranker relevance (0-1) or fusion scores. `k_reranker`, else `k`, else `rag.top_k_rerank` results. Also served at `/query/collections`. |
+| `GET /api/v1/retrieval/embedding` | done | `{embedding_engine, embedding_model, embedding_batch_size}` (engine = connection id). |
+
+## Prompts
+
+| Route | Status | Notes |
+|---|---|---|
+| `GET /api/v1/prompts/` | done | prompts the caller can read: own first, then shared, by command. `[{id, user_id, command, title, name, content, created_at, updated_at, timestamp, write_access}]`; `command` has no leading `/`. |
+| `POST /api/v1/prompts/create` | done | `{command, title \| name, content}`; a leading `/` is dropped, commands are 1-64 of `a-z 0-9 - _` and unique per user (409). Needs `workspace.prompts`. |
+| `GET /api/v1/prompts/command/{command}` | done | the caller's own prompt with that command, else a shared one. |
+| `GET /api/v1/prompts/id/{id}` | done | 404 when the caller cannot read it. |
+| `POST /api/v1/prompts/id/{id}/update` | done | partial `{command?, title?, content?}`; owner, admins or a write grant. |
+| `DELETE /api/v1/prompts/id/{id}/delete` | done | also removes its grants. |
+| `GET/PUT /api/v1/prompts/id/{id}/grants` | done | same shape as the knowledge grants. |
 
 ## Chats, models, users, feedback
 
@@ -62,7 +81,7 @@ Every route accepts `Authorization: Bearer <token>` where the token is either a 
 | `POST /api/v1/groups/id/{id}/users/add` and `/users/remove` | done | admin; `{user_ids}`, unknown ids ignored; returns the group. |
 | `DELETE /api/v1/groups/id/{id}/delete` | done | admin; also drops the group's access grants. |
 | `GET /api/v1/models/` | done | list of model rows (shape below): all rows for admins, otherwise rows the caller owns or holds a write grant on. |
-| `GET /api/v1/models/model?id=` | done | `{id, user_id, base_model_id, connection_id, name, params, meta: {description, profile_image_url, toolIds, builtinTools, disabledTools, knowledge: [{id, mode}], capabilities, suggestion_prompts, hidden, features, defaultFeatures, fileContext, hooks, sort}, is_active, managed, created_at, updated_at}`. `params.system` is the system prompt. A discovered model without a row returns a fresh row. 404 when the caller cannot read it. |
+| `GET /api/v1/models/model?id=` | done | `{id, user_id, base_model_id, connection_id, name, params, meta: {description, profile_image_url, toolIds, builtinTools, disabledTools, knowledge: [{id, name?, mode}] (`kera apply` stores collections by name; an entry needs an id or a name), capabilities, suggestion_prompts, hidden, features, defaultFeatures, fileContext, hooks, sort}, is_active, managed, created_at, updated_at}`. `params.system` is the system prompt. A discovered model without a row returns a fresh row. 404 when the caller cannot read it. |
 | `POST /api/v1/models/create` | done | body like the row shape, `id` required; 409 when it exists (for non-admins also when the id is a discovered model). Needs `workspace.models` (admins always). The caller becomes the owner. A non-admin's `base_model_id` must be a model they can use (else 400). |
 | `POST /api/v1/models/model/update?id=` | done | partial update: fields absent from the body stay as they are, so posting back a fetched row with `meta.description` edited works. `params` replaces the params (its `system` sets the system prompt); `meta.toolIds` sets tool servers and enabled builtins. Needs admin, owner or a write grant (403; 404 when the caller cannot read the model). Creates the row for a discovered model. |
 | `POST /api/v1/models/model/toggle?id=` | done | flips `is_active`, returns the row. |
