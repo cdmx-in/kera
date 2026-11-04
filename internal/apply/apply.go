@@ -34,7 +34,7 @@ const (
 
 // Change is one line of the plan.
 type Change struct {
-	Kind   string   // setting, group, oauth_provider, connection, tool_server, hook_server, model, knowledge
+	Kind   string   // setting, group, oauth_provider, connection, tool_server, hook_server, model, knowledge, skill
 	ID     string   // key, name or id
 	Action string   // create, update, unchanged, delete
 	Fields []string // changed fields of an update (names only, never values)
@@ -225,7 +225,10 @@ func (r *run) all() error {
 		return err
 	}
 
-	return r.knowledge()
+	if err := r.knowledge(); err != nil {
+		return err
+	}
+	return r.skills()
 }
 
 // knowledge sets grants on collections named in the file. A collection that

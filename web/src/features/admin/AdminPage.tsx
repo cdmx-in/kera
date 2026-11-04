@@ -5,6 +5,7 @@ import { uiConfig } from '@/lib/ui-config'
 import { AdminFrame, tabCls } from './Frame'
 import { AnalyticsPage } from './Analytics'
 import { GroupsPage } from './Groups'
+import { SkillsPage } from './Skills'
 import { SpendPage } from './Spend'
 import { UsersPage } from './Users'
 import { ConnectionsTab } from './settings/Connections'
@@ -30,6 +31,7 @@ function sections(): [string, string][] {
   return [
     ['users', 'Users'],
     ['groups', 'Groups'],
+    ['skills', 'Skills'],
     ['analytics', 'Analytics'],
     ...(uiConfig().features.spend !== false ? [['spend', 'Spend'] as [string, string]] : []),
     ['settings', 'Settings'],
@@ -43,6 +45,7 @@ export default function AdminPage() {
   let body: React.ReactNode
   if (section === 'users') body = <UsersPage />
   else if (section === 'groups') body = <GroupsPage />
+  else if (section === 'skills') body = <SkillsPage />
   else if (section === 'analytics') body = <AnalyticsPage />
   else if (section === 'spend') body = <SpendPage />
   else if (section === 'settings') {
