@@ -156,6 +156,11 @@ func (h *handler) settingValue(key string, v json.RawMessage, secret bool) (json
 	if want := jsonType(def); got != want {
 		return nil, api.Errf(http.StatusBadRequest, "bad_type", fmt.Sprintf("%s must be a %s, got %s", key, want, got))
 	}
+	if key == "ui.brand" {
+		if err := apply.ValidateBrand(v); err != nil {
+			return nil, api.Errf(http.StatusBadRequest, "invalid_brand", err.Error())
+		}
+	}
 	if got == "number" && apply.IntegerSettings()[key] && !isInt(v) {
 		return nil, api.Errf(http.StatusBadRequest, "bad_type", key+" must be a whole number")
 	}

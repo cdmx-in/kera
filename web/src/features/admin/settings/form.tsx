@@ -86,7 +86,7 @@ export function SettingsForm({ sections, children }: { sections: { title: string
   )
 }
 
-export function SaveBar({ d, onSave }: { d: Draft; onSave?: () => Promise<void> }) {
+export function SaveBar({ d, onSave }: { d: Pick<Draft, 'dirty' | 'discard' | 'save'>; onSave?: () => Promise<void> }) {
   if (!d.dirty) return null
   return (
     <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-end gap-2 rounded-xl border border-line bg-surface/95 p-3 shadow-pop backdrop-blur" data-testid="save-bar">

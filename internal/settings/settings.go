@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,7 @@ type Store struct {
 	db    *pgxpool.Pool
 	mu    sync.Mutex
 	cache map[string]entry
+	gen   atomic.Uint64 // bumped by Invalidate, so derived caches can notice
 }
 
 type entry struct {
@@ -90,6 +92,7 @@ func (s *Store) Set(ctx context.Context, key string, value any, managed bool) er
 
 // Invalidate drops cached keys (all keys when none given).
 func (s *Store) Invalidate(keys ...string) {
+	s.gen.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(keys) == 0 {
@@ -100,6 +103,10 @@ func (s *Store) Invalidate(keys ...string) {
 		delete(s.cache, k)
 	}
 }
+
+// Gen changes whenever this process invalidates keys (an admin save). Writes
+// from another process (`kera apply`) still show up after the cache ttl.
+func (s *Store) Gen() uint64 { return s.gen.Load() }
 
 func orDefault(key string, v json.RawMessage) json.RawMessage {
 	if v != nil {

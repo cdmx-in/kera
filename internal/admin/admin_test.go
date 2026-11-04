@@ -208,6 +208,26 @@ func TestSettings(t *testing.T) {
 		t.Fatalf("ReadSecret = %q, %v", dsn, err)
 	}
 
+	// ui.brand is checked with apply's brand rules.
+	for _, bad := range []map[string]any{
+		{"accent": map[string]any{"base": "red}</style>"}},
+		{"defaultTheme": "neon"},
+		{"splash": map[string]any{"style": "spin"}},
+		{"logo": map[string]any{"light": "javascript:alert(1)"}},
+		{"nmae": "typo"},
+	} {
+		e.fails(400, "invalid_brand", "POST", "/api/v1/configs/settings", map[string]any{"ui.brand": bad})
+	}
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"ui.brand": map[string]any{
+		"name": "Acme", "accent": map[string]any{"base": "#123456", "bright": "oklch(0.7 0.1 200)"},
+		"logo": map[string]any{"light": "/brand/logo-1a2b3c4d.png"}, "grey": map[string]any{"hue": 260, "chroma": 0.02},
+		"login": map[string]any{"style": "plain"}, "defaultTheme": "dark",
+	}}, &list)
+	var brand apply.Brand
+	if err := e.a.Settings.Get(ctx, "ui.brand", &brand); err != nil || brand.Name != "Acme" || brand.Grey.Hue != 260 {
+		t.Fatalf("ui.brand = %+v (%v)", brand, err)
+	}
+
 	// null resets to the default; "" clears a secret.
 	e.ok("POST", "/api/v1/configs/settings", map[string]any{"rag.top_k": nil, "spend.source.dsn": ""}, &list)
 	if s := findSetting(t, list, "rag.top_k"); string(s.Value) != "30" || s.Set {
