@@ -58,6 +58,35 @@ var Defaults = map[string]json.RawMessage{
 	"web.search.max_calls_per_turn": raw(`3`),
 	"web.fetch.max_chars":           raw(`30000`),
 	"web.fetch.max_calls_per_turn":  raw(`3`),
+
+	// Added for `kera apply` (internal/apply). Secrets apply writes as {"enc": ...}
+	// (code_interpreter.token, spend.source.dsn) have no default; read them with apply.ReadSecret.
+	"site.url":                    raw(`""`),
+	"models.base_public":          raw(`false`), // raw discovered models usable by every user without a grant
+	"ui.brand":                    raw(`{}`),
+	"ui.tool_display":             raw(`{}`),
+	"ui.integrations":             raw(`[]`),
+	"tasks.autocomplete":          raw(`false`),
+	"rag.embedding.connection":    raw(`""`),
+	"rag.embedding.model":         raw(`""`),
+	"rag.embedding.dim":           raw(`0`),
+	"rag.embedding.batch":         raw(`32`),
+	"rag.reranker.url":            raw(`""`),
+	"rag.reranker.model":          raw(`""`),
+	"rag.extractor.url":           raw(`""`),
+	"rag.extractor.model":         raw(`""`),
+	"rag.template":                raw(`""`),
+	"code_interpreter.engine":     raw(`""`),
+	"code_interpreter.url":        raw(`""`),
+	"code_interpreter.timeout":    raw(`60`),
+	"code_interpreter.shared_dir": raw(`""`),
+	"code_interpreter.kernel_dir": raw(`"/mnt/data"`),
+	"code_interpreter.prompt":     raw(`""`),
+	"code_interpreter.prelude":    raw(`""`),
+	"code_interpreter.max_file_mb": raw(`50`),
+	"spend.source.kind":           raw(`""`),
+	"skills.dir":                  raw(`""`),
+	"skills.grants":               raw(`[]`),
 }
 
 func raw(s string) json.RawMessage {

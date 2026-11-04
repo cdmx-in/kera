@@ -1,0 +1,202 @@
+# Covers every section of the apply schema.
+site:
+  name: Example Chat
+  url: https://chat.example.com
+  timezone: Europe/Berlin
+  default_models: [assistant]
+  model_order: [assistant, researcher]
+  base_models_public: false
+
+brand:
+  name: Example
+  tagline: Ask anything
+  logo: {light: /brand/logo.png, dark: /brand/logo-dark.png}
+  favicon: /brand/favicon.png
+  splash: {logo: /brand/splash.png, wordmark: EXAMPLE, style: orbit}
+  accent: {base: "#1e7f8c", bright: "#3dafc4"}
+  grey: {hue: 215, chroma: 0.012}
+  background: aurora
+  login: {wordmark: EXAMPLE, style: glass-card}
+  default_theme: system
+  tool_display:
+    search_web: {label: web search, icon: search, kind: search, plural: web searches}
+
+auth:
+  oauth:
+    google:
+      client_id: example.apps.googleusercontent.com
+      client_secret: ${GOOGLE_SECRET}
+      merge_by_email: true
+      update_picture: true
+      allowed_domains: [example.com]
+  login_form: false
+  signup: {oauth: true, default_role: user}
+  jwt_expiry_hours: 168
+
+permissions:
+  features: {api_keys: true, code_interpreter: true}
+  workspace: {tools: false}
+
+groups:
+  - name: Finance
+    description: Money people
+    permissions: {workspace: {models: true}}
+  - name: Ops
+
+connections:
+  - id: local
+    kind: ollama
+    url: ${OLLAMA_URL:-http://localhost:11434}
+  - id: gateway
+    kind: openai
+    url: http://gateway:4000
+    api_key: ${GATEWAY_KEY}
+    forward_user_headers: {email: X-User-Email}
+  - id: gateway-web
+    kind: responses
+    url: http://gateway:4000
+    api_key: ${GATEWAY_KEY}
+    prefix: web
+    models: [big-model]
+    web_search: {country: DE, timezone: Europe/Berlin, context_size: medium}
+    headers: {X-Team: chat}
+
+tasks: {model_external: big-model, model_local: "", title: true, tags: true, follow_ups: true, query: true, autocomplete: false}
+
+chat:
+  compaction: {enable: true, threshold: 120000, retention: 30}
+  max_tool_iterations: ${MAX_ITER:-256}
+  local_lock: true
+  memory: {enable: true, review_every: 5, local_only: true}
+
+rag:
+  chunk_size: 1000
+  chunk_overlap: 100
+  markdown_headers: true
+  embedding: {connection: local, model: embed-small, dim: 768, batch: 32}
+  hybrid: {bm25_weight: 0.5}
+  top_k: 30
+  top_k_rerank: 6
+  reranker: {url: http://rerank:8000, model: reranker-small}
+  extractor: {url: http://extract:8000}
+  template_file: rag-template.md
+  full_context_max_chars: 400000
+
+web:
+  search: {engine: duckduckgo, result_count: 5, max_calls_per_turn: 3}
+  fetch: {max_chars: 30000, max_calls_per_turn: 3}
+
+code_interpreter:
+  engine: jupyter
+  url: http://jupyter:8888
+  token: ${JUPYTER_TOKEN}
+  timeout: 60
+  shared_dir: /srv/files
+  kernel_dir: /mnt/data
+  prompt_file: ci-prompt.md
+  max_file_mb: 50
+
+oauth_providers:
+  - id: "mcp:sheets"
+    issuer: https://accounts.example.com
+    client_id: sheets-client
+    client_secret: ${SHEETS_SECRET}
+    scope: openid email sheets
+    send_resource: false
+
+tool_servers:
+  - id: kb
+    kind: openapi
+    name: KB facts
+    url: http://kb:8781
+    auth: {type: bearer, key: "${KB_TOKEN}"}
+    grants: [{principal: "*"}]
+    max_result_chars: 16000
+    display:
+      label: KB
+      tools:
+        search_kb: {label: KB search, icon: search, kind: search}
+  - id: search
+    kind: mcp
+    url: http://search:9900/mcp
+    grants: [{principal: "group:Finance"}, {principal: "group:Ops"}]
+    disable: [GenericApiTool]
+  - id: "mcp:sheets"
+    kind: mcp
+    name: Sheets
+    url: http://sheets:8000/mcp
+    auth: {type: user_oauth, provider: "mcp:sheets"}
+    auto_enable_when_connected: true
+    grants: [{principal: "*"}]
+
+hook_servers:
+  - id: cards
+    url: http://plugins:8790/cards
+    key: ${PLUGINS_KEY}
+    events: [outlet]
+    scope: global
+    priority: 10
+    config: {max_cards: 8}
+    on_error: skip
+
+models:
+  - id: assistant
+    name: Assistant
+    base: web.big-model
+    description: Everyday helper
+    prompt_file: prompts/assistant.md
+    params: {reasoning_effort: low}
+    capabilities: {vision: true, file_upload: true}
+    features: {web_search: native, code_interpreter: true}
+    default_features: [web_search]
+    tools: {servers: [kb], builtins: {ask_user: true}}
+    suggestions:
+      - {title: [Summarise, a document], content: Summarise the attached document.}
+    grants: [{principal: "*"}]
+  - id: researcher
+    name: Researcher
+    base: local-model:8b
+    prompt: Research carefully.
+    params: {num_ctx: 65536, think: false}
+    features: {web_search: builtin}
+    file_context: full
+    knowledge: [{name: Handbook, mode: full}]
+    hooks: [cards]
+    grants: [{principal: "group:Finance", permission: read}]
+  - id: local-model:8b
+    connection: local
+    hidden: true
+    params: {num_ctx: 65536}
+    grants: [{principal: "user:*"}]
+
+knowledge:
+  - name: Handbook
+    grants: [{principal: "*"}, {principal: "group:Finance", permission: write}]
+
+suggestions:
+  - {title: [Draft an email, to a client], content: "Draft a short email to a client about "}
+
+integrations:
+  - id: sheets
+    kind: oauthToolServer
+    tool_server_id: "mcp:sheets"
+    label: Google Sheets
+    icon: sheet
+    auto_enable: true
+    show_in_plus_menu: true
+  - id: helper-extension
+    kind: extensionInstall
+    label: Helper for Chrome
+    version: 1.0.0
+    download_url: /cache/helper/helper-1.0.0.zip
+    marker_attr: data-helper
+    platforms: [chromium-desktop]
+    steps: {install: "Download {{downloadUrl}}", update: "Update to {{version}}"}
+    commands: {posix: "curl -H \"Authorization: Bearer $$k\" {{downloadUrl}}"}
+
+spend:
+  source: {kind: litellm_postgres, dsn: "${SPEND_DSN}"}
+
+compat: {throwaway_chats: true}
+
+skills: {dir: /srv/skills, grants: [{principal: "group:Ops"}]}
