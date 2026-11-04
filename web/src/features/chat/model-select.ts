@@ -1,4 +1,4 @@
-import type { Model } from '@/api/types'
+import type { Model, Suggestion } from '@/api/types'
 
 /**
  * Picks the model for a chat: an explicit ?models= id (hidden allowed), else the
@@ -13,4 +13,10 @@ export function resolveModel(models: Model[], opts: { requested?: string[]; chat
   const def = opts.defaults?.find(visible)
   if (def) return def
   return models.find((m) => !m.hidden)?.id ?? ''
+}
+
+/** The start-screen prompts: the model's own when it has any, else the global ones (at most 6). */
+export function pickSuggestions(model: Model | undefined, global: Suggestion[]): Suggestion[] {
+  const own = model?.suggestionPrompts?.length ? model.suggestionPrompts : (model?.info?.meta?.suggestion_prompts ?? [])
+  return (own.length ? own : global).slice(0, 6)
 }

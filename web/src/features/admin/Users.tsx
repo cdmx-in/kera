@@ -10,9 +10,11 @@ import { enc, useSettings, useSaveSettings, type AdminUser, type RoleName } from
 import { ago, type Perms } from './lib'
 import { PermSwitches } from './Perms'
 import { attempt, Badge, Btn, Card, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, Page, tdCls, thCls } from './ui'
+import { Select } from '@/ui/Select'
 
 const PER_PAGE = 30
 const roles: RoleName[] = ['admin', 'user', 'pending']
+const roleOptions = roles.map((r) => ({ value: r, label: r[0].toUpperCase() + r.slice(1) }))
 
 export function avatarURL(id: string) {
   return `/api/v1/users/${enc(id)}/profile/image`
@@ -118,20 +120,16 @@ export function UsersPage() {
                             </span>
                           </Tip>
                         ) : (
-                          <select
+                          <Select
                             aria-label={`Role of ${u.email}`}
                             value={u.role}
-                            onChange={(e) => void setRole(u, e.target.value as RoleName)}
+                            onChange={(v) => void setRole(u, v as RoleName)}
                             data-role={u.role}
-                            className={cx(
-                              'rounded-full border py-0.5 pl-3 text-xs font-medium capitalize',
-                              u.role === 'admin' ? 'border-accent/40 bg-accent-soft text-accent dark:text-accent-bright' : 'border-line bg-surface-2 text-fg',
-                            )}
-                          >
-                            {roles.map((r) => (
-                              <option key={r}>{r}</option>
-                            ))}
-                          </select>
+                            options={roleOptions}
+                            variant="pill"
+                            size="sm"
+                            tone={u.role === 'admin' ? 'accent' : 'grey'}
+                          />
                         )}
                       </td>
                       <td className={tdCls}>
@@ -220,11 +218,7 @@ function EditUser({ user, self, onClose, onSaved }: { user: AdminUser; self: boo
           <input value={name} onChange={(e) => setName(e.target.value)} required className={inputCls} />
         </Field>
         <Field label="Role" hint={self ? 'You cannot change your own role.' : 'At least one admin must remain.'}>
-          <select value={role} disabled={self} onChange={(e) => setRole(e.target.value as RoleName)} className={inputCls}>
-            {roles.map((r) => (
-              <option key={r}>{r}</option>
-            ))}
-          </select>
+          <Select value={role} disabled={self} onChange={(v) => setRole(v as RoleName)} options={roleOptions} aria-label="Role" />
         </Field>
         <div className="flex justify-end gap-2">
           <Btn onClick={onClose}>Cancel</Btn>

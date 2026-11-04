@@ -13,6 +13,7 @@ import { ProviderIcon, ToolServerIcon } from './serviceIcons'
 import { enc, useHookServers, useProviders, useToolServers, type HookServer, type OAuthProvider, type ToolServer } from '../api'
 import { parseList } from '../lib'
 import { attempt, Badge, Btn, Card, Check, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, SecretInput } from '../ui'
+import { Select } from '@/ui/Select'
 
 /** List shell shared by the three tabs. */
 function ServerList<T extends { id: string; managed: boolean }>(props: {
@@ -185,10 +186,15 @@ function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onCl
           <input value={t.id} required disabled={!!server} onChange={(e) => setT({ ...t, id: e.target.value })} className={inputCls} data-testid="server-id" />
         </Field>
         <Field label="Kind">
-          <select value={t.kind} onChange={(e) => setT({ ...t, kind: e.target.value as ToolServer['kind'] })} className={inputCls}>
-            <option value="openapi">OpenAPI</option>
-            <option value="mcp">MCP (streamable HTTP)</option>
-          </select>
+          <Select
+            value={t.kind}
+            onChange={(v) => setT({ ...t, kind: v as ToolServer['kind'] })}
+            aria-label="Kind"
+            options={[
+              { value: 'openapi', label: 'OpenAPI' },
+              { value: 'mcp', label: 'MCP (streamable HTTP)' },
+            ]}
+          />
         </Field>
         <Field label="Name">
           <input value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} className={inputCls} />
@@ -210,12 +216,18 @@ function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onCl
       <fieldset className="grid gap-3 rounded-lg border border-line p-3 sm:grid-cols-2">
         <legend className="px-1 text-xs font-medium text-muted">Authentication</legend>
         <Field label="Type">
-          <select value={auth.type} onChange={(e) => setT({ ...t, auth: { ...auth, type: e.target.value as ToolServer['auth']['type'] } })} className={inputCls} data-testid="auth-type">
-            <option value="none">None</option>
-            <option value="bearer">Bearer token</option>
-            <option value="header">Custom header</option>
-            <option value="user_oauth">Each user signs in (OAuth)</option>
-          </select>
+          <Select
+            value={auth.type}
+            onChange={(v) => setT({ ...t, auth: { ...auth, type: v as ToolServer['auth']['type'] } })}
+            aria-label="Authentication type"
+            data-testid="auth-type"
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'bearer', label: 'Bearer token' },
+              { value: 'header', label: 'Custom header' },
+              { value: 'user_oauth', label: 'Each user signs in (OAuth)' },
+            ]}
+          />
         </Field>
         {(auth.type === 'header' || auth.type === 'user_oauth') && (
           <Field label="Header name" hint={auth.type === 'user_oauth' ? 'Optional: a service key sent next to the user\'s token.' : undefined}>
@@ -229,16 +241,14 @@ function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onCl
         )}
         {auth.type === 'user_oauth' && (
           <Field label="OAuth provider" hint="Defined under OAuth providers.">
-            <select value={auth.provider} required onChange={(e) => setT({ ...t, auth: { ...auth, provider: e.target.value } })} className={inputCls}>
-              <option value="">Choose…</option>
-              {providers
-                .filter((p) => !p.login)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name || p.id}
-                  </option>
-                ))}
-            </select>
+            <Select
+              value={auth.provider}
+              required
+              placeholder="Choose…"
+              aria-label="OAuth provider"
+              onChange={(v) => setT({ ...t, auth: { ...auth, provider: v } })}
+              options={providers.filter((p) => !p.login).map((p) => ({ value: p.id, label: p.name || p.id }))}
+            />
           </Field>
         )}
       </fieldset>
@@ -347,10 +357,15 @@ function HookEditor({ hook, onClose, save }: { hook: HookServer | null; onClose:
       </div>
       <div className="grid gap-3 sm:grid-cols-4">
         <Field label="Scope">
-          <select value={h.scope} onChange={(e) => setH({ ...h, scope: e.target.value as HookServer['scope'] })} className={inputCls}>
-            <option value="models">Selected models</option>
-            <option value="global">All models</option>
-          </select>
+          <Select
+            value={h.scope}
+            onChange={(v) => setH({ ...h, scope: v as HookServer['scope'] })}
+            aria-label="Scope"
+            options={[
+              { value: 'models', label: 'Selected models' },
+              { value: 'global', label: 'All models' },
+            ]}
+          />
         </Field>
         <Field label="Priority" hint="Lower runs first.">
           <input type="number" value={h.priority} onChange={(e) => setH({ ...h, priority: Number(e.target.value) || 0 })} className={inputCls} />
@@ -359,10 +374,15 @@ function HookEditor({ hook, onClose, save }: { hook: HookServer | null; onClose:
           <input type="number" min={1} value={h.timeout_ms} onChange={(e) => setH({ ...h, timeout_ms: Number(e.target.value) || 10000 })} className={inputCls} />
         </Field>
         <Field label="On error">
-          <select value={h.on_error} onChange={(e) => setH({ ...h, on_error: e.target.value as HookServer['on_error'] })} className={inputCls}>
-            <option value="skip">Skip the hook</option>
-            <option value="abort">Fail the request</option>
-          </select>
+          <Select
+            value={h.on_error}
+            onChange={(v) => setH({ ...h, on_error: v as HookServer['on_error'] })}
+            aria-label="On error"
+            options={[
+              { value: 'skip', label: 'Skip the hook' },
+              { value: 'abort', label: 'Fail the request' },
+            ]}
+          />
         </Field>
       </div>
       {h.scope === 'models' && (

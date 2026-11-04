@@ -88,6 +88,24 @@
   --shadow-pop: var(--shadow);
 }
 
+/* Motion: popovers and the start screen. The reduced-motion rule below cuts both to nothing. */
+@theme {
+  --animate-pop-in: pop-in 0.12s ease-out;
+  --animate-fade-up: fade-up 0.28s ease-out;
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+  }
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+}
+
 @layer base {
 html,
 body,
@@ -310,35 +328,5 @@ code {
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
-  }
-}
-
-/* Dropdowns: one look everywhere (own chevron, padding, hover and focus), instead of the browser default. */
-@layer base {
-  select {
-    appearance: none;
-    -webkit-appearance: none;
-    cursor: pointer;
-    padding-right: 2rem !important;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.6rem center;
-    background-size: 14px;
-    transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
-  }
-  select:hover:not(:disabled) {
-    border-color: color-mix(in oklch, var(--accent) 45%, var(--border));
-  }
-  select:focus-visible {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
-  select:disabled {
-    cursor: not-allowed;
-  }
-  select option {
-    background: var(--surface);
-    color: var(--fg);
   }
 }
