@@ -84,3 +84,20 @@ Every route accepts `Authorization: Bearer <token>` where the token is either a 
 | `GET/POST /api/v1/auths/api_keys` | done | named keys: list `[{id, name, prefix, created_at, last_used_at}]`; POST `{name}` -> `{id, name, key, prefix}` (key shown once). |
 | `DELETE /api/v1/auths/api_keys/{id}` | done | one of the caller's keys. |
 | `GET/PUT /api/v1/grants/{type}/{id}` | done | admin; `[{principal: "user:<id>" \| "user:*" \| "group:<id>", permission: "read" \| "write"}]`. PUT replaces every grant of the resource, including ones `kera apply` made; the new rows are not managed. |
+## Database import (`kera migrate from-openwebui`)
+Observed source schema (0.13, Postgres) and how `internal/importowui` maps it. Status: **done**.
+| Source | Meaning | Kera |
+| `user` | `created_at`/`updated_at`/`last_active_at` epoch seconds; `oauth` = `{"<provider>": {"sub": ...}}`; `settings` JSON; avatar may be an inline `data:` URL | `user` (id kept; merged into an existing user with the same email or OAuth subject; data URLs over 64 KB dropped) |
+| `api_key` | plaintext `sk-` key in `key`, optional `expires_at` | `api_key` with `key_hash = sha256(key)` and the 10-char prefix, so the same key keeps working; expired keys skipped |
+| `auth`, `oauth_session` | password hashes, encrypted provider tokens | not imported (users sign in again; tool-server OAuth is reconnected) |
+| `group`, `group_member` | `permissions` nested booleans | `group` (known keys kept, `features.memories` -> `features.memory`, others reported), `group_member` |
+| `access_grant` | `resource_type` in model, knowledge, prompt, tool, shared_chat, ...; `principal_id` `*` = everyone | `access_grant` for model, knowledge, prompt, folder, chat; other types skipped and reported |
+| `chat` | `chat.history.messages` = map of message id -> `{parentId, childrenIds, role, content, model, timestamp, done, files, sources, statusHistory, usage, error, followUps, output}`, `chat.history.currentId` = active leaf; `meta.tags` = tag ids | `chat` + one `message` row per entry (`parent_id` tree; `current_message_id` moved down to a leaf if needed), `chat_tag` (the tag's name from the `tag` table) |
+| `chat_message` | per-message copy, id `<chat id>-<message id>`; `output` = ordered items (`message`, `reasoning`, `function_call`, `function_call_output`, `web_search_call`, a context-compaction item) | `message.parts` |
+| assistant `content` | may embed `<details type="reasoning">` (summary + `> `-quoted text) and `<details type="tool_calls" id name arguments result files>` blocks (attributes HTML-escaped, values JSON-encoded) | blocks become `reasoning`, `tool_call`, `tool_result` parts and are removed from `content`; other `<details>` stay in the text |
+| `shared_chat` | `id` equals `chat.share_id`; `chat` = snapshot at share time | `shared_chat` (snapshot converted to `{title, currentId, messages}`) |
+| `file` | `path` = `<uploads>/<id>_<name>`; `meta` = `{name, content_type, size, data}`; `data.content` = extracted text | `file` (blob copied to `uploads/<id>/<name>`, sha256; text -> `completed`, else `pending`; missing blob -> `failed`) |
+| `knowledge`, `knowledge_file` | collections and their files | `knowledge`, `knowledge_file` as `pending` with 0 chunks (indexed later) |
+| `folder`, `chat_file`, `memory`, `prompt`, `feedback` | as named | same tables (memory content only, no vectors) |
+| `model` | `params.system` = preset system prompt | not imported; `--export-presets` writes the prompts |
+| `config` | one row per dotted key | not imported; `--report-config` prints `rag.* web.* task.* ui.* user.permissions tool_server.connections` with secrets removed |
