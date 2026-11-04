@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,6 +21,11 @@ var askTimeout = 30 * time.Minute
 // ponytail: an in-memory wait; a restart withdraws the question (the start-up
 // sweep marks the message as failed). Persist pending asks if tasks must survive restarts.
 var coworkAskTimeout = 12 * time.Hour
+
+// keepToolImages is how many tool image turns (screenshots) stay in the
+// conversation; older ones are blanked to bound tokens.
+// ponytail: a constant; make it a setting if desktop tasks need more history.
+const keepToolImages = 3
 
 // toolEntry is one function the model may call this run.
 type toolEntry struct {
@@ -162,6 +168,7 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 	}
 	e.setting(ctx, key, &maxIter)
 	msgs := x.messages()
+	var imageTurns []int // indexes in msgs of the user turns carrying tool images
 	passthrough := len(x.req.Tools) > 0
 	for round := 0; ; round++ {
 		x.run.mu.Lock()
@@ -195,12 +202,23 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 		text := x.run.roundText
 		x.run.mu.Unlock()
 		msgs = append(msgs, provider.Message{Role: "assistant", Content: text, ToolCalls: calls})
+		var shots []provider.Image
 		for _, c := range calls {
-			content := e.runTool(ctx, x, table, c)
+			content, imgs := e.runTool(ctx, x, table, c)
 			if ctx.Err() != nil {
 				return context.Cause(ctx)
 			}
 			msgs = append(msgs, provider.Message{Role: "tool", ToolCallID: c.ID, Name: c.Name, Content: content})
+			shots = append(shots, imgs...)
+		}
+		if len(shots) > 0 { // tool messages cannot carry images in every API; a user turn can
+			msgs = append(msgs, provider.Message{Role: "user", Content: "[Screenshots returned by the tool calls above. Continue the task.]", Images: shots})
+			imageTurns = append(imageTurns, len(msgs)-1)
+			if len(imageTurns) > keepToolImages {
+				old := &msgs[imageTurns[0]]
+				old.Images, old.Content = nil, "[earlier screenshot removed]"
+				imageTurns = imageTurns[1:]
+			}
 		}
 		x.run.snapshot()
 		e.save(x)
@@ -242,8 +260,9 @@ func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client,
 	return calls, finish, nil
 }
 
-// runTool executes one call and returns what the model reads back.
-func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, c provider.ToolCall) string {
+// runTool executes one call and returns what the model reads back: the text
+// and, for a vision model, the result's images.
+func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, c provider.ToolCall) (string, []provider.Image) {
 	entry, ok := table[c.Name]
 	x.run.toolCall(c.ID, c.Name, entry.server, c.Arguments)
 	var res tools.Result
@@ -267,7 +286,29 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	for _, p := range res.Parts {
 		x.run.block(p)
 	}
-	x.run.toolResult(c.ID, clip(res.Content, 2000), refs, res.IsError)
+	vision := x.m.Capabilities["vision"] != false
+	stepFiles := refs
+	var imgs []provider.Image
+	seen := false
+	for _, id := range res.Images {
+		if ok, err := e.Files.CanRead(ctx, x.u, id); err != nil || !ok {
+			continue
+		}
+		f, err := e.Files.Get(ctx, id)
+		if err != nil || !strings.HasPrefix(f.ContentType, "image/") {
+			continue
+		}
+		seen = true
+		if !slices.ContainsFunc(stepFiles, func(r FileRef) bool { return r.ID == id }) {
+			stepFiles = append(stepFiles, refOf(f)) // on the step only, not attached to the answer
+		}
+		if vision {
+			if img, ok := e.image(ctx, f); ok {
+				imgs = append(imgs, img)
+			}
+		}
+	}
+	x.run.toolResult(c.ID, clip(res.Content, 2000), stepFiles, res.IsError)
 	x.run.mu.Lock()
 	x.run.tools = append(x.run.tools, toolRecord{ID: c.ID, Name: c.Name, Args: c.Arguments, Result: clip(res.Content, 20000), Error: res.IsError})
 	x.run.mu.Unlock()
@@ -279,7 +320,10 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 		}
 		content = "Files created and shown to the user: " + strings.Join(names, ", ")
 	}
-	return content
+	if seen && !vision {
+		content = strings.TrimSpace(content + "\n(image not shown: this model has no vision)")
+	}
+	return content, imgs
 }
 
 // toolCall builds the provider-facing Call.

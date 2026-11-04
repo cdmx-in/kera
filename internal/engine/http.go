@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/cdmx-in/kera/internal/app"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/chats"
+	"github.com/cdmx-in/kera/internal/files"
 	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/tools"
 )
@@ -30,6 +32,7 @@ func (e *Engine) routes(a *app.App) {
 	a.Server.Handle("GET /api/v1/chats/{id}/runs", user(e.chatRuns))
 	a.Server.HandleFunc("POST /api/v1/runs/{run}/events", e.callbackEvents)
 	a.Server.HandleFunc("POST /api/v1/runs/{run}/ask", e.callbackAsk)
+	a.Server.HandleFunc("POST /api/v1/runs/{run}/files", e.callbackFile)
 }
 
 // completionError writes an error both OpenAI clients ({error:{message}})
@@ -259,4 +262,25 @@ func (e *Engine) callbackAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	api.JSON(w, http.StatusOK, map[string]any{"answer": v})
+}
+
+// callbackFile stores the raw body as a file of the run's user (?name=, the
+// Content-Type header is the type; files.max_mb caps the size) -> {id, name}.
+// A tool returns the id in "images" or "files" of its result.
+func (e *Engine) callbackFile(w http.ResponseWriter, r *http.Request) {
+	run := e.callbackRun(w, r)
+	if run == nil {
+		return
+	}
+	ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	f, err := e.Files.Create(r.Context(), run.UserID, r.URL.Query().Get("name"), ct, r.Body,
+		map[string]any{"source": "tool", "run_id": run.ID, "chat_id": run.ChatID, "message_id": run.MessageID})
+	if errors.Is(err, files.ErrTooLarge) {
+		err = api.Errf(http.StatusRequestEntityTooLarge, "too_large", "File exceeds the upload size limit")
+	}
+	if err != nil {
+		api.Fail(w, r, err)
+		return
+	}
+	api.JSON(w, http.StatusOK, map[string]any{"id": f.ID, "name": f.Filename})
 }

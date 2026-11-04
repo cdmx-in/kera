@@ -116,7 +116,7 @@ func TestOpenAPICall(t *testing.T) {
 			got = r.Clone(context.Background())
 			b, _ := io.ReadAll(r.Body)
 			body = string(b)
-			_, _ = io.WriteString(w, `{"content":"saved Rex","parts":[{"type":"cards","items":[]}],"files":["f9"]}`)
+			_, _ = io.WriteString(w, `{"content":"saved Rex","parts":[{"type":"cards","items":[]}],"files":["f9"],"images":["i1"]}`)
 		case "/search":
 			got = r.Clone(context.Background())
 			_, _ = io.WriteString(w, `[{"id":1}]`)
@@ -141,7 +141,7 @@ func TestOpenAPICall(t *testing.T) {
 		got.Header.Get("X-Kera-Chat-Id") != "chat-1" || got.Header.Get("Content-Type") != "application/json" {
 		t.Fatalf("request %s %s %v", got.Method, body, got.Header)
 	}
-	if res.Content != "saved Rex" || len(res.Parts) != 1 || res.Files[0] != "f9" {
+	if res.Content != "saved Rex" || len(res.Parts) != 1 || res.Files[0] != "f9" || len(res.Images) != 1 || res.Images[0] != "i1" {
 		t.Fatalf("result %+v", res)
 	}
 	res, _ = s.callOpenAPI(context.Background(), rec.call("search_kb", `{"q":"four eyes","tags":["a","b"],"limit":6}`), c.ops["search_kb"], "")

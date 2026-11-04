@@ -38,6 +38,10 @@ func fakeModel(t *testing.T) *httptest.Server {
 			fmt.Fprint(w, `{"data":[{"id":"m1"}]}`)
 			return
 		}
+		if r.Method != http.MethodPost { // model info probes
+			http.NotFound(w, r)
+			return
+		}
 		var body struct {
 			Messages []struct {
 				Role    string `json:"role"`
@@ -851,5 +855,186 @@ func TestCoworkPromptAndPermission(t *testing.T) {
 	}
 	if _, err := system(u2, "chat"); err != nil {
 		t.Fatalf("plain chat for the same user: %v", err)
+	}
+}
+
+// shotTools returns the same screenshot ids on every call.
+type shotTools struct{ ids []string }
+
+func (shotTools) ID() string { return "shot-server" }
+func (shotTools) Tools(context.Context, *auth.User) ([]tools.Spec, error) {
+	return []tools.Spec{{Name: "shot", Parameters: json.RawMessage(`{"type":"object"}`)}}, nil
+}
+func (s shotTools) Execute(context.Context, tools.Call) (tools.Result, error) {
+	return tools.Result{Content: "took a screenshot", Images: s.ids}, nil
+}
+
+// Tool images reach a vision model as one trailing user turn per round (the
+// last keepToolImages kept), show on the step only, and become a text note
+// for a model without vision. Files the run user cannot read are dropped.
+func TestToolImages(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	const rounds = 5
+	var mu sync.Mutex
+	var reqs [][]map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			fmt.Fprint(w, `{"data":[{"id":"m1"}]}`)
+			return
+		}
+		if r.Method != http.MethodPost { // model info probes
+			http.NotFound(w, r)
+			return
+		}
+		var body struct {
+			Messages []map[string]any
+			Tools    []any
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if len(body.Tools) == 0 { // title and follow-up tasks
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		mu.Lock()
+		reqs = append(reqs, body.Messages)
+		mu.Unlock()
+		calls := 0
+		for _, m := range body.Messages {
+			if m["tool_calls"] != nil {
+				calls++
+			}
+		}
+		delta := `{"content":"ok"}`
+		if calls < rounds {
+			delta = fmt.Sprintf(`{"tool_calls":[{"index":0,"id":"c%d","function":{"name":"shot","arguments":"{}"}}]}`, calls)
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":%s}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", delta)
+	}))
+	defer srv.Close()
+	for _, q := range []string{
+		`INSERT INTO "user" (id, name, email, role) VALUES ('u2', 'Bob', 'bob@example.com', 'user')`,
+		`INSERT INTO file (id, user_id, filename, content_type, path) VALUES ('f-ada', 'u1', 'ada.png', 'image/png', '/x')`,
+		`INSERT INTO model (id, base_model_id, capabilities) VALUES ('blind', 's.m1', '{"vision": false}')`,
+	} {
+		if _, err := h.pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.pool.Exec(ctx, `INSERT INTO connection (id, kind, base_url, prefix) VALUES ('shots', 'openai', $1, 's')`, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.e.Settings.Set(ctx, "models.base_public", true, false); err != nil {
+		t.Fatal(err)
+	}
+	f, err := h.e.Files.Create(ctx, "u2", "shot.png", "image/png", strings.NewReader("PNGDATA"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools.Register(shotTools{ids: []string{f.ID, "f-ada"}})
+	bob := &auth.User{ID: "u2", Name: "Bob", Email: "bob@example.com", Role: "user"}
+	start := func(u *auth.User, model string) *Run {
+		mu.Lock()
+		reqs = nil
+		mu.Unlock()
+		run, err := h.e.Start(ctx, u, &Request{Model: model, StreamFormat: "events", Temporary: true, ToolIDs: []string{"shot-server"},
+			Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"look"`)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wait(t, run)
+		return run
+	}
+	imageParts := func(m map[string]any) int {
+		n := 0
+		parts, _ := m["content"].([]any)
+		for _, p := range parts {
+			if p.(map[string]any)["type"] == "image_url" {
+				n++
+			}
+		}
+		return n
+	}
+
+	run := start(bob, "s.m1")
+	mu.Lock()
+	if len(reqs) != rounds+1 {
+		t.Fatalf("%d model requests", len(reqs))
+	}
+	for i, msgs := range reqs[1:] {
+		if last := msgs[len(msgs)-1]; last["role"] != "user" || imageParts(last) != 1 {
+			t.Fatalf("request %d: last message %v", i+1, last)
+		}
+	}
+	withImages, removed := 0, 0
+	for _, m := range reqs[rounds] {
+		if imageParts(m) > 0 {
+			withImages++
+		}
+		if m["content"] == "[earlier screenshot removed]" {
+			removed++
+		}
+	}
+	mu.Unlock()
+	if withImages != keepToolImages || removed != rounds-keepToolImages {
+		t.Fatalf("final request: %d image turns, %d removed", withImages, removed)
+	}
+	run.mu.Lock()
+	st := run.state.Parts[0].Steps[0]
+	if len(st.Files) != 1 || st.Files[0].ID != f.ID || st.Files[0].Type != "image" || len(run.state.Files) != 0 {
+		t.Fatalf("step files %v, message files %v", st.Files, run.state.Files)
+	}
+	run.mu.Unlock()
+
+	start(h.u, "blind")
+	mu.Lock()
+	defer mu.Unlock()
+	for _, msgs := range reqs {
+		for _, m := range msgs {
+			if imageParts(m) > 0 {
+				t.Fatalf("blind model got an image: %v", m)
+			}
+		}
+	}
+	if last := reqs[1][len(reqs[1])-1]; last["role"] != "tool" || !strings.Contains(fmt.Sprint(last["content"]), "image not shown: this model has no vision") {
+		t.Fatalf("blind model's tool message %v", last)
+	}
+}
+
+// The upload callback stores the body as a file of the run's user.
+func TestCallbackFileUpload(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	run := newRun("c1", "a1", "u1", "m1", false)
+	if err := h.e.runs.add(run); err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := signRunToken(h.e.Keys, run.ID, run.UserID, time.Now().Add(time.Minute))
+	post := func(tok, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/v1/runs/"+run.ID+"/files?name=screen.jpg", strings.NewReader(body))
+		r.SetPathValue("run", run.ID)
+		r.Header.Set("Authorization", "Bearer "+tok)
+		r.Header.Set("Content-Type", "image/jpeg")
+		w := httptest.NewRecorder()
+		h.e.callbackFile(w, r)
+		return w
+	}
+	w := post(tok, "JPEG")
+	var got struct{ ID, Name string }
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil || got.Name != "screen.jpg" {
+		t.Fatalf("upload %d %s", w.Code, w.Body)
+	}
+	f, err := h.e.Files.Get(ctx, got.ID)
+	if err != nil || f.UserID != "u1" || f.ContentType != "image/jpeg" || f.Meta["run_id"] != run.ID {
+		t.Fatalf("file %+v %v", f, err)
+	}
+	if w := post(tok+"x", "JPEG"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("bad token: %d", w.Code)
+	}
+	if err := h.e.Settings.Set(ctx, "files.max_mb", 1, false); err != nil {
+		t.Fatal(err)
+	}
+	if w := post(tok, strings.Repeat("x", 1<<20+1)); w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversize: %d %s", w.Code, w.Body)
 	}
 }

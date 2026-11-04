@@ -51,7 +51,7 @@ type Call struct {
 	FileIDs   []string // files attached to the conversation branch
 	// CallbackURL and CallbackToken let a remote tool server post events or
 	// ask the user (POST {CallbackURL}/events, POST {CallbackURL}/ask with
-	// Authorization: Bearer {CallbackToken}).
+	// Authorization: Bearer {CallbackToken}) or upload a file (POST {CallbackURL}/files).
 	CallbackURL   string
 	CallbackToken string
 	Emit          func(Event)                                                      // never nil
@@ -69,11 +69,13 @@ type Source struct {
 
 // Result is what a tool returns. Content goes to the model; Parts are UI
 // blocks (e.g. {"type":"cards","items":[...]}); Files are file ids to show
-// as attachments of the answer; Sources become citations.
+// as attachments of the answer; Images are file ids of images the model
+// should see (shown on the tool step, not attached); Sources become citations.
 type Result struct {
 	Content string            `json:"content"`
 	Parts   []json.RawMessage `json:"parts,omitempty"`
 	Files   []string          `json:"files,omitempty"`
+	Images  []string          `json:"images,omitempty"`
 	Sources []Source          `json:"sources,omitempty"`
 	IsError bool              `json:"is_error,omitempty"`
 }

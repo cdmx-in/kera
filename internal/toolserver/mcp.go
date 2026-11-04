@@ -497,6 +497,9 @@ func (s *Server) toResult(ctx context.Context, c tools.Call, raw json.RawMessage
 		case "image", "audio":
 			if id, err := s.saveFile(ctx, c, fmt.Sprintf("%s-%d", c.Name, i+1), part.MimeType, part.Data); err == nil {
 				out.Files = append(out.Files, id)
+				if part.Type == "image" {
+					out.Images = append(out.Images, id) // vision models see it too
+				}
 				texts = append(texts, fmt.Sprintf("[%s attached to the answer as a file]", part.Type))
 			} else {
 				texts = append(texts, fmt.Sprintf("[%s could not be saved: %v]", part.Type, err))

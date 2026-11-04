@@ -410,13 +410,14 @@ func scalar(v any) string {
 }
 
 // openAPIResult: a JSON object with "content" feeds only that to the model
-// and "parts" (UI blocks), "files" and "sources" to the chat; anything else
-// is passed to the model as is.
+// and "parts" (UI blocks), "files" and "sources" to the chat, and "images"
+// (file ids) to the model and the tool step; anything else is passed to the model as is.
 func openAPIResult(body []byte) tools.Result {
 	var env struct {
 		Content *json.RawMessage  `json:"content"`
 		Parts   []json.RawMessage `json:"parts"`
 		Files   []string          `json:"files"`
+		Images  []string          `json:"images"`
 		Sources []tools.Source    `json:"sources"`
 	}
 	trimmed := bytes.TrimSpace(body)
@@ -425,7 +426,7 @@ func openAPIResult(body []byte) tools.Result {
 		if json.Unmarshal(*env.Content, &text) != nil {
 			text = string(*env.Content)
 		}
-		return tools.Result{Content: text, Parts: env.Parts, Files: env.Files, Sources: env.Sources}
+		return tools.Result{Content: text, Parts: env.Parts, Files: env.Files, Images: env.Images, Sources: env.Sources}
 	}
 	return tools.Result{Content: string(trimmed)}
 }
