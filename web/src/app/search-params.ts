@@ -31,3 +31,13 @@ export function withoutOneShot(search: string): string {
   const s = p.toString()
   return s ? `?${s}` : ''
 }
+
+/**
+ * A same-origin path to return to after sign-in, else "/". Rejects absolute
+ * and protocol-relative URLs, backslashes (browsers read "/\x" as "//x"),
+ * control characters and /auth itself.
+ */
+export function safeRedirect(v: string | null | undefined): string {
+  if (!v || !v.startsWith('/') || v.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(v)) return '/'
+  return v === '/auth' || v.startsWith('/auth?') || v.startsWith('/auth#') || v.startsWith('/auth/') ? '/' : v
+}

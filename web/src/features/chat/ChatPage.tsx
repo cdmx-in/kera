@@ -93,14 +93,17 @@ export default function ChatPage() {
   }, [models.data, requested, chatId])
 
   // Model change -> its default feature pills and tools, plus connected auto-enabled integrations.
+  // ?tools= is removed from the URL once applied, so remember it for this page view.
   const toolsParam = params.tools.join(',')
+  const urlTools = useRef<string[]>([])
+  if (params.tools.length) urlTools.current = params.tools
   useEffect(() => {
     const m = models.data?.find((x) => x.id === model)
     if (!m) return
     const c = useComposer.getState()
     c.setFeatures(Object.fromEntries((m.features ?? []).map((f) => [f.id, !!f.default])))
     const auto = uiConfig().integrations.flatMap((i) => (i.kind === 'oauthToolServer' && i.autoEnable && tools.data?.some((t) => t.id === i.toolServerId && t.authenticated) ? [i.toolServerId] : []))
-    c.setToolIds([...(m.toolIds ?? []), ...auto, ...params.tools])
+    c.setToolIds([...(m.toolIds ?? []), ...auto, ...urlTools.current])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, models.data, tools.data, toolsParam])
 

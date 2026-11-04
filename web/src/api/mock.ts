@@ -333,7 +333,7 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
   if ((m = p.match(/^\/api\/v1\/files\/([^/]+)\/preview$/))) {
     const rows = [['Model', 'Battery (h)', 'Price', 'Weight (kg)', 'Released']]
     for (let i = 0; i < 40; i++) rows.push([`Model ${String.fromCharCode(65 + (i % 26))}${i >= 26 ? 2 : ''}`, String(8 + (i % 7)), (999 + i * 25).toLocaleString('en'), (1 + (i % 6) / 10).toFixed(1), `2026-${String((i % 12) + 1).padStart(2, '0')}-01`])
-    return json({ kind: 'table', sheets: ['Summary', 'Raw'], rows: url.searchParams.get('sheet') === '1' ? rows.slice(0, 5) : rows, truncated: false })
+    return json({ kind: 'xlsx', sheets: ['Summary', 'Raw'], rows: url.searchParams.get('sheet') === '1' ? rows.slice(0, 5) : rows, truncated: false })
   }
   if ((m = p.match(/^\/api\/v1\/files\/([^/]+)$/))) {
     const f = files.get(m[1])

@@ -3,11 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { api, setToken } from '@/api/client'
 import type { Me } from '@/api/types'
 import { uiConfig } from '@/lib/ui-config'
+import { safeRedirect } from '@/app/search-params'
 import { Spinner } from '@/ui/misc'
-
-function safeRedirect(v: string | null): string {
-  return v && v.startsWith('/') && !v.startsWith('//') && !v.startsWith('/auth') ? v : '/'
-}
 
 export default function AuthPage() {
   const [params] = useSearchParams()
@@ -22,7 +19,8 @@ export default function AuthPage() {
     if (token) {
       setToken(token)
       history.replaceState(null, '', location.pathname + location.search)
-      navigate(redirect, { replace: true })
+      // the OAuth callback returns the login's ?next= in the hash
+      navigate(safeRedirect(hash.get('next') ?? redirect), { replace: true })
       return
     }
     // Already signed in (cookie or stored token)? Skip the button.

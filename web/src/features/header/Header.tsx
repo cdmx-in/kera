@@ -22,7 +22,7 @@ export function Avatar({ name, src, size = 28 }: { name?: string; src?: string; 
 }
 
 export async function signOut() {
-  await api('/api/v1/auths/signout').catch(() => undefined)
+  await api('/api/v1/auths/signout', { method: 'POST' }).catch(() => undefined)
   setToken('')
   location.assign('/auth')
 }

@@ -1,8 +1,10 @@
 @import 'tailwindcss';
 
-/* Brand tokens. The server may inject a <style> that overrides --accent,
-   --accent-bright and --gray-50..950; everything else derives from them. */
-:root {
+/* Brand tokens. The server injects a :root <style> overriding --accent,
+   --accent-bright and --gray-50..950 before this stylesheet loads, so the
+   defaults use :where() (zero specificity) to lose regardless of order.
+   Everything else derives from them. */
+:where(:root) {
   --accent: #1e7f8c;
   --accent-bright: #3dafc4;
   --gray-50: oklch(0.985 0.003 215);
@@ -16,7 +18,8 @@
   --gray-800: oklch(0.28 0.012 215);
   --gray-900: oklch(0.215 0.01 215);
   --gray-950: oklch(0.16 0.008 215);
-
+}
+:root {
   --bg: #ffffff;
   --bg-soft: var(--gray-50);
   --surface: #ffffff;

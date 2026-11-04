@@ -55,7 +55,8 @@ export default function FilePreview({ file, onClose }: { file: FileRef; onClose:
 function Body({ preview, file }: { preview: Preview; file: FileRef }) {
   if (preview.kind === 'pdf') return <iframe title={file.name} src={fileUrl(file.id)} className="h-full w-full border-0" />
   if (preview.kind === 'image') return <img src={fileUrl(file.id)} alt={file.name} className="mx-auto max-h-full max-w-full object-contain p-4" />
-  if (preview.kind === 'text') return <pre className="whitespace-pre-wrap p-4 text-sm">{preview.text ?? (preview.rows ?? []).map((r) => r.join('\t')).join('\n')}</pre>
+  if (preview.kind === 'text' || preview.kind === 'docx') return <pre className="whitespace-pre-wrap p-4 text-sm">{preview.text ?? (preview.rows ?? []).map((r) => r.join('\t')).join('\n')}</pre>
+  if (preview.kind === 'other') return <p className="p-6 text-sm text-muted">No preview available for this file. Use Download instead.</p>
   const t = tableModel(preview.rows)
   return (
     <>

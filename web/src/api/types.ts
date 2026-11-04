@@ -163,7 +163,8 @@ export interface UploadedFile {
 }
 
 export interface FilePreview {
-  kind: 'table' | 'pdf' | 'image' | 'text'
+  /** csv/xlsx render as a table; text/docx as lines; other has no preview. */
+  kind: 'csv' | 'xlsx' | 'table' | 'pdf' | 'image' | 'text' | 'docx' | 'other'
   sheets?: string[]
   rows?: string[][]
   text?: string

@@ -3,7 +3,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { api, setToken } from './client'
-import type { ApiKey, ChatSummary, Folder, Me, Model, ToolServer } from './types'
+import type { ApiKey, ChatSummary, Folder, Me, Model, ModelFeature, ToolServer } from './types'
+import { humanizeTool } from '@/features/tools/display'
 import { uiConfig } from '@/lib/ui-config'
 
 export function useMe() {
@@ -18,13 +19,26 @@ export function useMe() {
   })
 }
 
-/** Models ordered by the configured modelOrder, then name. Hidden rows stay in the list (callers filter). */
+/**
+ * Models ordered by the configured modelOrder, then name. Hidden rows are
+ * requested and kept (callers filter) so an explicit ?models=<hidden> resolves.
+ */
 export function useModels() {
   return useQuery({
     queryKey: ['models'],
-    queryFn: async () => sortModels((await api<{ data: Model[] }>('/api/models')).data ?? [], uiConfig().modelOrder),
+    queryFn: async () => sortModels(((await api<{ data: Model[] }>('/api/models?include_hidden=true')).data ?? []).map(normalizeModel), uiConfig().modelOrder),
     staleTime: 5 * 60_000,
   })
+}
+
+/** Accepts features as ids (`["web_search"]` + `defaultFeatures`) as well as `{id,label,icon,default}` objects. */
+export function normalizeModel(m: Model & { defaultFeatures?: string[] }): Model {
+  if (!Array.isArray(m.features)) return m
+  const defaults = new Set(m.defaultFeatures ?? [])
+  const features = (m.features as (ModelFeature | string)[]).map((f) =>
+    typeof f === 'string' ? { id: f, label: humanizeTool(f).replace(/^./, (c) => c.toUpperCase()), default: defaults.has(f) } : f,
+  )
+  return { ...m, features }
 }
 
 export function sortModels(models: Model[], order: string[]): Model[] {
