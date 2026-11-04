@@ -51,7 +51,7 @@ type Connection struct {
 	Options  json.RawMessage   `json:"options"`
 	Sort     int               `json:"sort"`
 	Managed  bool              `json:"managed"`
-	Implicit bool              `json:"implicit,omitempty"` // from OLLAMA_BASE_URL, not stored
+	Implicit bool              `json:"implicit,omitempty"`  // from OLLAMA_BASE_URL, not stored
 	KeyError string            `json:"key_error,omitempty"` // stored key cannot be decrypted (KERA_SECRET_KEY changed?)
 }
 
