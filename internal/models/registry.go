@@ -116,9 +116,11 @@ func (t Tools) IDs() []string {
 	return out
 }
 
-// KnowledgeRef attaches a knowledge collection; Mode is retrieve (default), full or tools.
+// KnowledgeRef attaches a knowledge collection by id, or by name (what
+// `kera apply` stores, resolved when used); Mode is retrieve (default), full or tools.
 type KnowledgeRef struct {
 	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
 	Mode string `json:"mode,omitempty"`
 }
 

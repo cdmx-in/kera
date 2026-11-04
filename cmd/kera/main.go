@@ -20,6 +20,7 @@ import (
 	"github.com/cdmx-in/kera/internal/db"
 	"github.com/cdmx-in/kera/internal/identity"
 	"github.com/cdmx-in/kera/internal/importowui"
+	"github.com/cdmx-in/kera/internal/knowledge"
 	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/version"
 )
@@ -35,7 +36,7 @@ Usage:
   kera export [-o FILE]   print the managed config as YAML (secrets as ${...})
   kera migrate from-openwebui|verify  import an Open WebUI database (kera migrate help)
   kera version            print the version
-` + identity.CLIUsage + `
+` + knowledge.CLIUsage + identity.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
 KERA_CONFIG (default file for kera apply).
 `
@@ -71,6 +72,8 @@ func run(args []string) error {
 		return exportCmd(ctx, args[1:])
 	case "migrate":
 		return importowui.Command(ctx, args[1:], os.Stdout)
+	case "reindex":
+		return knowledge.Command(ctx, args[1:], os.Stdout)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
