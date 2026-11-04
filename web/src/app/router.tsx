@@ -1,6 +1,7 @@
 import { createBrowserRouter, Link } from 'react-router'
 import { Shell } from './Shell'
 import ChatPage from '@/features/chat/ChatPage'
+import { BrandSplash } from '@/features/brand/Splash'
 
 const page = (load: () => Promise<{ default: React.ComponentType }>) => async () => ({ Component: (await load()).default })
 
@@ -15,7 +16,7 @@ function NotFound() {
 }
 
 // Shown while a lazy route loads on first paint.
-const Splash = () => <div className="h-dvh bg-bg" />
+const Splash = BrandSplash
 
 export const router = createBrowserRouter([
   { path: '/auth', lazy: page(() => import('@/features/auth/AuthPage')), HydrateFallback: Splash },

@@ -4,9 +4,10 @@ import { Tooltip } from 'radix-ui'
 import { useMe } from '@/api/queries'
 import { useUI } from '@/stores/ui'
 import { storageGet } from '@/lib/format'
-import { Spinner, Toaster } from '@/ui/misc'
+import { Toaster } from '@/ui/misc'
 import { Sidebar } from '@/features/sidebar/Sidebar'
 import { SettingsDialog } from '@/features/settings/SettingsDialog'
+import { BrandSplash } from '@/features/brand/Splash'
 
 /** Signed-in frame: sidebar + routed page. A 401 from /api/v1/auths/ redirects to /auth. */
 export function Shell() {
@@ -18,19 +19,16 @@ export function Shell() {
     mq.addEventListener('change', on)
     return () => mq.removeEventListener('change', on)
   }, [])
+  if (!me.data && !me.isError) return <BrandSplash />
   if (!me.data) {
     return (
       <div className="grid h-dvh place-items-center text-muted">
-        {me.isError ? (
-          <p className="px-4 text-center">
-            Cannot reach the server.{' '}
-            <button type="button" className="text-link underline" onClick={() => void me.refetch()}>
-              Retry
-            </button>
-          </p>
-        ) : (
-          <Spinner size={22} />
-        )}
+        <p className="px-4 text-center">
+          Cannot reach the server.{' '}
+          <button type="button" className="text-link underline" onClick={() => void me.refetch()}>
+            Retry
+          </button>
+        </p>
       </div>
     )
   }

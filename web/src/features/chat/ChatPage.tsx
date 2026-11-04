@@ -6,6 +6,7 @@ import type { FileRef, Message, PendingCall } from '@/api/types'
 import { normalizeHistory, useChat } from '@/stores/chat'
 import { useComposer } from '@/stores/composer'
 import { uiConfig } from '@/lib/ui-config'
+import { Aurora } from '@/features/brand/Splash'
 import { parseChatParams, withoutOneShot } from '@/app/search-params'
 import { Spinner } from '@/ui/misc'
 import { Header } from '@/features/header/Header'
@@ -142,7 +143,8 @@ export default function ChatPage() {
   const modelName = useCallback((id?: string) => models.data?.find((m) => m.id === id)?.name ?? id ?? '', [models.data])
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col">
+    <div className="relative isolate flex h-full min-w-0 flex-1 flex-col">
+      {uiConfig().brand.background === 'aurora' && <Aurora />}
       <Header />
       {state === 'loading' ? (
         <div className="grid flex-1 place-items-center text-muted">

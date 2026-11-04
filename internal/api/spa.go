@@ -15,8 +15,9 @@ import (
 // index.html is never cached (so a deploy is visible on the next load, even
 // behind a CDN), unknown paths fall back to index.html for client routing.
 type spa struct {
-	files fs.FS
-	index []byte
+	files  fs.FS
+	index  []byte
+	render func(*http.Request) []byte // set by the ui feature; nil = the built index as is
 }
 
 const placeholderIndex = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Kera</title></head><body><p>Kera is running. The web app has not been built: run <code>make web</code>.</p></body></html>`
@@ -33,8 +34,9 @@ func newSPA(_ config.Env) (*spa, error) {
 	return &spa{files: dist, index: idx}, nil
 }
 
-// SetIndex replaces the rendered index (brand injection happens at startup).
-func (s *Server) SetIndex(b []byte) { s.spa.index = b }
+// SetIndexRenderer makes the app shell come from render (brand tokens,
+// window.__UI__); render must be cheap, it runs on every page load.
+func (s *Server) SetIndexRenderer(render func(*http.Request) []byte) { s.spa.render = render }
 
 // IndexTemplate returns the raw built index.html for rendering.
 func (s *Server) IndexTemplate() []byte { return bytes.Clone(s.spa.index) }
@@ -67,5 +69,9 @@ func (s *spa) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	if s.render != nil {
+		_, _ = w.Write(s.render(r))
+		return
+	}
 	_, _ = w.Write(s.index)
 }

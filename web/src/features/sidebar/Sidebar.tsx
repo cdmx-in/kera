@@ -13,6 +13,7 @@ import { cx } from '@/lib/format'
 import { IconButton } from '@/ui/Dialog'
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/ui/Menu'
 import { SearchDialog } from './SearchDialog'
+import { brandMark } from '@/features/brand/Splash'
 
 const DAY = 86_400_000
 
@@ -102,6 +103,7 @@ export function Sidebar() {
     }
   }
 
+  const mark = brandMark()
   const workspace = me && (me.role === 'admin' || Object.values(me.permissions?.workspace ?? {}).some(Boolean))
   return (
     <>
@@ -110,14 +112,15 @@ export function Sidebar() {
         aria-label="Chats"
         onKeyDown={(e) => e.key === 'Escape' && !window.matchMedia('(min-width: 768px)').matches && setSidebar(false)}
         className={cx(
-          'z-40 flex h-full w-[17rem] shrink-0 flex-col border-r border-line bg-bg-soft transition-[margin] duration-200 max-md:fixed max-md:inset-y-0 max-md:left-0',
+          'side-in z-40 flex h-full w-[17rem] shrink-0 flex-col border-r border-line bg-bg-soft transition-[margin] duration-200 max-md:fixed max-md:inset-y-0 max-md:left-0',
           open ? 'ml-0' : '-ml-[17rem]',
         )}
         {...(!open && { inert: true })}
       >
         <div className="flex h-14 items-center gap-1 px-3">
-          <Link to="/" onClick={newChat} className="min-w-0 flex-1 truncate px-1 text-[15px] font-semibold tracking-tight">
-            {uiConfig().brand.name}
+          <Link to="/" onClick={newChat} data-testid="brand" className="flex min-w-0 flex-1 items-center gap-2 px-1 text-[15px] font-semibold tracking-tight">
+            {mark && <img src={mark} alt="" className="brand-glow size-7 shrink-0 object-contain" />}
+            <span className="truncate">{uiConfig().brand.name}</span>
           </Link>
           <IconButton label="Search chats" onClick={() => setSearch(true)}>
             <Search size={17} />
@@ -127,16 +130,16 @@ export function Sidebar() {
           </IconButton>
         </div>
         <div className="space-y-0.5 px-2">
-          <button type="button" data-testid="new-chat" onClick={newChat} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium hover:bg-surface-2">
+          <button type="button" data-testid="new-chat" onClick={newChat} className="nav-sweep flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium hover:bg-surface-2">
             <SquarePen size={16} /> New chat
           </button>
           {workspace && (
-            <NavLink to="/workspace/models" onClick={closeOnMobile} className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 aria-[current=page]:bg-surface-2 aria-[current=page]:font-medium">
+            <NavLink to="/workspace/models" onClick={closeOnMobile} className="nav-sweep flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 aria-[current=page]:bg-surface-2 aria-[current=page]:font-medium">
               <LayoutGrid size={16} /> Workspace
             </NavLink>
           )}
           {me?.role === 'admin' && (
-            <NavLink to="/admin/users" onClick={closeOnMobile} className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 aria-[current=page]:bg-surface-2 aria-[current=page]:font-medium">
+            <NavLink to="/admin/users" onClick={closeOnMobile} className="nav-sweep flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 aria-[current=page]:bg-surface-2 aria-[current=page]:font-medium">
               <ShieldCheck size={16} /> Admin
             </NavLink>
           )}
@@ -262,7 +265,7 @@ function ChatRow({ chat, mut, onOpen }: { chat: ChatSummary; mut: Mut; onOpen: (
         data-chat-id={chat.id}
         aria-current={active ? 'page' : undefined}
         onClick={onOpen}
-        className={cx('block truncate rounded-lg py-1.5 pl-2.5 pr-8 text-sm', active ? 'bg-surface-2 font-medium shadow-[inset_3px_0_0_var(--accent)]' : 'hover:bg-surface-2')}
+        className={cx('block truncate rounded-lg py-1.5 pl-2.5 pr-8 text-sm', active ? 'bg-surface-2 font-medium shadow-[inset_3px_0_0_var(--accent)]' : 'chat-edge hover:bg-surface-2')}
       >
         {title}
       </Link>

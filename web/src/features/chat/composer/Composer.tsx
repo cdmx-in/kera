@@ -133,7 +133,7 @@ export function Composer({ onSend, disabled }: { onSend: (text: string, files: F
             <Square size={14} fill="currentColor" />
           </button>
         ) : (
-          <button type="button" data-testid="send" aria-label="Send" disabled={!canSend} onClick={() => void send()} className="grid size-9 place-items-center rounded-full bg-accent text-white transition-opacity disabled:opacity-35">
+          <button type="button" data-testid="send" aria-label="Send" disabled={!canSend} onClick={() => void send()} className="grid size-9 place-items-center rounded-full bg-accent text-white transition-[opacity,background-color] enabled:hover:bg-accent-bright disabled:opacity-35">
             <ArrowUp size={18} />
           </button>
         )}

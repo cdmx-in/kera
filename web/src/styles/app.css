@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import './brand.css';
 
 /* Brand tokens. The server injects a :root <style> overriding --accent,
    --accent-bright and --gray-50..950 before this stylesheet loads, so the
