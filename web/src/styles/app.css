@@ -1,23 +1,313 @@
 @import 'tailwindcss';
 
+/* Brand tokens. The server injects a :root <style> overriding --accent,
+   --accent-bright and --gray-50..950 before this stylesheet loads, so the
+   defaults use :where() (zero specificity) to lose regardless of order.
+   Everything else derives from them. */
+:where(:root) {
+  --accent: #1e7f8c;
+  --accent-bright: #3dafc4;
+  --gray-50: oklch(0.985 0.003 215);
+  --gray-100: oklch(0.967 0.006 215);
+  --gray-200: oklch(0.925 0.009 215);
+  --gray-300: oklch(0.87 0.012 215);
+  --gray-400: oklch(0.71 0.012 215);
+  --gray-500: oklch(0.555 0.012 215);
+  --gray-600: oklch(0.45 0.012 215);
+  --gray-700: oklch(0.375 0.012 215);
+  --gray-800: oklch(0.28 0.012 215);
+  --gray-900: oklch(0.215 0.01 215);
+  --gray-950: oklch(0.16 0.008 215);
+}
 :root {
   --bg: #ffffff;
-  --fg: #111418;
-  color-scheme: light dark;
+  --bg-soft: var(--gray-50);
+  --surface: #ffffff;
+  --surface-2: var(--gray-100);
+  --border: var(--gray-200);
+  --fg: var(--gray-900);
+  --muted: var(--gray-500);
+  --link: var(--accent);
+  --accent-soft: color-mix(in oklch, var(--accent) 11%, transparent);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 8px 24px rgb(0 0 0 / 0.06);
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #0e1114;
-    --fg: #e7eaee;
+    --bg: var(--gray-950);
+    --bg-soft: var(--gray-900);
+    --surface: var(--gray-900);
+    --surface-2: var(--gray-800);
+    --border: var(--gray-800);
+    --fg: var(--gray-100);
+    --muted: var(--gray-400);
+    --link: var(--accent-bright);
+    --accent-soft: color-mix(in oklch, var(--accent-bright) 18%, transparent);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
+    color-scheme: dark;
   }
 }
 :root[data-theme='dark'] {
-  --bg: #0e1114;
-  --fg: #e7eaee;
+  --bg: var(--gray-950);
+  --bg-soft: var(--gray-900);
+  --surface: var(--gray-900);
+  --surface-2: var(--gray-800);
+  --border: var(--gray-800);
+  --fg: var(--gray-100);
+  --muted: var(--gray-400);
+  --link: var(--accent-bright);
+  --accent-soft: color-mix(in oklch, var(--accent-bright) 18%, transparent);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-soft: var(--bg-soft);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-accent-soft: var(--accent-soft);
+  --color-link: var(--link);
+  --color-gray-50: var(--gray-50);
+  --color-gray-100: var(--gray-100);
+  --color-gray-200: var(--gray-200);
+  --color-gray-300: var(--gray-300);
+  --color-gray-400: var(--gray-400);
+  --color-gray-500: var(--gray-500);
+  --color-gray-600: var(--gray-600);
+  --color-gray-700: var(--gray-700);
+  --color-gray-800: var(--gray-800);
+  --color-gray-900: var(--gray-900);
+  --color-gray-950: var(--gray-950);
+  --shadow-pop: var(--shadow);
+}
+
+@layer base {
+html,
+body,
+#root {
+  height: 100%;
 }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
+}
+
+/* Native <dialog> modals (in a layer so utilities such as mt-* can override) */
+@layer components {
+  dialog.modal {
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: var(--shadow);
+    max-width: calc(100vw - 2rem);
+    max-height: calc(100dvh - 2rem);
+  }
+  dialog.modal::backdrop {
+    background: rgb(0 0 0 / 0.4);
+  }
+  dialog.drawer {
+    margin: 0 0 0 auto;
+    height: 100dvh;
+    max-height: 100dvh;
+    width: min(32rem, 100vw);
+    max-width: 100vw;
+    border-radius: 0;
+    border-width: 0 0 0 1px;
+  }
+}
+
+/* Message rows skip layout/paint when off screen. */
+.msg-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
+/* Markdown (layered so utilities on inner elements win) */
+@layer components {
+.md {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md pre,
+.md table,
+.md blockquote {
+  margin: 0.7em 0;
+}
+.md ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.md ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.md li + li {
+  margin-top: 0.2em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.2em 0 0.5em;
+}
+.md h1 {
+  font-size: 1.4em;
+}
+.md h2 {
+  font-size: 1.2em;
+}
+.md h3 {
+  font-size: 1.05em;
+}
+.md a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md code:not(pre code) {
+  font-size: 0.875em;
+  background: var(--surface-2);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+.md blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 0.9em;
+  color: var(--muted);
+}
+.md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 0.35em 0.7em;
+  text-align: left;
+}
+.md th {
+  background: var(--bg-soft);
+  font-weight: 600;
+}
+.md hr {
+  border-color: var(--border);
+  margin: 1.2em 0;
+}
+.md img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+}
+
+@layer base {
+pre,
+code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+}
+
+/* lowlight token colours (light / dark through tokens) */
+.hljs-comment,
+.hljs-quote {
+  color: var(--muted);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-built_in {
+  color: #a626a4;
+}
+.hljs-string,
+.hljs-attr,
+.hljs-template-tag {
+  color: #3a8a3a;
+}
+.hljs-number,
+.hljs-symbol {
+  color: #b76b01;
+}
+.hljs-title,
+.hljs-section,
+.hljs-type {
+  color: #2c6fbb;
+}
+:root[data-theme='dark'] .hljs-keyword,
+:root[data-theme='dark'] .hljs-built_in,
+:root[data-theme='dark'] .hljs-literal {
+  color: #d58cf0;
+}
+:root[data-theme='dark'] .hljs-string,
+:root[data-theme='dark'] .hljs-attr {
+  color: #93c97a;
+}
+:root[data-theme='dark'] .hljs-number {
+  color: #e5b06b;
+}
+:root[data-theme='dark'] .hljs-title,
+:root[data-theme='dark'] .hljs-type {
+  color: #7fb3f0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .hljs-keyword,
+  :root:not([data-theme='light']) .hljs-built_in,
+  :root:not([data-theme='light']) .hljs-literal {
+    color: #d58cf0;
+  }
+  :root:not([data-theme='light']) .hljs-string,
+  :root:not([data-theme='light']) .hljs-attr {
+    color: #93c97a;
+  }
+  :root:not([data-theme='light']) .hljs-number {
+    color: #e5b06b;
+  }
+  :root:not([data-theme='light']) .hljs-title,
+  :root:not([data-theme='light']) .hljs-type {
+    color: #7fb3f0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
