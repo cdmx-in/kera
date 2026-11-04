@@ -64,6 +64,9 @@ func validate(f *File, errs *Errors) {
 			if a.Type == "user_oauth" && a.Provider == "" {
 				errs.add(l, "%s: auth.provider is required for user_oauth auth", what)
 			}
+			if a.Type == "user_oauth" && (a.Header == "") != (a.Key == "") {
+				errs.add(l, "%s: auth.header and auth.key go together for user_oauth auth", what)
+			}
 		}
 		checkGrants(l, what, t.Grants, errs)
 	}

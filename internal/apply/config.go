@@ -299,7 +299,8 @@ type ToolServer struct {
 	Enabled                 *bool              `yaml:"enabled,omitempty"`
 }
 
-// ToolAuth: none | bearer (key) | header (header + key) | user_oauth (provider).
+// ToolAuth: none | bearer (key) | header (header + key) | user_oauth (provider,
+// plus an optional header + key sent next to the user's token).
 // The key is stored encrypted inside tool_server.auth as key_enc (base64).
 type ToolAuth struct {
 	Type     string `yaml:"type"`

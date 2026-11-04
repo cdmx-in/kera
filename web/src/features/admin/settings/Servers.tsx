@@ -212,12 +212,12 @@ function ToolEditor({ server, onClose, save }: { server: ToolServer | null; onCl
             <option value="user_oauth">Each user signs in (OAuth)</option>
           </select>
         </Field>
-        {auth.type === 'header' && (
-          <Field label="Header name">
-            <input value={auth.header} required onChange={(e) => setT({ ...t, auth: { ...auth, header: e.target.value } })} placeholder="X-API-Key" className={inputCls} />
+        {(auth.type === 'header' || auth.type === 'user_oauth') && (
+          <Field label="Header name" hint={auth.type === 'user_oauth' ? 'Optional: a service key sent next to the user\'s token.' : undefined}>
+            <input value={auth.header} required={auth.type === 'header'} onChange={(e) => setT({ ...t, auth: { ...auth, header: e.target.value } })} placeholder="X-API-Key" className={inputCls} />
           </Field>
         )}
-        {(auth.type === 'bearer' || auth.type === 'header') && (
+        {(auth.type === 'bearer' || auth.type === 'header' || (auth.type === 'user_oauth' && auth.header)) && (
           <Field label="Key" hint="Write-only." className="sm:col-span-2">
             <SecretInput has={auth.has_key} value={key} onChange={setKey} label="Tool server key" />
           </Field>

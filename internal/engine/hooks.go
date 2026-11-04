@@ -120,7 +120,7 @@ func (e *Engine) envelope(x *exec, h hookServer, event string) map[string]any {
 			"connection": map[string]any{"id": x.m.Connection.ID, "kind": x.m.Connection.Kind}},
 		"request":  map[string]any{"messages": msgs, "params": x.params, "features": x.features, "provider_tools": orRaws(x.providerTools)},
 		"files":    orStrings(x.fileIDs),
-		"callback": map[string]any{"url": e.PublicURL + "/api/v1/runs/" + run.ID, "token": tok},
+		"callback": map[string]any{"url": e.callbackURL(run.ID), "token": tok},
 	}
 	if event == "outlet" {
 		run.mu.Lock()

@@ -250,6 +250,18 @@ func (h *handler) writeToolServer(ctx context.Context, f *toolForm) error {
 		}
 	case "user_oauth":
 		a.Provider = f.Auth.Provider
+		// optional service key header sent next to the user's token
+		if a.Header = strings.TrimSpace(f.Auth.Header); a.Header != "" {
+			a.KeyEnc = old.KeyEnc
+			if f.Auth.Key != nil {
+				if a.KeyEnc, err = apply.SealToolKey(h.a.Keys, *f.Auth.Key); err != nil {
+					return err
+				}
+			}
+			if a.KeyEnc == "" {
+				return api.Errf(http.StatusBadRequest, "bad_auth", "auth.key is required with auth.header")
+			}
+		}
 		var ok bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM oauth_provider WHERE id = $1)`, a.Provider).Scan(&ok); err != nil {
 			return fmt.Errorf("check provider: %w", err)

@@ -69,7 +69,9 @@ type Row struct {
 	Display     json.RawMessage
 }
 
-// Auth is tool_server.auth: none | bearer (Key) | header (Header: Key) | user_oauth (Provider).
+// Auth is tool_server.auth: none | bearer (Key) | header (Header: Key) |
+// user_oauth (Provider; optionally Header: Key as well, for a server that
+// needs its own service key next to the user's token in Authorization).
 type Auth struct {
 	Type     string `json:"type"`
 	KeyEnc   string `json:"key_enc,omitempty"`
@@ -373,6 +375,9 @@ func (s *Server) authorize(h http.Header, tok string) {
 		h.Set(s.row.Auth.Header, s.row.Auth.key)
 	case "user_oauth":
 		h.Set("Authorization", "Bearer "+tok)
+		if s.row.Auth.Header != "" && s.row.Auth.key != "" {
+			h.Set(s.row.Auth.Header, s.row.Auth.key)
+		}
 	}
 }
 
