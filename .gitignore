@@ -1,0 +1,13 @@
+/kera
+/dist/
+/web/node_modules/
+/web/dist/*
+!/web/dist/.gitkeep
+/data/
+*.log
+.env
+.env.*
+!.env.example
+coverage.out
+/web/test-results/
+/web/playwright-report/

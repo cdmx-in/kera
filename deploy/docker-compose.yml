@@ -1,0 +1,34 @@
+# Minimal Kera stack: the app plus Postgres 18 with pgvector.
+#   cp .env.example .env   # set KERA_SECRET_KEY and KERA_DB_PASSWORD
+#   docker compose up -d
+services:
+  kera-db:
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_USER: kera
+      POSTGRES_PASSWORD: ${KERA_DB_PASSWORD:?set KERA_DB_PASSWORD}
+      POSTGRES_DB: kera
+    volumes: [kera_pgdata:/var/lib/postgresql]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kera"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  kera:
+    image: ghcr.io/cdmx-in/kera:latest
+    depends_on:
+      kera-db: {condition: service_healthy}
+    environment:
+      KERA_DATABASE_URL: postgres://kera:${KERA_DB_PASSWORD}@kera-db:5432/kera?sslmode=disable
+      KERA_SECRET_KEY: ${KERA_SECRET_KEY:?set KERA_SECRET_KEY (openssl rand -hex 32)}
+      KERA_URL: ${KERA_URL:-http://localhost:8080}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: [kera_data:/data]
+    ports: ["8080:8080"]
+    restart: unless-stopped
+
+volumes:
+  kera_pgdata:
+  kera_data:

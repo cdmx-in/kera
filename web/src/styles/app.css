@@ -1,0 +1,23 @@
+@import 'tailwindcss';
+
+:root {
+  --bg: #ffffff;
+  --fg: #111418;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0e1114;
+    --fg: #e7eaee;
+  }
+}
+:root[data-theme='dark'] {
+  --bg: #0e1114;
+  --fg: #e7eaee;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
