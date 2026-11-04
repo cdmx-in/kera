@@ -73,9 +73,14 @@ func (h *handlers) list(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	// Embedding and rerank models cannot chat; only ?kinds=all (the admin
+	// model table) lists them.
+	all := r.URL.Query().Get("kinds") == "all"
 	data := make([]map[string]any, 0, len(ms))
 	for _, m := range ms {
-		data = append(data, listEntry(m))
+		if m.Kind == "" || all {
+			data = append(data, listEntry(m))
+		}
 	}
 	api.JSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
 }
@@ -97,7 +102,7 @@ func listEntry(m *Resolved) map[string]any {
 	knowledge := orEmpty(m.Knowledge)
 	return map[string]any{
 		"id": m.ID, "name": m.Name, "object": "model", "created": m.Created.Unix(),
-		"owned_by": owned, "connection_type": ctype, "local": m.Local, "hidden": m.Hidden,
+		"owned_by": owned, "connection_type": ctype, "local": m.Local, "hidden": m.Hidden, "kind": coalesceKind(m.Kind),
 		"features": enabledFeatures(m.Features), "defaultFeatures": orEmpty(m.DefaultFeatures),
 		"toolIds": toolIDs, "suggestionPrompts": sugg, "profileImageUrl": m.ImageURL,
 		"capabilities": m.Capabilities,
@@ -109,6 +114,13 @@ func listEntry(m *Resolved) map[string]any {
 			"params": m.Params,
 		},
 	}
+}
+
+func coalesceKind(k string) string {
+	if k == "" {
+		return "chat"
+	}
+	return k
 }
 
 // enabledFeatures lists feature ids whose value is not false, empty or null

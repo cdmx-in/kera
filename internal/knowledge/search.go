@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/cdmx-in/kera/internal/apply"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/retrieval"
 )
@@ -25,20 +27,52 @@ type searchConfig struct {
 	Threshold   float64 // minimum reranker score (only applied with a reranker)
 	RerankURL   string
 	RerankModel string
+	RerankKey   string // rag.reranker.api_key, sent as a bearer token
+	LocalRuns   string // rag.reranker.local_runs: skip | allow
+	LocalURL    string // rag.reranker.local_url: reranker for local runs
 }
 
 func (s *Service) searchConfig(ctx context.Context) searchConfig {
-	c := searchConfig{TopK: 30, TopKRerank: 6, BM25Weight: 0.5}
+	c := searchConfig{TopK: 30, TopKRerank: 6, BM25Weight: 0.5, LocalRuns: "skip"}
 	_ = s.settings.Get(ctx, "rag.top_k", &c.TopK)
 	_ = s.settings.Get(ctx, "rag.top_k_rerank", &c.TopKRerank)
 	_ = s.settings.Get(ctx, "rag.hybrid.bm25_weight", &c.BM25Weight)
 	_ = s.settings.Get(ctx, "rag.relevance_threshold", &c.Threshold)
 	_ = s.settings.Get(ctx, "rag.reranker.url", &c.RerankURL)
 	_ = s.settings.Get(ctx, "rag.reranker.model", &c.RerankModel)
+	_ = s.settings.Get(ctx, "rag.reranker.local_runs", &c.LocalRuns)
+	_ = s.settings.Get(ctx, "rag.reranker.local_url", &c.LocalURL)
+	if s.keys != nil && c.RerankURL != "" {
+		key, err := apply.ReadSecret(ctx, s.settings, s.keys, "rag.reranker.api_key")
+		if err != nil {
+			slog.Warn("knowledge: reranker api key unreadable", "err", err)
+		}
+		c.RerankKey = key
+	}
 	c.TopK = max(c.TopK, 1)
 	c.TopKRerank = max(c.TopKRerank, 1)
 	c.BM25Weight = min(max(c.BM25Weight, 0), 1)
 	return c
+}
+
+// reranker returns the endpoint and key a query may use: runs on a local
+// model never send their documents to rag.reranker.url unless local_runs is
+// "allow"; they use rag.reranker.local_url (no key) or the fused order.
+func (c searchConfig) reranker(ctx context.Context) (url, key string) {
+	if retrieval.IsLocalRun(ctx) && c.LocalRuns != "allow" {
+		return c.LocalURL, ""
+	}
+	return c.RerankURL, c.RerankKey
+}
+
+// rerankCooldown is how long Reranks reports false after a failed rerank.
+const rerankCooldown = 5 * time.Minute
+
+// Reranks implements retrieval.Reranking: a reranker is configured for ctx
+// (see searchConfig.reranker) and has not failed in the last rerankCooldown.
+func (s *Service) Reranks(ctx context.Context) bool {
+	url, _ := s.searchConfig(ctx).reranker(ctx)
+	return url != "" && time.Since(time.Unix(0, s.rerankFailed.Load())) > rerankCooldown
 }
 
 // Search implements retrieval.Retriever.
@@ -121,11 +155,12 @@ func (s *Service) search(ctx context.Context, cs []*Collection, query string, cf
 	if err != nil {
 		return nil, err
 	}
-	if cfg.RerankURL != "" && len(hits) > 0 {
-		rr, err := s.rerank(ctx, cfg, query, hits)
+	if url, key := cfg.reranker(ctx); url != "" && len(hits) > 0 {
+		rr, err := s.rerank(ctx, cfg, url, key, query, hits)
 		if err == nil {
 			return rr, nil
 		}
+		s.rerankFailed.Store(time.Now().UnixNano())
 		slog.Warn("knowledge: rerank failed, using fused order", "err", err)
 	}
 	if len(hits) > cfg.TopKRerank {
@@ -291,12 +326,12 @@ func (s *Service) loadHits(ctx context.Context, fused []fusedHit) ([]retrieval.H
 
 // rerank orders hits with a Cohere/Jina-style POST /rerank endpoint and keeps
 // the best cfg.TopKRerank at or above cfg.Threshold.
-func (s *Service) rerank(ctx context.Context, cfg searchConfig, query string, hits []retrieval.Hit) ([]retrieval.Hit, error) {
+func (s *Service) rerank(ctx context.Context, cfg searchConfig, url, key, query string, hits []retrieval.Hit) ([]retrieval.Hit, error) {
 	docs := make([]string, len(hits))
 	for i, h := range hits {
 		docs[i] = Chunk{Text: h.Text, Headers: h.Headers}.EmbedText()
 	}
-	res, err := rerankCall(ctx, s.http, cfg.RerankURL, cfg.RerankModel, query, docs, cfg.TopKRerank)
+	res, err := rerankCall(ctx, s.http, url, key, cfg.RerankModel, query, docs, cfg.TopKRerank)
 	if err != nil {
 		return nil, err
 	}
@@ -325,8 +360,12 @@ type rerankResult struct {
 }
 
 // rerankCall posts {model, query, documents, top_n} to <url>/rerank (url may
-// already end in /rerank) and returns {results:[{index, relevance_score}]}.
-func rerankCall(ctx context.Context, hc *http.Client, url, model, query string, docs []string, topN int) ([]rerankResult, error) {
+// already end in /rerank; a Cohere-style base ending in /v1 or /v2 works the
+// same) and reads {results:[{index, relevance_score}]}, the shape of the
+// sidecar, TEI's Cohere route, Cohere itself and LiteLLM's /rerank (extra
+// fields such as id, meta or document are ignored). key, when set, goes as
+// Authorization: Bearer.
+func rerankCall(ctx context.Context, hc *http.Client, url, key, model, query string, docs []string, topN int) ([]rerankResult, error) {
 	url = strings.TrimRight(url, "/")
 	if !strings.HasSuffix(url, "/rerank") {
 		url += "/rerank"
@@ -340,6 +379,9 @@ func rerankCall(ctx context.Context, hc *http.Client, url, model, query string, 
 		return nil, fmt.Errorf("rerank: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("rerank: %w", err)

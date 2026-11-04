@@ -48,7 +48,7 @@ func TestRerankCall(t *testing.T) {
 	}))
 	defer srv.Close()
 	for _, u := range []string{srv.URL, srv.URL + "/", srv.URL + "/rerank"} {
-		res, err := rerankCall(context.Background(), srv.Client(), u, "m", "q", []string{"a", "b"}, 2)
+		res, err := rerankCall(context.Background(), srv.Client(), u, "", "m", "q", []string{"a", "b"}, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,7 +61,7 @@ func TestRerankCall(t *testing.T) {
 	}
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "boom", 500) }))
 	defer bad.Close()
-	if _, err := rerankCall(context.Background(), bad.Client(), bad.URL, "m", "q", []string{"a"}, 1); err == nil {
+	if _, err := rerankCall(context.Background(), bad.Client(), bad.URL, "", "m", "q", []string{"a"}, 1); err == nil {
 		t.Fatal("want an error on HTTP 500")
 	}
 }
@@ -78,15 +78,16 @@ func TestVectorLiteralAndIndexName(t *testing.T) {
 	}
 }
 
-// TestRerankSidecar runs against a real reranker (sidecars/rerank, TEI, ...)
-// when KERA_TEST_RERANK_URL is set.
+// TestRerankSidecar runs against a real reranker (sidecars/rerank, TEI,
+// LiteLLM's /rerank, ...) when KERA_TEST_RERANK_URL is set; KERA_TEST_RERANK_MODEL
+// and KERA_TEST_RERANK_KEY name a hosted model and its bearer key.
 func TestRerankSidecar(t *testing.T) {
 	url := os.Getenv("KERA_TEST_RERANK_URL")
 	if url == "" {
 		t.Skip("KERA_TEST_RERANK_URL not set")
 	}
 	docs := []string{"Berlin is the capital of Germany.", "Paris is the capital and largest city of France.", "Bananas are yellow."}
-	res, err := rerankCall(context.Background(), &http.Client{Timeout: 10 * time.Minute}, url, "", "What is the capital of France?", docs, 2)
+	res, err := rerankCall(context.Background(), &http.Client{Timeout: 10 * time.Minute}, url, os.Getenv("KERA_TEST_RERANK_KEY"), os.Getenv("KERA_TEST_RERANK_MODEL"), "What is the capital of France?", docs, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

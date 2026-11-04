@@ -20,6 +20,10 @@ docker run -d -p 127.0.0.1:8124:8000 -v kera-rerank-models:/models kera-rerank
 ```
 
 Point Kera at it with `rag.reranker.url: http://kera-rerank:8000` (and `rag.reranker.model`).
+A hosted reranker works the same way: LiteLLM's `/rerank` (any rerank model it serves, e.g. Cohere),
+Cohere or TEI, with `rag.reranker.api_key` sent as `Authorization: Bearer`. Chats on local models
+do not send passages to `rag.reranker.url` unless `rag.reranker.local_runs: allow`; set
+`rag.reranker.local_url` to give them an on-prem reranker such as this sidecar.
 
 Tests: `pip install -r requirements.txt -r requirements-dev.txt && pytest` (they use a fake
 model, so no download is needed).

@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -565,8 +567,12 @@ func providerMsg(role, content string) provider.Message {
 
 type fakeRetriever struct{}
 
-func (fakeRetriever) Search(_ context.Context, _ *auth.User, ids []string, q string, k int) ([]retrieval.Hit, error) {
-	return []retrieval.Hit{{KnowledgeID: ids[0], FileID: "f2", FileName: "hit.md", Text: "retrieved for " + q, Score: 0.9}}, nil
+var searchedLocal atomic.Bool // IsLocalRun of the last fakeRetriever.Search
+
+func (fakeRetriever) Search(ctx context.Context, _ *auth.User, ids []string, q string, k int) ([]retrieval.Hit, error) {
+	searchedLocal.Store(retrieval.IsLocalRun(ctx))
+	return []retrieval.Hit{{KnowledgeID: ids[0], FileID: "f2", FileName: "hit.md", Text: "retrieved for " + q, Score: 0.9,
+		Headers: []string{"Guide", "Refunds"}}}, nil
 }
 func (fakeRetriever) Documents(_ context.Context, _ *auth.User, id string) ([]retrieval.Doc, error) {
 	return []retrieval.Doc{{KnowledgeID: id, FileID: "f1", Name: "policy.md", Text: "whole policy"}}, nil
@@ -603,11 +609,86 @@ func TestKnowledgeFullAndRetrieve(t *testing.T) {
 	evs := wait(t, run)
 	sys := run.stateText()
 	if !strings.Contains(sys, `<source id="1" name="policy.md">`) || !strings.Contains(sys, "whole policy") ||
-		!strings.Contains(sys, `<source id="2" name="hit.md">`) || !strings.Contains(sys, "retrieved for echo system") {
+		!strings.Contains(sys, `<source id="2" name="hit.md" section="Guide &gt; Refunds">`) || !strings.Contains(sys, "retrieved for echo system") {
 		t.Fatalf("system prompt %q", sys)
 	}
 	if !strings.Contains(types(evs), "sources") {
 		t.Fatalf("no sources event: %s", types(evs))
+	}
+	if searchedLocal.Load() {
+		t.Fatal("a cloud model's search was marked local")
+	}
+}
+
+// Knowledge without a mode is searched by the model itself when it also has
+// tool servers (nothing injected); an explicit retrieve still injects, and
+// injected passages carry their section breadcrumb.
+func TestKnowledgeAutoMode(t *testing.T) {
+	h := newHarness(t)
+	retrieval.Register(fakeRetriever{})
+	defer retrieval.Register(nil)
+	tools.Register(&fakeTools{})
+	ctx := context.Background()
+	if _, err := h.pool.Exec(ctx, `INSERT INTO model (id, base_model_id, knowledge, tools) VALUES
+		('auto', 'm1', '[{"name":"Policies"}]', '{"servers":["fake-server"]}'),
+		('pinned', 'm1', '[{"name":"Policies","mode":"retrieve"}]', '{"servers":["fake-server"]}'),
+		('plain', 'm1', '[{"name":"Policies","mode":"auto"}]', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	for model, inject := range map[string]bool{"auto": false, "pinned": true, "plain": true} {
+		run, err := h.e.Start(ctx, h.u, &Request{Model: model, Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"echo system"`)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wait(t, run)
+		sys := run.stateText()
+		if got := strings.Contains(sys, `<source id="1" name="hit.md" section="Guide &gt; Refunds">`); got != inject {
+			t.Errorf("%s: injected=%v, want %v: %q", model, got, inject, sys)
+		}
+	}
+	// with a working reranker, auto injects even next to tool servers
+	retrieval.Register(rerankingRetriever{})
+	run, err := h.e.Start(ctx, h.u, &Request{Model: "auto", Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"echo system"`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait(t, run)
+	if !strings.Contains(run.stateText(), `name="hit.md"`) {
+		t.Errorf("reranked auto not injected: %q", run.stateText())
+	}
+}
+
+type rerankingRetriever struct{ fakeRetriever }
+
+func (rerankingRetriever) Reranks(context.Context) bool { return true }
+
+// Runs on a local (Ollama) model mark the retrieval context as local.
+func TestLocalRunMarksRetrieval(t *testing.T) {
+	h := newHarness(t)
+	retrieval.Register(fakeRetriever{})
+	defer retrieval.Register(nil)
+	ctx := context.Background()
+	ol := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			_, _ = w.Write([]byte(`{"models":[{"model":"loc"}]}`))
+			return
+		}
+		http.Error(w, "no", http.StatusInternalServerError)
+	}))
+	defer ol.Close()
+	if _, err := h.pool.Exec(ctx, `INSERT INTO connection (id, kind, base_url) VALUES ('ol', 'ollama', $1)`, ol.URL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(ctx, `INSERT INTO model (id, base_model_id, knowledge) VALUES ('kb-local', 'loc', '[{"name":"Policies"}]')`); err != nil {
+		t.Fatal(err)
+	}
+	run, err := h.e.Start(ctx, h.u, &Request{Model: "kb-local", Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"hi"`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait(t, run)
+	if !searchedLocal.Load() {
+		t.Fatal("local run not marked")
 	}
 }
 
@@ -652,5 +733,22 @@ func TestAttachingAnotherUsersFileDoesNotLinkIt(t *testing.T) {
 	rows.Close()
 	if len(linked) != 1 || linked[0] != "f-bob" {
 		t.Fatalf("linked %v, want only f-bob", linked)
+	}
+}
+
+// Embedding and rerank models cannot be used for a chat run.
+func TestNonChatModelRefused(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"nomic-embed-text"}]}`))
+	}))
+	defer srv.Close()
+	if _, err := h.pool.Exec(ctx, `INSERT INTO connection (id, kind, base_url, prefix) VALUES ('emb', 'openai', $1, 'e')`, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	_, err := h.e.Start(ctx, h.u, &Request{Model: "e.nomic-embed-text", Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"hi"`)}}})
+	if !errors.Is(err, models.ErrNotChat) {
+		t.Fatalf("got %v", err)
 	}
 }

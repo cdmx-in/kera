@@ -287,3 +287,33 @@ func TestBrandDir(t *testing.T) {
 		t.Errorf("env: %s", d)
 	}
 }
+
+// tool_servers[].display.tools reach toolDisplay: "<server>_<fn>" always, the
+// bare name only when nothing named it before (core tool_display wins).
+func TestToolServerDisplayMerged(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	st := settings.New(db)
+	must(t, st.Set(ctx, "ui.tool_display", map[string]any{"search_web": map[string]any{"label": "web search"}}, true))
+	for _, r := range [][3]string{
+		{"astra", "0", `{"label":"KB","tools":{"search_kb":{"label":"KB search","kind":"search"},"search_web":{"label":"server web"}}}`},
+		{"orion", "1", `{"tools":{"search_kb":{"label":"Orion search"}}}`},
+	} {
+		_, err := db.Exec(ctx, `INSERT INTO tool_server (id, kind, url, sort, display) VALUES ($1, 'openapi', 'http://x', $2::int, $3::jsonb)`, r[0], r[1], r[2])
+		must(t, err)
+	}
+	_, err := db.Exec(ctx, `INSERT INTO tool_server (id, kind, url, enabled, display) VALUES ('off', 'mcp', 'http://x', false, '{"tools":{"gone":{"label":"no"}}}')`)
+	must(t, err)
+	cfg, _, err := (&UI{settings: st, db: db, assets: &assets{dir: t.TempDir()}, tmpl: []byte(shell)}).current(ctx)
+	must(t, err)
+	td := cfg.ToolDisplay
+	for k, want := range map[string]string{"search_web": "web search", "astra_search_web": "server web", "search_kb": "KB search",
+		"astra_search_kb": "KB search", "orion_search_kb": "Orion search"} {
+		if td[k].Label != want {
+			t.Errorf("%s = %+v, want %q", k, td[k], want)
+		}
+	}
+	if _, ok := td["gone"]; ok || td["search_kb"].Kind != "search" {
+		t.Errorf("toolDisplay %+v", td)
+	}
+}

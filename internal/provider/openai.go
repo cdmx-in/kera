@@ -199,6 +199,31 @@ func (o *openAI) ListModels(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
+// ModelKinds implements KindLister via GET /v1/model/info, which LiteLLM
+// serves ({data:[{model_name, model_info:{mode}}]}); other OpenAI-compatible
+// servers answer 404 and the caller falls back to name heuristics.
+func (o *openAI) ModelKinds(ctx context.Context, _ []string) (map[string]string, error) {
+	var info struct {
+		Data []struct {
+			ModelName string `json:"model_name"`
+			ModelInfo struct {
+				Mode string `json:"mode"`
+			} `json:"model_info"`
+		} `json:"data"`
+	}
+	if err := o.getJSON(ctx, o.base+"/model/info", &info); err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, d := range info.Data {
+		switch d.ModelInfo.Mode {
+		case ModelEmbedding, ModelRerank:
+			out[d.ModelName] = d.ModelInfo.Mode
+		}
+	}
+	return out, nil
+}
+
 // Embed implements Client via POST /v1/embeddings.
 func (o *openAI) Embed(ctx context.Context, model string, texts []string) ([][]float32, error) {
 	var out struct {

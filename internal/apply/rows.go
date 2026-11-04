@@ -556,7 +556,7 @@ func normModel(m Model) Model {
 		m.Tools = nil
 	}
 	for i := range m.Knowledge {
-		if m.Knowledge[i].Mode == "retrieve" {
+		if m.Knowledge[i].Mode == "auto" { // unset means auto
 			m.Knowledge[i].Mode = ""
 		}
 	}

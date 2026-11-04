@@ -123,6 +123,20 @@ type Client interface {
 	Embed(ctx context.Context, model string, texts []string) ([][]float32, error)
 }
 
+// Model kinds a KindLister reports; a model it does not name is a chat model
+// (or the server could not tell).
+const (
+	ModelEmbedding = "embedding"
+	ModelRerank    = "rerank"
+)
+
+// KindLister is implemented by clients whose server can tell chat models from
+// embedding and rerank models (Ollama's /api/show capabilities, LiteLLM's
+// /model/info mode). Callers type-assert it; errors mean "unknown".
+type KindLister interface {
+	ModelKinds(ctx context.Context, ids []string) (map[string]string, error)
+}
+
 // Config describes a connection.
 type Config struct {
 	Kind        string

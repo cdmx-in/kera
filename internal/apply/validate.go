@@ -105,7 +105,7 @@ func validate(f *File, errs *Errors) {
 				errs.add(l, "%s: knowledge entries need a name or an id", what)
 			}
 			if k.Mode != "" {
-				oneOf(l, what+".knowledge.mode", k.Mode, errs, "retrieve", "full")
+				oneOf(l, what+".knowledge.mode", k.Mode, errs, "auto", "retrieve", "full", "tools")
 			}
 		}
 		checkGrants(l, what, m.Grants, errs)

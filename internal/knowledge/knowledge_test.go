@@ -21,6 +21,7 @@ import (
 
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/apply"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/files"
@@ -515,6 +516,96 @@ func TestRerankerAndThreshold(t *testing.T) {
 	hits, err = e.s.Search(ctx, e.users2["root"], []string{c.ID}, "apples", 3)
 	if err != nil || len(hits) != 3 || !strings.Contains(hits[0].Text, "apples") {
 		t.Fatalf("fallback %+v %v", hits, err)
+	}
+}
+
+// The reranker key travels as a bearer token; runs on a local model keep
+// their documents away from it (local_runs skip, the default), use
+// local_url when one is set, and reach it again with local_runs allow.
+func TestRerankerKeyAndLocalRuns(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	var c coll
+	e.req("root", "POST", "/api/v1/knowledge/create", map[string]any{"name": "L"}, 200, &c)
+	fid := e.upload("root", "l.md", "# One\napples\n# Two\nbananas\n# Three\ncherries")
+	e.req("root", "POST", "/api/v1/knowledge/"+c.ID+"/file/add", map[string]any{"file_id": fid}, 200, nil)
+	e.waitFile(c.ID, fid, "completed")
+	type call struct{ server, auth string }
+	var mu sync.Mutex
+	var calls []call
+	reranker := func(name string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			calls = append(calls, call{name, r.Header.Get("Authorization")})
+			mu.Unlock()
+			var body struct {
+				Documents []string `json:"documents"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			res := []map[string]any{}
+			for i, d := range body.Documents {
+				score := 0.1
+				if strings.Contains(d, "cherries") {
+					score = 0.9
+				}
+				res = append(res, map[string]any{"index": i, "relevance_score": score, "document": map[string]any{"text": d}})
+			}
+			// LiteLLM's /rerank shape: extra id and meta around the results
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "x", "results": res, "meta": map[string]any{"billed_units": map[string]any{}}})
+		}))
+	}
+	ext, loc := reranker("external"), reranker("local")
+	defer ext.Close()
+	defer loc.Close()
+	sealed, err := apply.SealSecret(e.s.keys, "sk-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = e.st.Set(ctx, "rag.reranker.url", ext.URL, false)
+	_ = e.st.Set(ctx, "rag.reranker.api_key", sealed, false)
+	root := e.users2["root"]
+	search := func(ctx context.Context) []retrieval.Hit {
+		t.Helper()
+		mu.Lock()
+		calls = nil
+		mu.Unlock()
+		hits, err := e.s.Search(ctx, root, []string{c.ID}, "apples", 3)
+		if err != nil || len(hits) == 0 {
+			t.Fatalf("search: %+v %v", hits, err)
+		}
+		return hits
+	}
+	if hits := search(ctx); !strings.Contains(hits[0].Text, "cherries") || len(calls) != 1 || calls[0] != (call{"external", "Bearer sk-test"}) {
+		t.Fatalf("cloud run: %+v %+v", hits, calls)
+	}
+	local := retrieval.WithLocalRun(ctx)
+	if !e.s.Reranks(ctx) || e.s.Reranks(local) {
+		t.Fatal("Reranks: cloud run reranked, local run (skip) not")
+	}
+	if hits := search(local); !strings.Contains(hits[0].Text, "apples") || len(calls) != 0 {
+		t.Fatalf("local run reached a reranker: %+v %+v", hits, calls)
+	}
+	_ = e.st.Set(ctx, "rag.reranker.local_url", loc.URL, false)
+	if hits := search(local); !strings.Contains(hits[0].Text, "cherries") || len(calls) != 1 || calls[0] != (call{"local", ""}) {
+		t.Fatalf("local run with local_url: %+v %+v", hits, calls)
+	}
+	_ = e.st.Set(ctx, "rag.reranker.local_runs", "allow", false)
+	if search(local); len(calls) != 1 || calls[0].server != "external" {
+		t.Fatalf("local_runs allow: %+v", calls)
+	}
+	// a failing reranker stops counting for a while
+	_ = e.st.Set(ctx, "rag.reranker.url", "http://127.0.0.1:1", false)
+	search(ctx)
+	if e.s.Reranks(ctx) {
+		t.Fatal("Reranks true right after a failure")
+	}
+	// builtin:knowledge marks a call from a local model on its own (no engine context).
+	_ = e.st.Set(ctx, "rag.reranker.local_runs", "skip", false)
+	_ = e.st.Set(ctx, "rag.reranker.local_url", "", false)
+	ts := &toolSet{s: e.s}
+	cs, lctx, err := ts.scope(ctx, tools.Call{User: root})
+	if err != nil || len(cs) == 0 || retrieval.IsLocalRun(lctx) {
+		t.Fatalf("scope without a model: %v %v", len(cs), err)
 	}
 }
 

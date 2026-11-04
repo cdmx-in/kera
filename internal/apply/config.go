@@ -210,7 +210,7 @@ type RAG struct {
 	TopK                *int       `yaml:"top_k,omitempty"`
 	TopKRerank          *int       `yaml:"top_k_rerank,omitempty"`
 	RelevanceThreshold  *float64   `yaml:"relevance_threshold,omitempty"`
-	Reranker            *Endpoint  `yaml:"reranker,omitempty"`
+	Reranker            *Reranker  `yaml:"reranker,omitempty"`
 	Extractor           *Endpoint  `yaml:"extractor,omitempty"`
 	Template            *string    `yaml:"template,omitempty"`
 	TemplateFile        string     `yaml:"template_file,omitempty" apply:"-"`
@@ -231,6 +231,17 @@ type Hybrid struct {
 type Endpoint struct {
 	URL   *string `yaml:"url,omitempty"`
 	Model *string `yaml:"model,omitempty"`
+}
+
+// Reranker is a Cohere-style POST /rerank endpoint (sidecar, TEI, LiteLLM).
+type Reranker struct {
+	URL    *string `yaml:"url,omitempty"`
+	Model  *string `yaml:"model,omitempty"`
+	APIKey *string `yaml:"api_key,omitempty" secret:"true"` // sent as Authorization: Bearer
+	// LocalRuns decides what runs on local models do with an external
+	// reranker: skip (default: keep the fused order, or use LocalURL) or allow.
+	LocalRuns *string `yaml:"local_runs,omitempty"`
+	LocalURL  *string `yaml:"local_url,omitempty"` // reranker for local runs (same model, no key)
 }
 
 type Web struct {
@@ -372,7 +383,10 @@ type ModelTools struct {
 }
 
 // KnowledgeRef points at a collection by name (resolved at run time, so the
-// collection may be created after apply) or by id. Mode is retrieve or full.
+// collection may be created after apply) or by id. Mode is auto (unset:
+// tools when the model has tool servers, else retrieve), retrieve (passages
+// in the prompt), full (whole documents in the prompt) or tools (the model
+// searches with the knowledge tools; nothing is injected).
 type KnowledgeRef struct {
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	ID   string `yaml:"id,omitempty" json:"id,omitempty"`

@@ -104,6 +104,8 @@ export interface Model {
   name: string
   hidden?: boolean
   local?: boolean
+  /** chat (default), embedding or rerank; only chat models can be picked for a conversation */
+  kind?: string
   features?: ModelFeature[]
   toolIds?: string[]
   suggestionPrompts?: { title?: string | string[]; content: string }[]

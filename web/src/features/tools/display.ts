@@ -30,7 +30,8 @@ export function pluralize(label: string): string {
 }
 
 export function displayFor(map: Record<string, ToolDisplay>, name: string, server?: string): Required<Pick<ToolDisplay, 'label' | 'kind'>> & ToolDisplay {
-  const d = map[name] ?? (server ? map[`${server}_${name}`] : undefined)
+  // a tool server's own name for its function ("<server>_<fn>") wins over the bare name
+  const d = (server ? map[`${server}_${name}`] : undefined) ?? map[name]
   return { kind: 'other', ...d, label: d?.label ?? humanizeTool(name, server) }
 }
 

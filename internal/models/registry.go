@@ -36,6 +36,7 @@ const (
 var (
 	ErrNotFound  = api.Errf(http.StatusNotFound, "model_not_found", "model not found")
 	ErrForbidden = api.Errf(http.StatusForbidden, "model_forbidden", "you do not have access to this model")
+	ErrNotChat   = api.Errf(http.StatusBadRequest, "model_not_chat", "this is an embedding or rerank model; it cannot chat")
 )
 
 // Connection is one model server.
@@ -117,7 +118,8 @@ func (t Tools) IDs() []string {
 }
 
 // KnowledgeRef attaches a knowledge collection by id or by name (config
-// files name collections); Mode is retrieve (default), full or tools.
+// files name collections); Mode is auto (unset), retrieve, full or tools
+// (see engine.knowledgeMode).
 type KnowledgeRef struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name,omitempty"`
@@ -144,6 +146,7 @@ type Resolved struct {
 	Hooks           []string
 	Suggestions     json.RawMessage
 	ImageURL        string
+	Kind            string // "" for chat models, provider.ModelEmbedding or provider.ModelRerank
 	Local           bool
 	Hidden          bool
 	Created         time.Time
@@ -166,10 +169,11 @@ type Registry struct {
 }
 
 type discovery struct {
-	key string // kind|base_url, so an edited connection is refetched
-	ids []string
-	err error
-	at  time.Time
+	key   string // kind|base_url, so an edited connection is refetched
+	ids   []string
+	kinds map[string]string // provider id -> embedding | rerank (KindLister)
+	err   error
+	at    time.Time
 }
 
 // New returns a registry.
@@ -263,23 +267,29 @@ func (r *Registry) client(c Connection, extra http.Header) (provider.Client, err
 	return provider.New(provider.Config{Kind: c.Kind, BaseURL: c.BaseURL, APIKey: c.APIKey, Headers: h, HTTP: r.HTTP})
 }
 
-// discover lists a connection's models, cached for discoveryTTL (failures too,
-// so a dead server does not stall every model list).
-func (r *Registry) discover(ctx context.Context, c Connection) ([]string, time.Time, error) {
+// discover lists a connection's models and their kinds, cached for
+// discoveryTTL (failures too, so a dead server does not stall every model list).
+func (r *Registry) discover(ctx context.Context, c Connection) ([]string, map[string]string, time.Time, error) {
 	key := c.Kind + "|" + c.BaseURL
 	r.mu.Lock()
 	d, ok := r.cache[c.ID]
 	r.mu.Unlock()
 	if ok && d.key == key && time.Since(d.at) < discoveryTTL {
-		return d.ids, d.at, d.err
+		return d.ids, d.kinds, d.at, d.err
 	}
+	var kinds map[string]string
 	cl, err := r.client(c, nil)
 	if err == nil {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discoveryTimeout)
 		d.ids, err = cl.ListModels(ctx)
+		if kl, ok := cl.(provider.KindLister); ok && err == nil {
+			// ponytail: asked on every refresh (one /api/show per Ollama model);
+			// cache per model id if a server has hundreds of models.
+			kinds, _ = kl.ModelKinds(ctx, d.ids)
+		}
 		cancel()
 	}
-	d = discovery{key: key, ids: d.ids, err: err, at: time.Now()}
+	d = discovery{key: key, ids: d.ids, kinds: kinds, err: err, at: time.Now()}
 	if err != nil {
 		d.ids = nil
 		slog.Warn("model discovery failed", "connection", c.ID, "err", err)
@@ -287,12 +297,30 @@ func (r *Registry) discover(ctx context.Context, c Connection) ([]string, time.T
 	r.mu.Lock()
 	r.cache[c.ID] = d
 	r.mu.Unlock()
-	return d.ids, d.at, d.err
+	return d.ids, d.kinds, d.at, d.err
+}
+
+// modelKind is what the server reported, else a guess from the name: chat
+// lists must not offer embedding or rerank models, and servers without a
+// kind API (or Ollama rerankers, which claim "completion") are common.
+func modelKind(id string, reported map[string]string) string {
+	if k := reported[id]; k != "" {
+		return k
+	}
+	n := strings.ToLower(id)
+	switch {
+	case strings.Contains(n, "rerank"):
+		return provider.ModelRerank
+	case strings.Contains(n, "embed"):
+		return provider.ModelEmbedding
+	}
+	return ""
 }
 
 type baseModel struct {
 	conn       Connection
 	providerID string
+	kind       string
 	at         time.Time
 }
 
@@ -310,13 +338,13 @@ func (r *Registry) bases(ctx context.Context) ([]baseModel, error) {
 			continue
 		}
 		wg.Go(func() {
-			ids, at, err := r.discover(ctx, c)
+			ids, kinds, at, err := r.discover(ctx, c)
 			if err != nil {
 				return
 			}
 			for _, id := range ids {
 				if len(c.ModelIDs) == 0 || slices.Contains(c.ModelIDs, id) || slices.Contains(c.ModelIDs, c.modelID(id)) {
-					found[i] = append(found[i], baseModel{conn: c, providerID: id, at: at})
+					found[i] = append(found[i], baseModel{conn: c, providerID: id, kind: modelKind(id, kinds), at: at})
 				}
 			}
 		})
@@ -348,7 +376,7 @@ func merge(bs []baseModel, rows []row) map[string]*Resolved {
 		if _, dup := out[id]; dup {
 			continue // first connection wins
 		}
-		out[id] = &Resolved{ID: id, Name: id, Connection: b.conn, ProviderModel: b.providerID,
+		out[id] = &Resolved{ID: id, Name: id, Connection: b.conn, ProviderModel: b.providerID, Kind: b.kind,
 			Local: b.conn.Kind == provider.KindOllama, Created: b.at, FileContext: "tools", active: true,
 			Params: map[string]any{}, Capabilities: map[string]any{}, Features: map[string]any{}}
 	}

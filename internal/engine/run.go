@@ -16,6 +16,7 @@ import (
 	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/provider"
+	"github.com/cdmx-in/kera/internal/retrieval"
 )
 
 // exec is the working state of one run.
@@ -58,6 +59,9 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 	if err != nil {
 		return nil, err
 	}
+	if m.Kind != "" {
+		return nil, models.ErrNotChat
+	}
 	x := &exec{u: u, m: m, req: req, interactive: req.StreamFormat == "events", started: time.Now(),
 		disabledNames: map[string]bool{}}
 	isTemp := req.Temporary || strings.HasPrefix(req.ChatID, "temp:")
@@ -96,6 +100,11 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 		run.checkpoint = func() { e.save(x) }
 	}
 	runCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	if m.Local {
+		// knowledge (and tools that honour it) keep a local run's documents
+		// away from external services such as a hosted reranker
+		runCtx = retrieval.WithLocalRun(runCtx)
+	}
 	run.cancel = cancel
 	e.wg.Add(1)
 	go e.execute(runCtx, x)

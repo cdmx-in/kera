@@ -152,7 +152,7 @@ func (r *row) applyTo(m *Resolved) {
 // provider model, params, capabilities and system prompt.
 func (r *row) presetOf(parent *Resolved) *Resolved {
 	m := &Resolved{ID: r.ID, Name: r.ID, BaseModelID: *r.BaseModelID, Connection: parent.Connection,
-		ProviderModel: parent.ProviderModel, Local: parent.Local, SystemPrompt: parent.SystemPrompt,
+		ProviderModel: parent.ProviderModel, Kind: parent.Kind, Local: parent.Local, SystemPrompt: parent.SystemPrompt,
 		Params: parent.Params, Capabilities: parent.Capabilities}
 	r.applyTo(m)
 	return m

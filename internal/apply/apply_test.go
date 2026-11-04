@@ -359,6 +359,7 @@ models:
     prompt_file: x.md
     file_context: everything
     grants: [{principal: nobody}]
+    knowledge: [{name: K, mode: tools}, {name: L, mode: inject}]
   - id: a
     base: x
     connection: y
@@ -381,16 +382,20 @@ knowledge:
 		`line 5: models[a].prompt_file: set either the inline value or the _file, not both`,
 		`line 5: models[a].file_context: "everything"`,
 		`line 5: models[a].grants: bad principal "nobody"`,
-		`line 10: models: duplicate "a"`,
-		`line 14: tool_servers[t].kind: "grpc"`,
-		`line 14: tool_servers[t]: auth.key is required for bearer auth`,
+		`line 5: models[a].knowledge.mode: "inject" is not one of [auto retrieve full tools]`,
+		`line 11: models: duplicate "a"`,
+		`line 15: tool_servers[t].kind: "grpc"`,
+		`line 15: tool_servers[t]: auth.key is required for bearer auth`,
 		`permissions: unknown permission features.teleport`,
-		`line 10: models[a]: set base (a preset) or connection (a base-model override), not both`,
-		`line 21: knowledge[Handbook]: grants is required`,
+		`line 11: models[a]: set base (a preset) or connection (a base-model override), not both`,
+		`line 22: knowledge[Handbook]: grants is required`,
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("missing %q in:\n%v", want, err)
 		}
+	}
+	if strings.Contains(err.Error(), `"tools" is not one of`) {
+		t.Error("knowledge mode tools rejected")
 	}
 }
 

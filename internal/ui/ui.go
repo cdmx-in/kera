@@ -7,11 +7,15 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/app"
@@ -49,6 +53,7 @@ const cacheFor = 10 * time.Second
 // UI renders and caches the config and the app shell.
 type UI struct {
 	settings *settings.Store
+	db       *pgxpool.Pool // tool_server display names; nil in tests that need none
 	assets   *assets
 	tmpl     []byte
 
@@ -60,7 +65,7 @@ type UI struct {
 
 // Mount registers the routes and takes over index.html rendering.
 func Mount(a *app.App) error {
-	u := &UI{settings: a.Settings, assets: &assets{dir: brandDir(a.Env.ConfigFile, a.Env.DataDir)}, tmpl: a.Server.IndexTemplate()}
+	u := &UI{settings: a.Settings, db: a.DB, assets: &assets{dir: brandDir(a.Env.ConfigFile, a.Env.DataDir)}, tmpl: a.Server.IndexTemplate()}
 	u.routes(a.Server)
 	return nil
 }
@@ -112,6 +117,11 @@ func (u *UI) current(ctx context.Context) (*Config, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if u.db != nil {
+		if err := mergeServerDisplay(ctx, u.db, cfg.ToolDisplay); err != nil {
+			slog.Warn("ui: tool server display names", "err", err)
+		}
+	}
 	u.assets.version(&cfg.Brand)
 	u.cfg, u.index, u.until = cfg, renderIndex(u.tmpl, cfg), time.Now().Add(cacheFor)
 	return u.cfg, u.index, nil
@@ -150,4 +160,30 @@ func load(ctx context.Context, st *settings.Store) (*Config, error) {
 	cfg.Features = Features{Spend: spend != "", Memory: memory, TemporaryChat: true,
 		CodeInterpreter: interpreter != "", WebSearch: search != "", APIKeys: true}
 	return cfg, nil
+}
+
+// mergeServerDisplay adds tool_servers[].display.tools to the tool display
+// map: "<server id>_<function>" always (the web app tries it for a server's
+// steps first), the bare function name only when ui.tool_display or an
+// earlier server (sort order) has not named it.
+func mergeServerDisplay(ctx context.Context, db *pgxpool.Pool, m map[string]apply.ToolDisplay) error {
+	rows, err := db.Query(ctx, `SELECT id, display FROM tool_server WHERE enabled ORDER BY sort, id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var d apply.ToolServerDisplay
+		if err := rows.Scan(&id, &d); err != nil {
+			return err
+		}
+		for _, name := range slices.Sorted(maps.Keys(d.Tools)) {
+			m[id+"_"+name] = d.Tools[name]
+			if _, ok := m[name]; !ok {
+				m[name] = d.Tools[name]
+			}
+		}
+	}
+	return rows.Err()
 }

@@ -188,7 +188,7 @@ func (e *Engine) knowledge(ctx context.Context, x *exec) error {
 		for _, key := range []string{k.ID, k.Name} {
 			if key != "" {
 				refs = append(refs, key)
-				modes[key] = coalesce(k.Mode, "retrieve")
+				modes[key] = e.knowledgeMode(ctx, x, r, k.Mode)
 			}
 		}
 	}
@@ -256,8 +256,29 @@ func (e *Engine) knowledge(ctx context.Context, x *exec) error {
 	return nil
 }
 
+// knowledgeMode resolves a model's knowledge mode. Unset (or "auto") means
+// retrieve when searches are reranked; without a working reranker it means
+// tools when the run already gives the model tool servers: unreranked
+// passages pushed into the prompt then compete with what its tools return
+// (in an eval of a KB preset with a facts tool server they doubled the
+// invented specifics; reranked passages scored best). Otherwise retrieve.
+// Explicit retrieve, full and tools are kept as they are.
+func (e *Engine) knowledgeMode(ctx context.Context, x *exec, r retrieval.Retriever, mode string) string {
+	if mode != "" && mode != "auto" {
+		return mode
+	}
+	if rr, ok := r.(retrieval.Reranking); ok && rr.Reranks(ctx) {
+		return "retrieve"
+	}
+	if len(x.req.Tools) == 0 && !x.disableServers && len(x.serverIDs()) > 0 && e.builtinAllowed(ctx, x, "builtin:knowledge") {
+		return "tools"
+	}
+	return "retrieve"
+}
+
 type source struct {
 	name, fileID, text string
+	section            string // markdown breadcrumb of a retrieved chunk
 	page               int
 	score              float64
 }
@@ -285,7 +306,8 @@ func (e *Engine) search(ctx context.Context, x *exec, r retrieval.Retriever, ids
 				continue
 			}
 			seen[key] = true
-			out = append(out, source{name: h.FileName, fileID: h.FileID, text: h.Text, page: h.Page, score: h.Score})
+			out = append(out, source{name: h.FileName, fileID: h.FileID, text: h.Text, page: h.Page, score: h.Score,
+				section: strings.Join(h.Headers, " > ")})
 		}
 	}
 	x.run.status(StatusEvent{ID: "knowledge", Action: "knowledge_search", Query: strings.Join(queries, "; "),
@@ -315,7 +337,13 @@ func ragBlock(tmpl string, docs []source) string {
 	}
 	var b strings.Builder
 	for i, d := range docs {
-		fmt.Fprintf(&b, "<source id=\"%d\" name=\"%s\">\n%s\n</source>\n", i+1, html.EscapeString(d.name), d.text)
+		// the section breadcrumb tells the model where a chunk from deep inside
+		// a long document sits (its own text often lacks the heading)
+		attrs := fmt.Sprintf("id=\"%d\" name=\"%s\"", i+1, html.EscapeString(d.name))
+		if d.section != "" {
+			attrs += fmt.Sprintf(" section=\"%s\"", html.EscapeString(d.section))
+		}
+		fmt.Fprintf(&b, "<source %s>\n%s\n</source>\n", attrs, d.text)
 	}
 	return strings.Replace(tmpl, "{{CONTEXT}}", strings.TrimSpace(b.String()), 1)
 }
