@@ -478,3 +478,40 @@ func TestAccessAndCache(t *testing.T) {
 		}
 	}
 }
+
+// Review fixes: a 4xx from the revocation endpoint and a deleted provider row
+// still disconnect; one bad tool_server row does not hide the others; list
+// errors keep internal detail for admins.
+func TestDisconnectEdgesAndResilience(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.connect(e.browser("u1"), "c5")
+	e.as.revokeStatus = http.StatusUnauthorized
+	if code := e.disconnect("u1"); code != http.StatusOK || e.tokenRows("u1") != 0 {
+		t.Fatalf("4xx revoke: %d rows %d", code, e.tokenRows("u1"))
+	}
+	e.as.revokeStatus = http.StatusOK
+	e.connect(e.browser("u1"), "c6")
+	e.exec(`DELETE FROM oauth_provider WHERE id = 'mcp:fake'`)
+	if code := e.disconnect("u1"); code != http.StatusOK || e.tokenRows("u1") != 0 {
+		t.Fatalf("unknown provider: %d rows %d", code, e.tokenRows("u1"))
+	}
+
+	e.exec(`INSERT INTO tool_server (id, kind, name, url, auth) VALUES ('broken', 'mcp', 'Broken', $1, '{"type":"bearer","key_enc":"AAAA"}'),
+		('down', 'openapi', 'Down', 'http://127.0.0.1:1', '{}')`, e.mcp.URL)
+	e.exec(`INSERT INTO access_grant (id, resource_type, resource_id, principal_type, principal_id, permission)
+		VALUES ('g3', 'tool_server', 'down', 'user', '*', 'read')`)
+	if s := e.server("mcp:fake"); s == nil {
+		t.Fatal("good server hidden by a bad row")
+	}
+	ps, err := e.m.Providers(ctx)
+	if err != nil || len(ps) != 2 {
+		t.Fatalf("providers %d err %v", len(ps), err)
+	}
+	if got := e.list("u1")["down"]; got.Error != "unavailable" {
+		t.Fatalf("user sees error %q", got.Error)
+	}
+	if got := e.list("adm")["down"]; !strings.Contains(got.Error, "127.0.0.1") {
+		t.Fatalf("admin sees error %q", got.Error)
+	}
+}

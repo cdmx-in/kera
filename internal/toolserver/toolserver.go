@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"path"
 	"slices"
@@ -36,6 +38,9 @@ func init() { app.Register("toolserver", Mount) }
 const (
 	rowsTTL  = 10 * time.Second // tool_server rows are re-read this often
 	specsTTL = 5 * time.Minute  // function lists per server and user
+	// listTimeout bounds one function listing, so a hung server delays a chat run by at most this.
+	// ponytail: failures are not cached; each run retries a dead server. Cache errors briefly if that hurts.
+	listTimeout = 15 * time.Second
 )
 
 // Mount registers the database-backed provider source and GET /api/v1/tools/.
@@ -90,8 +95,11 @@ type Manager struct {
 
 // NewManager builds a manager. fs and oc may be nil in tests that need neither.
 func NewManager(db *pgxpool.Pool, keys *secret.Keys, st *settings.Store, fs *files.Service, oc *oauthclient.Service) *Manager {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	// no client timeout: MCP calls may wait minutes for the user; contexts bound them
 	m := &Manager{db: db, keys: keys, settings: st, files: fs, oauth: oc, sums: map[string][32]byte{},
-		http: &http.Client{}} // no client timeout: MCP calls may wait minutes for the user; contexts bound them
+		http: &http.Client{Transport: tr}}
 	if oc != nil {
 		oc.OnChange(m.forget)
 	}
@@ -120,6 +128,11 @@ func (m *Manager) Servers(ctx context.Context) ([]*Server, error) {
 	}
 	rows, err := m.load(ctx)
 	if err != nil {
+		if m.servers != nil { // a database hiccup must not take every chat's tools down
+			slog.Warn("tool servers: reload failed, keeping the previous set", "err", err)
+			m.loadedAt = time.Now()
+			return m.servers, nil
+		}
 		return nil, err
 	}
 	old := map[string]*Server{}
@@ -166,8 +179,9 @@ func (m *Manager) load(ctx context.Context) ([]Row, error) {
 			if err == nil {
 				r.Auth.key, err = m.keys.DecryptString(sealed)
 			}
-			if err != nil {
-				return nil, fmt.Errorf("tool server %s: key undecryptable (re-run kera apply after a secret change): %w", r.ID, err)
+			if err != nil { // skip only this server: tools.All failing would break every chat
+				slog.Error("tool server skipped: key undecryptable (re-run kera apply after a secret change)", "server", r.ID, "err", err)
+				continue
 			}
 		}
 		out = append(out, r)
@@ -294,10 +308,12 @@ func (s *Server) cached(ctx context.Context, u *auth.User) (cachedSpecs, error) 
 	if hit && time.Now().Before(c.until) {
 		return c, nil
 	}
+	lctx, cancel := context.WithTimeout(ctx, listTimeout)
+	defer cancel()
 	if s.mcp != nil {
-		c, err = s.listMCP(ctx, u, tok)
+		c, err = s.listMCP(lctx, u, tok)
 	} else {
-		c, err = s.listOpenAPI(ctx, tok)
+		c, err = s.listOpenAPI(lctx, tok)
 	}
 	if err != nil {
 		return cachedSpecs{}, fmt.Errorf("tool server %s: %w", s.row.ID, err)

@@ -346,7 +346,11 @@ func buildRequest(ctx context.Context, base string, op *operation, args map[stri
 		}
 		switch p.In {
 		case "path":
-			path = strings.ReplaceAll(path, "{"+p.Name+"}", url.PathEscape(scalar(v)))
+			sv := scalar(v)
+			if sv == "." || sv == ".." { // would climb to another endpoint of the server
+				return nil, fmt.Errorf("path parameter %s may not be %q", p.Name, sv)
+			}
+			path = strings.ReplaceAll(path, "{"+p.Name+"}", url.PathEscape(sv))
 		case "query":
 			if arr, ok := v.([]any); ok {
 				for _, x := range arr {

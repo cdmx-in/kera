@@ -25,6 +25,8 @@ import (
 	"github.com/cdmx-in/kera/internal/secret"
 )
 
+var errUnknownProvider = errors.New("unknown oauth provider")
+
 // ErrNotConnected means the user holds no (usable) token for the provider.
 var ErrNotConnected = errors.New("not connected")
 
@@ -109,7 +111,7 @@ func (s *Service) Provider(ctx context.Context, id string) (*Provider, error) {
 		WHERE id = $1 AND NOT options @> '{"login": true}'`, id).
 		Scan(&authURL, &tokenURL, &revokeURL, &clientID, &secretEnc, &scope, &pkce, &sendResource)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("unknown oauth provider %q", id)
+		return nil, fmt.Errorf("%w %q", errUnknownProvider, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load oauth provider %s: %w", id, err)
@@ -288,8 +290,10 @@ func (s *Service) remove(ctx context.Context, userID, provider string) error {
 var ErrRevokeFailed = errors.New("revocation failed")
 
 // Disconnect revokes the grant at the provider (RFC 7009) and deletes the
-// token. 200 and 400 (token already invalid) count as revoked; anything else
-// keeps the row and returns ErrRevokeFailed. No token is not an error.
+// token. Only an unreachable provider or a 5xx keeps the row (ErrRevokeFailed,
+// the user retries); a 4xx means the token is already invalid or will never be
+// accepted, so retrying cannot help. No token is not an error; a provider
+// row that no longer exists only deletes the token.
 func (s *Service) Disconnect(ctx context.Context, userID, provider string) error {
 	t, err := s.load(ctx, userID, provider)
 	if errors.Is(err, ErrNotConnected) {
@@ -299,6 +303,9 @@ func (s *Service) Disconnect(ctx context.Context, userID, provider string) error
 		return err
 	}
 	p, err := s.Provider(ctx, provider)
+	if errors.Is(err, errUnknownProvider) {
+		return s.remove(ctx, userID, provider)
+	}
 	if err != nil {
 		return err
 	}
@@ -329,9 +336,13 @@ func (s *Service) revoke(ctx context.Context, p *Provider, t stored) error {
 		return fmt.Errorf("%w: %s was not reachable", ErrRevokeFailed, p.ID)
 	}
 	resp.Body.Close()
-	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusBadRequest {
-		slog.Info("oauth grant revoked", "provider", p.ID, "status", resp.StatusCode)
-		return nil
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("%w: %s answered HTTP %d", ErrRevokeFailed, p.ID, resp.StatusCode)
 	}
-	return fmt.Errorf("%w: %s answered HTTP %d", ErrRevokeFailed, p.ID, resp.StatusCode)
+	if resp.StatusCode >= 300 {
+		slog.Warn("oauth revocation refused, dropping the grant anyway", "provider", p.ID, "status", resp.StatusCode)
+	} else {
+		slog.Info("oauth grant revoked", "provider", p.ID)
+	}
+	return nil
 }

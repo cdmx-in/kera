@@ -152,4 +152,7 @@ func TestOpenAPICall(t *testing.T) {
 	if !res.IsError || !strings.Contains(res.Content, "HTTP 422") {
 		t.Fatalf("error result %+v", res)
 	}
+	if _, err := s.callOpenAPI(context.Background(), rec.call("update_pet", `{"petId":".."}`), c.ops["update_pet"], ""); err == nil {
+		t.Fatal("a .. path parameter was sent")
+	}
 }

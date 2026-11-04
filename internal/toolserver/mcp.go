@@ -240,12 +240,12 @@ func result(m rpcMsg) (json.RawMessage, error) {
 
 func httpError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("HTTP %d: %w", resp.StatusCode, errRejected) // also when the body is a JSON-RPC error
+	}
 	var m rpcMsg
 	if json.Unmarshal(body, &m) == nil && m.Error != nil {
 		return fmt.Errorf("HTTP %d: %w", resp.StatusCode, m.Error)
-	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("HTTP %d: %w", resp.StatusCode, errRejected)
 	}
 	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 }
@@ -296,6 +296,9 @@ func readStream(ctx context.Context, body io.Reader, id json.RawMessage, h handl
 			continue
 		}
 		if v, ok := strings.CutPrefix(line, "data:"); ok {
+			if len(data)+len(v) > maxMessage {
+				return nil, errors.New("read stream: event too large")
+			}
 			if len(data) > 0 {
 				data = append(data, '\n')
 			}

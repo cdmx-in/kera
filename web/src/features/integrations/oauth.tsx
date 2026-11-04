@@ -14,18 +14,20 @@ import { MenuCheckItem, MenuItem } from '@/ui/Menu'
 // Tool server ids may contain ":" (e.g. "mcp:sheets"); keep it literal in paths.
 const seg = (id: string) => encodeURIComponent(id).replace(/%3A/gi, ':')
 
-export function authorizeUrl(i: OAuthToolServerIntegration): string {
-  return `/oauth/clients/${seg(i.toolServerId)}/authorize?next=${encodeURIComponent(`/?tools=${i.toolServerId}`)}`
+// The OAuth routes take the server's provider id (GET /api/v1/tools/), which
+// usually equals the tool server id.
+export function authorizeUrl(i: OAuthToolServerIntegration, provider = i.toolServerId): string {
+  return `/oauth/clients/${seg(provider)}/authorize?next=${encodeURIComponent(`/?tools=${i.toolServerId}`)}`
 }
 
 export function useConnected(i: OAuthToolServerIntegration) {
   const tools = useTools()
   const server = tools.data?.find((t) => t.id === i.toolServerId)
-  return { connected: !!server?.authenticated, server, loading: tools.isPending }
+  return { connected: !!server?.authenticated, server, provider: server?.provider || i.toolServerId, loading: tools.isPending }
 }
 
 export function OAuthPlusItem({ integration: i }: { integration: OAuthToolServerIntegration }) {
-  const { connected } = useConnected(i)
+  const { connected, provider } = useConnected(i)
   const selected = useComposer((s) => s.toolIds.includes(i.toolServerId))
   const toggle = useComposer((s) => s.toggleTool)
   const Icon = iconFor(i.icon)
@@ -36,21 +38,21 @@ export function OAuthPlusItem({ integration: i }: { integration: OAuthToolServer
       </MenuCheckItem>
     )
   return (
-    <MenuItem onSelect={() => location.assign(authorizeUrl(i))} testId={`integration-${i.id}`}>
+    <MenuItem onSelect={() => location.assign(authorizeUrl(i, provider))} testId={`integration-${i.id}`}>
       <Icon size={15} /> {i.label} <span className="ml-auto pl-3 text-xs text-accent">Connect</span>
     </MenuItem>
   )
 }
 
 export function OAuthSettingsRow({ integration: i }: { integration: OAuthToolServerIntegration }) {
-  const { connected, server, loading } = useConnected(i)
+  const { connected, server, provider, loading } = useConnected(i)
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
   const Icon = iconFor(i.icon)
   const disconnect = async () => {
     setBusy(true)
     try {
-      await api(`/api/v1/oauth/clients/${seg(i.toolServerId)}/session`, { method: 'DELETE' })
+      await api(`/api/v1/oauth/clients/${seg(provider)}/session`, { method: 'DELETE' })
       useComposer.getState().toggleTool(i.toolServerId, false)
       await qc.invalidateQueries({ queryKey: ['tools'] })
       toast(`${i.label} disconnected`)
@@ -74,7 +76,7 @@ export function OAuthSettingsRow({ integration: i }: { integration: OAuthToolSer
           Disconnect
         </button>
       ) : (
-        <a href={authorizeUrl(i)} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white">
+        <a href={authorizeUrl(i, provider)} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white">
           Connect
         </a>
       )}

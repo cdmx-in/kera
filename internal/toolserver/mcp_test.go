@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -208,5 +209,13 @@ func TestFilter(t *testing.T) {
 	}
 	if strings.Join(got, ",") != "read_sheet,list_spreadsheets" {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestHTTPErrorRejectedWithJSONBody(t *testing.T) {
+	resp := &http.Response{StatusCode: http.StatusUnauthorized,
+		Body: io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","error":{"code":-32001,"message":"invalid token"}}`))}
+	if err := httpError(resp); !errors.Is(err, errRejected) {
+		t.Fatalf("err %v", err)
 	}
 }

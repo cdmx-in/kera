@@ -86,7 +86,10 @@ func (h *handler) entry(ctx context.Context, u *auth.User, p tools.Provider, con
 	specs, err := p.Tools(ctx, u)
 	if err != nil {
 		slog.Warn("tool list", "server", p.ID(), "err", err)
-		e.Error = err.Error()
+		e.Error = "unavailable"
+		if u.IsAdmin() { // the detail names internal hosts
+			e.Error = err.Error()
+		}
 	}
 	for _, sp := range specs {
 		e.Functions = append(e.Functions, sp.Name)
