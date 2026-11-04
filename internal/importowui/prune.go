@@ -80,6 +80,10 @@ func (im *importer) prune(ctx context.Context) error {
 		{"chats", "chat_files", "chat_file", "chat_id", "file_id", `SELECT chat_id, file_id FROM chat_file`, false},
 		{"knowledge", "knowledge_files", "knowledge_file", "knowledge_id", "file_id", `SELECT knowledge_id, file_id FROM knowledge_file`, false},
 	}
+	groups, err := im.groupMap(ctx)
+	if err != nil {
+		return err
+	}
 	for _, p := range pairs {
 		if !im.opt.wants(p.entity) {
 			continue
@@ -92,6 +96,7 @@ func (im *importer) prune(ctx context.Context) error {
 			}
 			if p.mapUser {
 				b = im.users[b]
+				a = groups[a] // memberships of a group merged by name live under its target id
 			}
 			as, bs = append(as, a), append(bs, b)
 			return nil

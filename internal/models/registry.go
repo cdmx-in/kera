@@ -52,6 +52,7 @@ type Connection struct {
 	Sort     int               `json:"sort"`
 	Managed  bool              `json:"managed"`
 	Implicit bool              `json:"implicit,omitempty"` // from OLLAMA_BASE_URL, not stored
+	KeyError string            `json:"key_error,omitempty"` // stored key cannot be decrypted (KERA_SECRET_KEY changed?)
 }
 
 type connOptions struct {
@@ -203,7 +204,10 @@ func (r *Registry) Connections(ctx context.Context) ([]Connection, error) {
 			return nil, fmt.Errorf("scan connection: %w", err)
 		}
 		if c.APIKey, err = r.Keys.DecryptString(key); err != nil {
-			return nil, fmt.Errorf("connection %s api key: %w", c.ID, err)
+			// One bad key must not hide every model: the connection is skipped
+			// by discovery and shown to admins with the error.
+			slog.Error("connection api key cannot be decrypted; re-enter it or restore KERA_SECRET_KEY", "connection", c.ID, "err", err)
+			c.KeyError = "stored API key cannot be decrypted; re-enter it"
 		}
 		out = append(out, c)
 	}
@@ -300,7 +304,7 @@ func (r *Registry) bases(ctx context.Context) ([]baseModel, error) {
 	found := make([][]baseModel, len(conns))
 	var wg sync.WaitGroup
 	for i, c := range conns {
-		if !c.Enabled {
+		if !c.Enabled || c.KeyError != "" {
 			continue
 		}
 		wg.Go(func() {

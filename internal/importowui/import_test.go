@@ -447,3 +447,32 @@ func TestImportSnapshot(t *testing.T) {
 		t.Errorf("keys resolving %d of %d", v.Keys.OK, want)
 	}
 }
+
+// TestGroupMergeByName: `kera apply` may create a group before the import with
+// the same name but its own id. The source group must merge into it, with
+// memberships and grants remapped, and a prune run must keep them.
+func TestGroupMergeByName(t *testing.T) {
+	src, dst := fixture(t)
+	ctx := context.Background()
+	if _, err := dst.Exec(ctx, `INSERT INTO "group" (id, name, managed) VALUES ('managed-team', 'Team', true)`); err != nil {
+		t.Fatal(err)
+	}
+	opt := Options{NoFiles: true, Log: discardLog()}
+	for _, o := range []Options{opt, {NoFiles: true, PruneMissing: true, Log: discardLog()}} {
+		if _, err := Run(ctx, src, dst, "test", o); err != nil {
+			t.Fatal(err)
+		}
+		if n := count(t, dst, `SELECT count(*) FROM "group"`); n != 1 {
+			t.Fatalf("groups = %d, want the managed one only", n)
+		}
+		if n := count(t, dst, `SELECT count(*) FROM group_member WHERE group_id = 'managed-team'`); n != 2 {
+			t.Fatalf("members of the merged group = %d, want 2 (prune=%v)", n, o.PruneMissing)
+		}
+		if n := count(t, dst, `SELECT count(*) FROM access_grant WHERE principal_type = 'group' AND principal_id = 'managed-team'`); n != 1 {
+			t.Fatalf("grants remapped to the merged group = %d, want 1", n)
+		}
+		if n := count(t, dst, `SELECT count(*) FROM "group" WHERE id = 'managed-team' AND managed`); n != 1 {
+			t.Fatal("the managed group was modified")
+		}
+	}
+}

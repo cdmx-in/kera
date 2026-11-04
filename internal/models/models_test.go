@@ -469,3 +469,25 @@ func TestModelWriteGuards(t *testing.T) {
 		}
 	}
 }
+
+// A connection whose stored key cannot be decrypted (secret key changed) is
+// skipped with key_error; the other connections' models stay listed.
+func TestUndecryptableConnectionKey(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	mustExec(t, e.db, `INSERT INTO connection (id, kind, base_url, api_key_enc, sort) VALUES ('broken', 'openai', 'http://127.0.0.1:1', '\x0102030405060708090a0b0c0d0e0f10', 9)`)
+	admin, _ := e.reg.authUser(ctx, "admin")
+	ms, err := e.reg.List(ctx, admin, true)
+	if err != nil || len(ms) == 0 {
+		t.Fatalf("list with a broken connection: %d models, %v", len(ms), err)
+	}
+	conns, err := e.reg.Connections(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range conns {
+		if (c.ID == "broken") != (c.KeyError != "") {
+			t.Fatalf("connection %s key_error=%q", c.ID, c.KeyError)
+		}
+	}
+}

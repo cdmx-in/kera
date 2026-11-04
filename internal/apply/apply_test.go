@@ -425,3 +425,22 @@ func TestEverySettingHasADefault(t *testing.T) {
 		}
 	}
 }
+
+// After KERA_SECRET_KEY changes, stored secrets no longer decrypt. Apply must
+// warn and rewrite them from the file instead of failing, and the next run
+// under the new key must be clean.
+func TestSecretKeyRotation(t *testing.T) {
+	fx := setup(t)
+	f := loadFixture(t, testEnv)
+	mustApply(t, fx, f, Options{})
+	newKeys, err := secret.Derive(strings.Repeat("n", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.keys = newKeys
+	res := mustApply(t, fx, f, Options{})
+	if res.Count(Update) == 0 || len(res.Warnings) == 0 {
+		t.Fatalf("expected secret rewrites with warnings, got %d updates, warnings %v", res.Count(Update), res.Warnings)
+	}
+	assertNoChanges(t, mustApply(t, fx, f, Options{}))
+}

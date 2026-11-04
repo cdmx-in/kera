@@ -243,7 +243,11 @@ func (im *importer) importGroups(ctx context.Context) error {
 			}
 			st.Source++
 			if owner, ok := nameOwner[name]; ok && owner != id {
-				st.skip("name taken by another group", id)
+				// A same-named group already exists (typically created by
+				// `kera apply`): it absorbs this one; members and grants are
+				// remapped to it by groupMap.
+				st.note("merged into an existing group with the same name")
+				st.Existing++
 				return nil
 			}
 			return im.put(ctx, st, id, `INSERT INTO "group" (id, name, description, permissions, origin, created_at, updated_at)
@@ -259,9 +263,37 @@ func (im *importer) importGroups(ctx context.Context) error {
 	return im.importGroupMembers(ctx)
 }
 
+// groupMap maps every source group id to its target id: the same id when it
+// was imported, else the target group with the same name (merge by name).
+func (im *importer) groupMap(ctx context.Context) (map[string]string, error) {
+	rows, err := im.tx.Query(ctx, `SELECT id, name FROM "group"`)
+	if err != nil {
+		return nil, fmt.Errorf("list target groups: %w", err)
+	}
+	byID, byName := map[string]bool{}, map[string]string{}
+	var gid, gname string
+	if _, err := pgx.ForEachRow(rows, []any{&gid, &gname}, func() error { byID[gid] = true; byName[gname] = gid; return nil }); err != nil {
+		return nil, fmt.Errorf("list target groups: %w", err)
+	}
+	out := map[string]string{}
+	err = im.sourceRows(ctx, `SELECT id, coalesce(name, '') FROM "group"`, nil, func(r pgx.Rows) error {
+		var id, name string
+		if err := r.Scan(&id, &name); err != nil {
+			return err
+		}
+		if byID[id] {
+			out[id] = id
+		} else if t, ok := byName[name]; ok {
+			out[id] = t
+		}
+		return nil
+	})
+	return out, err
+}
+
 func (im *importer) importGroupMembers(ctx context.Context) error {
 	st := im.rep.Stat("group_members")
-	groups, err := im.targetIDs(ctx, `"group"`)
+	groups, err := im.groupMap(ctx)
 	if err != nil {
 		return err
 	}
@@ -272,8 +304,9 @@ func (im *importer) importGroupMembers(ctx context.Context) error {
 		}
 		st.Source++
 		uid, ok := im.users[u]
+		tg, gok := groups[g]
 		switch {
-		case !groups[g]:
+		case !gok:
 			st.skip("group missing", g+"/"+u)
 			return nil
 		case !ok:
@@ -281,7 +314,7 @@ func (im *importer) importGroupMembers(ctx context.Context) error {
 			return nil
 		}
 		return im.put(ctx, st, g+"/"+u, `INSERT INTO group_member (group_id, user_id, origin) VALUES ($1, $2, 'openwebui')
-			ON CONFLICT DO NOTHING RETURNING true`, g, uid)
+			ON CONFLICT DO NOTHING RETURNING true`, tg, uid)
 	})
 }
 
@@ -290,7 +323,7 @@ var grantTypes = map[string]string{"model": "model", "knowledge": "knowledge", "
 
 func (im *importer) importGrants(ctx context.Context) error {
 	st := im.rep.Stat("grants")
-	groups, err := im.targetIDs(ctx, `"group"`)
+	groups, err := im.groupMap(ctx)
 	if err != nil {
 		return err
 	}
@@ -322,10 +355,12 @@ func (im *importer) importGrants(ctx context.Context) error {
 				pid = uid
 			}
 		case "group":
-			if !groups[pid] {
+			tg, ok := groups[pid]
+			if !ok {
 				st.skip("principal missing", id)
 				return nil
 			}
+			pid = tg
 		default:
 			st.skip("principal type "+ptype+" unknown", id)
 			return nil

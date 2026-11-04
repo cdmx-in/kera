@@ -293,9 +293,7 @@ func (r *run) readProviders() ([]row, error) {
 			&p.UserinfoEndpoint, &p.ClientID, &enc, &p.Scope, &pkce, &p.SendResource, &opts, &managed); err != nil {
 			return nil, err
 		}
-		if p.ClientSecret, err = r.keys.DecryptString(enc); err != nil {
-			return nil, fmt.Errorf("oauth provider %s client secret: %w", p.ID, err)
-		}
+		p.ClientSecret = r.openStored("oauth provider "+p.ID+" client secret", enc)
 		var o providerOptions
 		_ = json.Unmarshal(opts, &o)
 		p.Login, p.Name, p.PKCE = o.Login, o.Name, &pkce
@@ -354,9 +352,7 @@ func (r *run) readConnections() ([]row, error) {
 		if err := rows.Scan(&c.ID, &c.Kind, &c.URL, &enc, &c.Prefix, &c.Models, &enabled, &headers, &opts, &managed); err != nil {
 			return nil, err
 		}
-		if c.APIKey, err = r.keys.DecryptString(enc); err != nil {
-			return nil, fmt.Errorf("connection %s api key: %w", c.ID, err)
-		}
+		c.APIKey = r.openStored("connection "+c.ID+" api key", enc)
 		_ = json.Unmarshal(headers, &c.Headers)
 		var o connOptions
 		_ = json.Unmarshal(opts, &o)
@@ -428,8 +424,12 @@ func (r *run) readToolServers() ([]row, error) {
 		var a authCol
 		_ = json.Unmarshal(auth, &a)
 		t.Auth = &ToolAuth{Type: a.Type, Header: a.Header, Provider: a.Provider}
-		if t.Auth.Key, err = r.openB64(a.KeyEnc); err != nil {
-			return nil, fmt.Errorf("tool server %s key: %w", t.ID, err)
+		if a.KeyEnc != "" {
+			raw, derr := base64.StdEncoding.DecodeString(a.KeyEnc)
+			if derr != nil {
+				raw = []byte{0} // corrupt: treated as undecryptable below
+			}
+			t.Auth.Key = r.openStored("tool server "+t.ID+" key", raw)
 		}
 		_ = json.Unmarshal(display, &t.Display)
 		t.Enabled, t.Grants = &enabled, grants[t.ID]
@@ -502,9 +502,7 @@ func (r *run) readHooks() ([]row, error) {
 			&h.ForwardOAuth, &h.TimeoutMS, &h.OnError, &enabled, &managed); err != nil {
 			return nil, err
 		}
-		if h.Key, err = r.keys.DecryptString(enc); err != nil {
-			return nil, fmt.Errorf("hook server %s key: %w", h.ID, err)
-		}
+		h.Key = r.openStored("hook server "+h.ID+" key", enc)
 		_ = json.Unmarshal(cfg, &h.Config)
 		h.Enabled = &enabled
 		out = append(out, row{id: h.ID, v: normHook(h), managed: managed})
@@ -668,6 +666,22 @@ func (r *run) sealB64(s string) (string, error) {
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(b), nil
+}
+
+// staleSecret stands for a stored secret that no longer decrypts (the
+// KERA_SECRET_KEY changed). It never equals a configured value, so the plan
+// shows an update and apply re-encrypts the value from the file.
+const staleSecret = "\x00undecryptable"
+
+// openStored decrypts a stored secret for comparison; an undecryptable one
+// becomes staleSecret with a warning instead of failing the whole apply.
+func (r *run) openStored(what string, enc []byte) string {
+	v, err := r.keys.DecryptString(enc)
+	if err != nil {
+		r.res.Warnings = append(r.res.Warnings, what+" cannot be decrypted with the current KERA_SECRET_KEY; it will be rewritten from the config")
+		return staleSecret
+	}
+	return v
 }
 
 func (r *run) openB64(s string) (string, error) {
