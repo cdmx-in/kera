@@ -20,6 +20,7 @@ import (
 const (
 	faviconMaxBytes = 32 << 10
 	faviconTTL      = 24 * time.Hour
+	faviconMissTTL  = time.Hour // a site that was down gets another try soon
 	faviconEntries  = 1024
 )
 
@@ -72,7 +73,11 @@ func (f *Favicons) get(ctx context.Context, domain string) *icon {
 	f.mu.Lock()
 	if el, ok := f.byKey[domain]; ok {
 		ic := el.Value.(*icon)
-		if f.now().Sub(ic.at) < faviconTTL {
+		ttl := faviconTTL
+		if ic.ctype == "" {
+			ttl = faviconMissTTL
+		}
+		if f.now().Sub(ic.at) < ttl {
 			f.order.MoveToFront(el)
 			f.mu.Unlock()
 			return ic
@@ -82,7 +87,9 @@ func (f *Favicons) get(ctx context.Context, domain string) *icon {
 	}
 	f.mu.Unlock()
 	// ponytail: concurrent misses for one domain fetch twice; add singleflight if that ever matters.
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Detached from the request: a browser that navigates away must not get a
+	// miss cached for everyone.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	ic := &icon{domain: domain, at: f.now()}
 	ic.ctype, ic.data = f.fetch(ctx, domain)
@@ -121,6 +128,9 @@ func (f *Favicons) fetch(ctx context.Context, domain string) (string, []byte) {
 	return ct, b
 }
 
+var errTooLarge = errors.New("too large")
+
+// do GETs u and reads at most limit bytes; a longer body comes back cut, with errTooLarge.
 func (f *Favicons) do(ctx context.Context, u string, limit int64) (*http.Response, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -140,7 +150,7 @@ func (f *Favicons) do(ctx context.Context, u string, limit int64) (*http.Respons
 		return nil, nil, err
 	}
 	if int64(len(b)) > limit {
-		return nil, nil, errors.New("too large")
+		return resp, b[:limit], errTooLarge
 	}
 	return resp, b, nil
 }
@@ -175,7 +185,7 @@ func imageType(declared string, b []byte) string {
 // linkedIcon reads the home page for <link rel="icon" href>.
 func (f *Favicons) linkedIcon(ctx context.Context, home string) (string, *url.URL) {
 	resp, b, err := f.do(ctx, home, 512<<10)
-	if err != nil {
+	if err != nil && !errors.Is(err, errTooLarge) { // the icon link sits in <head>; the start is enough
 		return "", nil
 	}
 	doc, err := html.Parse(bytes.NewReader(b))

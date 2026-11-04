@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/cdmx-in/kera/internal/app"
@@ -297,7 +298,7 @@ func clip(s string) string {
 		return s
 	}
 	head, tl := maxOutputChars*2/3, maxOutputChars/3
-	return validUTF8(s[:head]) + fmt.Sprintf("\n[... %d characters cut ...]\n", len(s)-head-tl) + validUTF8(s[len(s)-tl:])
+	return validUTF8(s[:head]) + "\n[... output cut ...]\n" + validUTF8(s[len(s)-tl:])
 }
 
 // tail keeps the last lines of a traceback (and at most maxChars).
@@ -433,7 +434,8 @@ func (p *Provider) harvest(ctx context.Context, c tools.Call, dir string, inputs
 // upload stores one harvested file; it returns nil, "" for unchanged inputs
 // and a reason when the file is skipped.
 func (p *Provider) upload(ctx context.Context, c tools.Call, root *os.Root, rel string, inputs map[string]stamp, maxSize int64, n int) (*files.File, string) {
-	fh, err := root.Open(rel)
+	// O_NONBLOCK: a FIFO swapped in by a leftover process must not hang the open.
+	fh, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, "unreadable"
 	}

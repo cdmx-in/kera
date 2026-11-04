@@ -198,9 +198,9 @@ func (o *Output) add(kind string, raw json.RawMessage) bool {
 	switch kind {
 	case "stream":
 		if c.Name == "stderr" {
-			o.Stderr += c.Text
+			o.Stderr = keep(o.Stderr, c.Text)
 		} else {
-			o.Stdout += c.Text
+			o.Stdout = keep(o.Stdout, c.Text)
 		}
 	case "execute_result", "display_data":
 		o.addData(c.Data)
@@ -215,6 +215,9 @@ func (o *Output) add(kind string, raw json.RawMessage) bool {
 func (o *Output) addData(data map[string]any) {
 	for _, mt := range []string{"image/png", "image/jpeg"} {
 		if s, ok := data[mt].(string); ok {
+			if len(o.Images) >= maxHarvest {
+				return // a plotting loop must not flood the user's files
+			}
 			if b, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(s, "\n", "")); err == nil {
 				o.Images = append(o.Images, b)
 				o.ImageTypes = append(o.ImageTypes, mt)
@@ -224,10 +227,20 @@ func (o *Output) addData(data map[string]any) {
 	}
 	if s, ok := data["text/plain"].(string); ok {
 		if o.Result != "" {
-			o.Result += "\n"
+			s = "\n" + s
 		}
-		o.Result += s
+		o.Result = keep(o.Result, s)
 	}
+}
+
+// keep appends add to s but drops the middle once s grows past a few times
+// what clip sends to the model, so a print loop cannot fill Kera's memory.
+func keep(s, add string) string {
+	s += add
+	if len(s) > 4*maxOutputChars {
+		s = s[:maxOutputChars] + s[len(s)-maxOutputChars:]
+	}
+	return s
 }
 
 func stripANSI(s string) string {

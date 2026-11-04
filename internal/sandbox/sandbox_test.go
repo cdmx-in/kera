@@ -172,8 +172,21 @@ func TestHelpers(t *testing.T) {
 		t.Fatalf("rewrite:\n%s\nwant\n%s", got, want)
 	}
 	long := strings.Repeat("a", maxOutputChars) + strings.Repeat("z", 100)
-	if c := clip(long); len(c) > maxOutputChars+60 || !strings.HasSuffix(c, "zzz") || !strings.Contains(c, "characters cut") {
+	if c := clip(long); len(c) > maxOutputChars+60 || !strings.HasSuffix(c, "zzz") || !strings.Contains(c, "output cut") {
 		t.Fatalf("clip: %d", len(c))
+	}
+	var o Output
+	line, _ := json.Marshal(map[string]string{"name": "stdout", "text": strings.Repeat("x", 999) + "\n"})
+	for range 1000 {
+		o.add("stream", line)
+	}
+	o.add("stream", json.RawMessage(`{"name":"stdout","text":"END"}`))
+	img, _ := json.Marshal(map[string]any{"data": map[string]string{"image/png": base64.StdEncoding.EncodeToString(png1x1)}})
+	for range maxHarvest + 5 {
+		o.add("display_data", img)
+	}
+	if len(o.Stdout) > 4*maxOutputChars || !strings.HasSuffix(o.Stdout, "END") || len(o.Images) != maxHarvest {
+		t.Fatalf("bounds: stdout %d bytes, %d images", len(o.Stdout), len(o.Images))
 	}
 	tb := "KeyError: 'x'\n" + strings.Repeat("frame\n", 100) + "last"
 	if s := tail(tb, 3, 1000); !strings.HasPrefix(s, "KeyError: 'x'\n...\n") || !strings.HasSuffix(s, "last") {

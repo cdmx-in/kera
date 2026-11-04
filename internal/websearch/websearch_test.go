@@ -272,7 +272,7 @@ func TestFavicons(t *testing.T) {
 		hits.Add(1)
 		host := r.Header.Get("X-Host")
 		switch {
-		case host == "ico.example" && r.URL.Path == "/favicon.ico":
+		case (host == "ico.example" || host == "late.example") && r.URL.Path == "/favicon.ico":
 			_, _ = w.Write(ico)
 		case host == "linked.example" && r.URL.Path == "/":
 			fmt.Fprint(w, `<html><head><link rel="shortcut icon" href="/static/i.png"></head></html>`)
@@ -280,6 +280,10 @@ func TestFavicons(t *testing.T) {
 			_, _ = w.Write(png1x1())
 		case host == "big.example" && r.URL.Path == "/favicon.ico":
 			_, _ = w.Write(append(ico, make([]byte, faviconMaxBytes)...))
+		case host == "bighome.example" && r.URL.Path == "/":
+			fmt.Fprint(w, `<html><head><link rel="icon" href="/i.png"></head><body>`+strings.Repeat("x", 600<<10))
+		case host == "bighome.example" && r.URL.Path == "/i.png":
+			_, _ = w.Write(png1x1())
 		case host == "html.example":
 			fmt.Fprint(w, "<html>not an image</html>")
 		default:
@@ -307,6 +311,16 @@ func TestFavicons(t *testing.T) {
 	if rec := get("linked.example"); rec.Code != 200 || rec.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("linked = %d", rec.Code)
 	}
+	if rec := get("bighome.example"); rec.Code != 200 {
+		t.Fatalf("icon linked from a large home page = %d", rec.Code)
+	}
+	gone, cancel := context.WithCancel(context.Background())
+	cancel() // the browser left; the fetch still completes and is cached
+	rec := httptest.NewRecorder()
+	f.ServeHTTP(rec, httptest.NewRequestWithContext(gone, "GET", "/api/v1/favicon?domain=late.example", nil))
+	if rec.Code != 200 {
+		t.Fatalf("cancelled request = %d", rec.Code)
+	}
 	for _, d := range []string{"big.example", "html.example"} {
 		if rec := get(d); rec.Code != 404 {
 			t.Fatalf("%s = %d", d, rec.Code)
@@ -317,7 +331,13 @@ func TestFavicons(t *testing.T) {
 	if hits.Load() != n {
 		t.Fatal("negative result not cached")
 	}
-	now = now.Add(25 * time.Hour)
+	now = now.Add(2 * time.Hour)
+	get("html.example") // misses expire after an hour
+	if hits.Load() == n {
+		t.Fatal("expired miss not refetched")
+	}
+	n = hits.Load()
+	now = now.Add(23 * time.Hour)
 	get("ico.example")
 	if hits.Load() == n {
 		t.Fatal("expired entry not refetched")
