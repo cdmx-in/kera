@@ -42,7 +42,7 @@ type LiveFunc func(messageID string) (Live, bool)
 // SetLive installs the engine's live-state lookup.
 func (s *Store) SetLive(f LiveFunc) { s.live = f }
 
-// Mount registers /api/v1/chats and /api/v1/folders.
+// Mount registers /api/v1/chats, /api/v1/folders and /api/v1/evaluations/feedback.
 func Mount(a *app.App) error {
 	h := &handler{s: For(a)}
 	user := func(f http.HandlerFunc) http.Handler { return a.Auth.Required(f) } // CSRF: see auth.Credential
@@ -87,6 +87,7 @@ func (h *handler) routes(user wrap, perm func(string, http.HandlerFunc) http.Han
 		"POST /api/v1/folders/{id}/update/parent":   user(h.moveFolder),
 		"POST /api/v1/folders/{id}/update/expanded": user(h.expandFolder),
 		"DELETE /api/v1/folders/{id}":               user(h.deleteFolder),
+		"POST /api/v1/evaluations/feedback":         user(h.createFeedback),
 	}
 }
 

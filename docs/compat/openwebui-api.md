@@ -112,7 +112,7 @@ Native event dialect (`text/event-stream`, `id:` = seq, `: ping` every 15 s, `X-
 | `POST /api/v1/memories/{id}/update` | done | `{content}` -> the memory; 404 for another user's id. |
 | `DELETE /api/v1/memories/{id}` | done | `true`; 404 when missing. |
 | `DELETE /api/v1/memories/delete/user` | done | deletes every memory of the caller; `true`. |
-| `POST /api/v1/evaluations/feedback` | planned | `{type, data: {rating, model_id, comment}, meta, snapshot}`. |
+| `POST /api/v1/evaluations/feedback` | done | signed-in users; `{type, data: {rating, model_id, comment}, meta, snapshot}` (`type` defaults to `rating`) stored under the caller -> `{id, user_id, version, type, data, meta, snapshot, created_at, updated_at}`. The list and leaderboard routes are not built. |
 | `GET /api/version` | done | `{version}`. |
 
 ## Kera-only identity routes
@@ -134,6 +134,8 @@ Native event dialect (`text/event-stream`, `id:` = seq, `: ping` every 15 s, `X-
 | `GET/POST /api/v1/configs/oauth_providers`, `DELETE .../{id}` | done | admin; `{id, name, login, issuer, authorization_endpoint, token_endpoint, revocation_endpoint, userinfo_endpoint, client_id, has_secret, scope, pkce, send_resource, managed, redirect_uri}`; POST takes `client_secret` (write-only). `redirect_uri` is `<KERA_URL>/oauth/<id>/callback` for login providers and `<KERA_URL>/oauth/clients/<id>/callback` for tool-server providers. DELETE answers 409 `in_use` while a tool server uses the provider. |
 | `GET /api/v1/analytics/summary\|daily\|models\|users?start_date=&end_date=` | done | admin; whole UTC days, end inclusive, default the last 30 days, at most 366. One event per assistant reply (the user from its chat, tokens from `usage` rows of that message, else from the message's own usage, so imported history counts) plus `usage` rows without a stored message. `summary` = `{start_date, end_date, users_total, active_users, messages, chats, models, prompt_tokens, completion_tokens}`; `daily` = `[{day, messages, users, prompt_tokens, completion_tokens}]` for every day; `models` = `[{model, messages, users, chats, prompt_tokens, completion_tokens}]`; `users` = `[{user_id, name, email, messages, chats, prompt_tokens, completion_tokens, last_at}]`. |
 | `GET /api/v1/analytics/spend?start_date=&end_date=` | done | admin; both dates required. `{start_date, end_date, rows: [{end_user, model, day, spend, prompt_tokens, completion_tokens, requests}], users: [{id, name, email, last_active_at}]}`: LiteLLM spend logs summed per end user, model and UTC day (`end_user` `""` for unattributed calls), read through a read-only 2-connection pool on `spend.source.dsn` when `spend.source.kind` is `litellm_postgres`. 503 `spend_not_configured`, 502 `spend_source_failed`. |
+| `GET /api/v1/admin/sync/openwebui` | done | admin; `{enabled, at, timezone, next_run?, running, runs: [{id, source, trigger, since?, started_at, finished_at, error, totals: {inserted, existing, skipped, pruned}, stats}]}` for the last 10 `migration_run` rows (CLI runs included). `enabled` when `KERA_OWUI_SYNC_DSN` is set. |
+| `POST /api/v1/admin/sync/openwebui` | done | admin; starts an import now (same options as the nightly run) -> 202 `{started: true}`; 409 `sync_running` while an import holds the lock (scheduler, button or CLI); 503 `sync_not_configured`. |
 | `GET /api/v1/favicon?domain=` | done | signed-in users; the site's icon (`/favicon.ico`, else the home page's `<link rel=icon>`), raster images or SVG of at most 32 KB, private-network targets refused, in-memory cache (24 h, misses 1 h); 404 when none, 400 for anything but a hostname. |
 ## Tool servers and per-user OAuth
 
@@ -163,3 +165,7 @@ Observed source schema (0.13, Postgres) and how `internal/importowui` maps it. S
 | `folder`, `chat_file`, `memory`, `prompt`, `feedback` | as named | same tables (memory content only, no vectors) |
 | `model` | `params.system` = preset system prompt | not imported; `--export-presets` writes the prompts |
 | `config` | one row per dotted key | not imported; `--report-config` prints `rag.* web.* task.* ui.* user.permissions tool_server.connections` with secrets removed |
+
+Re-runs upsert in place and never overwrite Kera's own state: rows `kera apply` manages (groups, grants it adopted) are neither updated nor pruned, source grants on resources whose access the config owns (managed models, anything with a managed grant) are skipped, and `knowledge.meta` is merged so Kera's keys (`reindex_to`, `errors`) survive.
+
+Nightly sync (shadow period): with `KERA_OWUI_SYNC_DSN` set, `kera serve` runs the import every day at `KERA_OWUI_SYNC_AT` (HH:MM in `site.timezone`, default `01:30`) with `--prune-missing`, `--since` = start of the last successful full run (not dry, no `--only`, with blobs) minus 1 h, and blobs from `KERA_OWUI_SYNC_UPLOADS` (default `/owui/uploads`). Imports run one at a time under a Postgres advisory lock shared with `kera migrate from-openwebui`; every run is a `migration_run` row (`flags.trigger` = `schedule`, `admin` or `cli`).

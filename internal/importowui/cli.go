@@ -55,7 +55,7 @@ func Command(ctx context.Context, args []string, out io.Writer) error {
 func fromCmd(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("migrate from-openwebui", flag.ContinueOnError)
 	dsn := fs.String("dsn", "", "source Postgres URL")
-	opt := Options{Log: slog.Default()}
+	opt := Options{Log: slog.Default(), Trigger: "cli"}
 	fs.StringVar(&opt.UploadsDir, "uploads-dir", "", "source uploads directory (read only)")
 	fs.BoolVar(&opt.DryRun, "dry-run", false, "roll back instead of committing")
 	only := fs.String("only", "", "comma list of entities")
@@ -87,6 +87,11 @@ func fromCmd(ctx context.Context, args []string, out io.Writer) error {
 	defer src.Close()
 	defer dst.Close()
 	opt.DataDir = env.DataDir
+	unlock, err := Lock(ctx, dst)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	rep, err := Run(ctx, src, dst, SourceName(*dsn), opt)
 	if rep != nil {
 		PrintReport(out, rep, opt.DryRun)
@@ -146,17 +151,9 @@ func open(ctx context.Context, dsn string) (*pgxpool.Pool, *pgxpool.Pool, config
 	if dsn == env.DatabaseURL {
 		return nil, nil, env, errors.New("--dsn points at the Kera database itself")
 	}
-	cfg, err := pgxpool.ParseConfig(dsn)
+	src, err := openSource(ctx, dsn)
 	if err != nil {
-		return nil, nil, env, fmt.Errorf("parse --dsn: %w", err)
-	}
-	cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
-	src, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err == nil {
-		err = src.Ping(ctx)
-	}
-	if err != nil {
-		return nil, nil, env, fmt.Errorf("connect source: %w", err)
+		return nil, nil, env, err
 	}
 	dst, err := db.Open(ctx, env.DatabaseURL)
 	if err != nil {
@@ -169,6 +166,26 @@ func open(ctx context.Context, dsn string) (*pgxpool.Pool, *pgxpool.Pool, config
 		return nil, nil, env, err
 	}
 	return src, dst, env, nil
+}
+
+// openSource connects to the source database with read-only sessions.
+func openSource(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse source dsn: %w", err) // pgx keeps the password out of this error
+	}
+	cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+	src, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err == nil {
+		err = src.Ping(ctx)
+	}
+	if err != nil {
+		if src != nil {
+			src.Close()
+		}
+		return nil, fmt.Errorf("connect source: %w", err)
+	}
+	return src, nil
 }
 
 func parseOnly(s string) ([]string, error) {

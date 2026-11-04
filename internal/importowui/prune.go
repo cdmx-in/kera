@@ -40,7 +40,7 @@ func (im *importer) prune(ctx context.Context) error {
 		{"chats", "chats", "chat", "id", `SELECT id FROM chat`, noNative("message", "chat_id") + noNative("shared_chat", "chat_id")},
 		{"chats", "shared_chats", "shared_chat", "share_id", `SELECT s.id FROM shared_chat s JOIN chat c ON c.share_id = s.id`, ""},
 		{"knowledge", "knowledge", "knowledge", "id", `SELECT id FROM knowledge`, noNative("knowledge_file", "knowledge_id")},
-		{"grants", "grants", "access_grant", "id", `SELECT id FROM access_grant`, ""},
+		{"grants", "grants", "access_grant", "id", `SELECT id FROM access_grant`, " AND NOT t.managed"}, // adopted by `kera apply`
 		{"memories", "memories", "memory", "id", `SELECT id FROM memory`, ""},
 		{"prompts", "prompts", "prompt", "id", `SELECT id FROM prompt`, ""},
 		{"feedback", "feedback", "feedback", "id", `SELECT id FROM feedback`, ""},

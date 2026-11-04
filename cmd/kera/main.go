@@ -38,7 +38,7 @@ Usage:
   kera version            print the version
 ` + knowledge.CLIUsage + identity.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
-KERA_CONFIG (default file for kera apply).
+KERA_CONFIG (default file for kera apply), KERA_OWUI_SYNC_DSN/_AT/_UPLOADS (nightly Open WebUI import).
 `
 
 func main() {
