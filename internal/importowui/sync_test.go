@@ -72,7 +72,7 @@ func TestLockOneAtATime(t *testing.T) {
 func TestLastSince(t *testing.T) {
 	_, dst := fixture(t)
 	ctx := context.Background()
-	if got, err := LastSince(ctx, dst); err != nil || !got.IsZero() {
+	if got, err := LastSince(ctx, dst, "s"); err != nil || !got.IsZero() {
 		t.Fatalf("no runs: %v %v", got, err)
 	}
 	_, err := dst.Exec(ctx, `INSERT INTO migration_run (source, flags, started_at, finished_at, error) VALUES
@@ -81,14 +81,15 @@ func TestLastSince(t *testing.T) {
 		('s', '{"dry_run":true,"only":null}',  '2026-11-03T01:30:00Z', '2026-11-03T01:31:00Z', ''),
 		('s', '{"dry_run":false,"only":["chats"]}', '2026-11-03T02:30:00Z', '2026-11-03T02:31:00Z', ''),
 		('s', '{"dry_run":false,"no_files":true}', '2026-11-03T03:30:00Z', '2026-11-03T03:31:00Z', ''),
-		('s', '{"dry_run":false,"only":null}', '2026-11-04T01:30:00Z', NULL, '')`)
+		('s', '{"dry_run":false,"only":null}', '2026-11-04T01:30:00Z', NULL, ''),
+		('snapshot', '{"dry_run":false,"only":null}', '2026-11-03T04:30:00Z', '2026-11-03T04:31:00Z', '')`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := LastSince(ctx, dst)
+	got, err := LastSince(ctx, dst, "s")
 	want := time.Date(2026, 11, 1, 0, 30, 0, 0, time.UTC)
 	if err != nil || !got.Equal(want) {
-		t.Fatalf("LastSince = %v %v, want %v (failed, dry, partial, blob-less and unfinished runs ignored)", got, err, want)
+		t.Fatalf("LastSince = %v %v, want %v (failed, dry, partial, blob-less, unfinished and other-source runs ignored)", got, err, want)
 	}
 }
 

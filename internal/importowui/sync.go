@@ -31,7 +31,7 @@ import (
 func init() { app.Register("owuisync", Mount) }
 
 // lockKey is the session advisory lock that keeps imports one at a time,
-// across the scheduler, the admin button and the CLI ("kera owui" in hex).
+// across the scheduler, the admin button and the CLI ("kera-owu" in ASCII).
 const lockKey int64 = 0x6b6572612d6f7775
 
 // ErrBusy means another import holds the lock.
@@ -63,13 +63,15 @@ func Lock(ctx context.Context, db *pgxpool.Pool) (unlock func(), err error) {
 }
 
 // LastSince is the --since of the next incremental run: the start of the last
-// successful full import (not a dry run, not --only, with blobs) minus an
-// hour of slack for clocks and long transactions. Zero means import all.
-func LastSince(ctx context.Context, db *pgxpool.Pool) (time.Time, error) {
+// successful full import from the same source (not a dry run, not --only, with
+// blobs) minus an hour of slack for clocks and long transactions. A run from
+// another source (say a restored snapshot) does not count: its data may be
+// older than its start. Zero means import all.
+func LastSince(ctx context.Context, db *pgxpool.Pool, source string) (time.Time, error) {
 	var t *time.Time
-	err := db.QueryRow(ctx, `SELECT max(started_at) FROM migration_run WHERE finished_at IS NOT NULL AND error = ''
+	err := db.QueryRow(ctx, `SELECT max(started_at) FROM migration_run WHERE source = $1 AND finished_at IS NOT NULL AND error = ''
 		AND NOT coalesce((flags->>'dry_run')::boolean, false) AND NOT coalesce((flags->>'no_files')::boolean, false)
-		AND coalesce(flags->'only', 'null') = 'null'`).Scan(&t)
+		AND coalesce(flags->'only', 'null') = 'null'`, source).Scan(&t)
 	if err != nil || t == nil {
 		return time.Time{}, err
 	}
@@ -173,7 +175,7 @@ func (s *syncer) start(ctx context.Context, trigger string) error {
 }
 
 func (s *syncer) run(ctx context.Context, trigger string) error {
-	since, err := LastSince(ctx, s.db)
+	since, err := LastSince(ctx, s.db, SourceName(s.dsn))
 	if err != nil {
 		return fmt.Errorf("last sync: %w", err)
 	}
