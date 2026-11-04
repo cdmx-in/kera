@@ -221,6 +221,7 @@ func TestOpenAIStream(t *testing.T) {
 	srv, got := stub(t, 200, "text/event-stream", sse(
 		`{"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"think "}}]}`,
 		`{"choices":[{"index":0,"delta":{"reasoning":"more"}}]}`,
+		`{"choices":[{"index":0,"delta":{"reasoning_content":" again","reasoning":" again"}}]}`,
 		`{"choices":[{"index":0,"delta":{"content":"Hi"}}]}`,
 		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"get_","arguments":""}}]}}]}`,
 		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"other","arguments":"{\"y\":"}}]}}]}`,
@@ -238,7 +239,7 @@ func TestOpenAIStream(t *testing.T) {
 		if got.path != "/v1/chat/completions" {
 			t.Fatalf("path %s for base %s", got.path, base)
 		}
-		if text(evs, EventReasoning) != "think more" || text(evs, EventText) != "Hi" {
+		if text(evs, EventReasoning) != "think more again" || text(evs, EventText) != "Hi" {
 			t.Fatalf("text %+v", evs)
 		}
 		cs := calls(evs)
@@ -418,4 +419,15 @@ type rewrite struct{ q string }
 func (r rewrite) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.URL.RawQuery = r.q
 	return http.DefaultTransport.RoundTrip(req)
+}
+
+func TestLineLimit(t *testing.T) {
+	long := strings.NewReader(strings.Repeat("x", maxLine+1) + "\n")
+	var err error
+	for _, e := range rawLines(long) {
+		err = e
+	}
+	if err == nil {
+		t.Fatal("over-long line accepted")
+	}
 }

@@ -239,7 +239,7 @@ func (c *conn) postJSON(ctx context.Context, url string, payload, dst any) error
 		return err
 	}
 	defer body.Close()
-	if err := json.NewDecoder(body).Decode(dst); err != nil {
+	if err := json.NewDecoder(io.LimitReader(body, maxBody)).Decode(dst); err != nil {
 		return fmt.Errorf("provider: decode %s: %w", url, err)
 	}
 	return nil
@@ -251,7 +251,7 @@ func (c *conn) getJSON(ctx context.Context, url string, dst any) error {
 		return err
 	}
 	defer body.Close()
-	if err := json.NewDecoder(body).Decode(dst); err != nil {
+	if err := json.NewDecoder(io.LimitReader(body, maxBody)).Decode(dst); err != nil {
 		return fmt.Errorf("provider: decode %s: %w", url, err)
 	}
 	return nil
@@ -329,22 +329,25 @@ func sseData(r io.Reader) iter.Seq2[[]byte, error] {
 	}
 }
 
-// rawLines yields every line (blank ones included) without \r\n.
+// Limits on what a model server may send: one stream line, one JSON body.
+const (
+	maxLine = 16 << 20
+	maxBody = 256 << 20
+)
+
+// rawLines yields every line (blank ones included) without \r\n. A line
+// longer than maxLine is an error.
 func rawLines(r io.Reader) iter.Seq2[[]byte, error] {
 	return func(yield func([]byte, error) bool) {
-		br := bufio.NewReader(r)
-		for {
-			line, err := br.ReadBytes('\n')
-			if len(line) > 0 && !yield(bytes.TrimRight(line, "\r\n"), nil) {
+		sc := bufio.NewScanner(r)
+		sc.Buffer(nil, maxLine)
+		for sc.Scan() {
+			if !yield(bytes.Clone(sc.Bytes()), nil) {
 				return
 			}
-			if err == io.EOF {
-				return
-			}
-			if err != nil {
-				yield(nil, err)
-				return
-			}
+		}
+		if err := sc.Err(); err != nil {
+			yield(nil, err)
 		}
 	}
 }

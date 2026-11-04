@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"slices"
@@ -41,8 +42,11 @@ func init() { app.Register("models", Mount) }
 // Mount registers the model and connection routes.
 func Mount(a *app.App) error {
 	h := &handlers{r: For(a)}
-	user := func(f http.HandlerFunc) http.Handler { return a.Auth.Required(f) }
-	admin := func(f http.HandlerFunc) http.Handler { return a.Auth.Admin(f) }
+	// The session cookie is SameSite=Lax, which still lets same-site origins
+	// post; cross-origin browser writes are refused (GET is always allowed).
+	csrf := http.NewCrossOriginProtection()
+	user := func(f http.HandlerFunc) http.Handler { return csrf.Handler(a.Auth.Required(f)) }
+	admin := func(f http.HandlerFunc) http.Handler { return csrf.Handler(a.Auth.Admin(f)) }
 	for _, p := range []string{"/api/models", "/api/v1/models", "/v1/models"} {
 		a.Server.Handle("GET "+p, user(h.list))
 	}
@@ -88,6 +92,10 @@ func listEntry(m *Resolved) map[string]any {
 		sugg = json.RawMessage(`[]`)
 	}
 	toolIDs := m.Tools.IDs()
+	builtins := m.Tools.Builtins
+	if builtins == nil {
+		builtins = map[string]bool{}
+	}
 	knowledge := orEmpty(m.Knowledge)
 	return map[string]any{
 		"id": m.ID, "name": m.Name, "object": "model", "created": m.Created.Unix(),
@@ -98,7 +106,8 @@ func listEntry(m *Resolved) map[string]any {
 		"info": map[string]any{
 			"id": m.ID, "base_model_id": m.BaseModelID, "name": m.Name,
 			"meta": map[string]any{"description": m.Description, "capabilities": m.Capabilities, "hidden": m.Hidden,
-				"suggestion_prompts": sugg, "knowledge": knowledge, "toolIds": toolIDs, "profile_image_url": m.ImageURL},
+				"suggestion_prompts": sugg, "knowledge": knowledge, "toolIds": toolIDs, "builtinTools": builtins,
+				"profile_image_url": m.ImageURL},
 			"params": m.Params,
 		},
 	}
@@ -170,6 +179,9 @@ func (h *handlers) lookup(ctx context.Context, u *auth.User, id, perm string) (*
 	}
 	if rw == nil {
 		m, err := h.r.Resolve(ctx, u, id)
+		if errors.Is(err, ErrForbidden) {
+			err = ErrNotFound // do not reveal models the caller cannot see
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -180,17 +192,28 @@ func (h *handlers) lookup(ctx context.Context, u *auth.User, id, perm string) (*
 		}
 		return rowFromModel(m), nil
 	}
-	ok, err := h.can(ctx, u, rw, perm)
-	if err != nil {
+	if err := h.check(ctx, u, rw, perm); err != nil {
 		return nil, err
 	}
-	if !ok {
-		if perm == access.Read {
-			return nil, ErrNotFound
-		}
-		return nil, ErrForbidden
-	}
 	return rw, nil
+}
+
+// check returns ErrNotFound when u may not read rw, ErrForbidden when u may
+// read but not hold perm.
+func (h *handlers) check(ctx context.Context, u *auth.User, rw *row, perm string) error {
+	for _, p := range []string{access.Read, perm} {
+		ok, err := h.can(ctx, u, rw, p)
+		if err != nil {
+			return err
+		}
+		if !ok && p == access.Read {
+			return ErrNotFound
+		}
+		if !ok {
+			return ErrForbidden
+		}
+	}
+	return nil
 }
 
 // denied turns an access check into ErrForbidden (or its own error).
@@ -236,12 +259,19 @@ func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	if existing == nil && !u.IsAdmin() {
+		// A row with a discovered model's id overrides it for everyone; only
+		// admins (or write-grant holders, via update) may do that.
+		if _, err := h.r.Resolve(ctx, u, f.ID); !errors.Is(err, ErrNotFound) {
+			existing = &row{}
+		}
+	}
 	if existing != nil {
 		api.Fail(w, r, api.Errf(http.StatusConflict, "model_exists", "a model with this id already exists"))
 		return
 	}
 	rw := &row{ID: f.ID, Name: f.ID, Active: true, OwnerID: &u.ID}
-	if err := h.write(ctx, rw, &f); err != nil {
+	if err := h.write(ctx, u, rw, &f); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
@@ -260,17 +290,26 @@ func (h *handlers) update(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
-	if err := h.write(ctx, rw, &f); err != nil {
+	if err := h.write(ctx, u, rw, &f); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
 	api.JSON(w, http.StatusOK, rowJSON(rw))
 }
 
-// write applies f, saves and re-reads the row (for timestamps).
-func (h *handlers) write(ctx context.Context, rw *row, f *form) error {
+// write applies f, saves and re-reads the row (for timestamps). A non-admin
+// may only build a preset on a model they can use.
+func (h *handlers) write(ctx context.Context, u *auth.User, rw *row, f *form) error {
+	before := rw.BaseModelID
 	if err := f.apply(rw); err != nil {
 		return err
+	}
+	if b := rw.BaseModelID; b != nil && !u.IsAdmin() && (before == nil || *before != *b) {
+		if _, err := h.r.Resolve(ctx, u, *b); errors.Is(err, ErrNotFound) || errors.Is(err, ErrForbidden) {
+			return api.Errf(http.StatusBadRequest, "bad_base_model", "base model not found")
+		} else if err != nil {
+			return err
+		}
 	}
 	if err := saveRow(ctx, h.r.DB, rw); err != nil {
 		return err
@@ -291,7 +330,7 @@ func (h *handlers) toggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	active := !rw.Active
-	if err := h.write(ctx, rw, &form{IsActive: &active}); err != nil {
+	if err := h.write(ctx, u, rw, &form{IsActive: &active}); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
@@ -317,15 +356,13 @@ func (h *handlers) delete(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
-	if err := denied(h.can(ctx, u, rw, access.Write)); err != nil {
+	if err := h.check(ctx, u, rw, access.Write); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
-	if _, err := h.r.DB.Exec(ctx, `DELETE FROM model WHERE id = $1`, id); err != nil {
-		api.Fail(w, r, err)
-		return
-	}
-	if _, err := h.r.DB.Exec(ctx, `DELETE FROM access_grant WHERE resource_type = 'model' AND resource_id = $1`, id); err != nil {
+	// One statement, so the row and its grants go together.
+	if _, err := h.r.DB.Exec(ctx, `WITH m AS (DELETE FROM model WHERE id = $1)
+		DELETE FROM access_grant WHERE resource_type = 'model' AND resource_id = $1`, id); err != nil {
 		api.Fail(w, r, err)
 		return
 	}

@@ -365,7 +365,7 @@ func TestModelRoutes(t *testing.T) {
 	if code != 200 || !strings.Contains(string(b), `"finance"`) || strings.Contains(string(b), `"kera"`) {
 		t.Fatalf("alice rows %d %s", code, b)
 	}
-	e.json(t, "alice", "DELETE", "/api/v1/models/model/delete?id=helper", nil, 403)
+	e.json(t, "alice", "DELETE", "/api/v1/models/model/delete?id=helper", nil, 404) // cannot see it
 	if code, _ := e.call(t, "admin", "DELETE", "/api/v1/models/model/delete?id=helper", nil); code != 200 {
 		t.Fatalf("delete %d", code)
 	}
@@ -420,4 +420,52 @@ func toStrings(v any) []string {
 // authUser loads a user the way the auth middleware does (test helper).
 func (r *Registry) authUser(ctx context.Context, id string) (*auth.User, error) {
 	return auth.New(r.DB, r.Keys, r.Settings, false).LoadUser(ctx, id)
+}
+
+func TestModelWriteGuards(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	must(t, e.st.Set(ctx, "user.permissions", map[string]any{"features": map[string]any{"api_keys": true},
+		"workspace": map[string]any{"models": true}}, false))
+
+	// a user may not shadow a discovered model or an invisible one with a new row
+	e.json(t, "alice", "POST", "/api/v1/models/create", map[string]any{"id": "llava", "params": map[string]any{"system": "pwned"}}, 409)
+	// presets only over models the user can use
+	e.json(t, "alice", "POST", "/api/v1/models/create", map[string]any{"id": "mine", "base_model_id": "qwen"}, 400)
+	e.json(t, "alice", "POST", "/api/v1/models/create", map[string]any{"id": "mine", "base_model_id": "kera"}, 200)
+	e.json(t, "alice", "POST", "/api/v1/models/model/update?id=mine", map[string]any{"base_model_id": "web.gpt-a"}, 400)
+	// admins may create an override row for a discovered model
+	e.json(t, "admin", "POST", "/api/v1/models/create", map[string]any{"id": "llava", "name": "LLaVA"}, 200)
+
+	// 404, not 403, for models the caller cannot see
+	e.json(t, "alice", "POST", "/api/v1/models/model/update?id=qwen", map[string]any{"name": "x"}, 404)
+	e.json(t, "alice", "POST", "/api/v1/models/model/toggle?id=qwen", nil, 404)
+	e.json(t, "alice", "DELETE", "/api/v1/models/model/delete?id=qwen", nil, 404)
+	e.json(t, "alice", "DELETE", "/api/v1/models/model/delete?id=kera", nil, 403)
+
+	// cookie-authenticated cross-site writes are refused; same-origin ones pass
+	post := func(site string) int {
+		req := httptest.NewRequest("POST", "/api/v1/models/model/toggle?id=llava", nil)
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: e.tokens["admin"]})
+		req.Header.Set("Sec-Fetch-Site", site)
+		rec := httptest.NewRecorder()
+		e.srv.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := post("cross-site"); code != 403 {
+		t.Fatalf("cross-site toggle %d", code)
+	}
+	if code := post("same-origin"); code != 200 {
+		t.Fatalf("same-origin toggle %d", code)
+	}
+
+	// the list carries builtinTools in info.meta
+	for _, m := range e.json(t, "admin", "GET", "/api/models", nil, 200)["data"].([]any) {
+		if mm := m.(map[string]any); mm["id"] == "kera" {
+			bt := mm["info"].(map[string]any)["meta"].(map[string]any)["builtinTools"].(map[string]any)
+			if bt["execute_code"] != true || bt["ask_user"] != false {
+				t.Fatalf("builtinTools %v", bt)
+			}
+		}
+	}
 }

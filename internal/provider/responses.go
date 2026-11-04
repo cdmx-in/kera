@@ -31,7 +31,10 @@ func (o *responses) payload(req Request) map[string]any {
 					"arguments": argsString(tc.Arguments)})
 			}
 		default:
-			parts := []map[string]any{{"type": "input_text", "text": m.Content}}
+			parts := []map[string]any{}
+			if m.Content != "" || len(m.Images) == 0 {
+				parts = append(parts, map[string]any{"type": "input_text", "text": m.Content})
+			}
 			for _, img := range m.Images {
 				parts = append(parts, map[string]any{"type": "input_image", "image_url": imageURL(img)})
 			}

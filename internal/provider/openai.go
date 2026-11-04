@@ -135,7 +135,11 @@ func (o *openAI) Stream(ctx context.Context, req Request) iter.Seq2[Event, error
 			}
 			for _, ch := range c.Choices {
 				d := ch.Delta
-				if r := d.ReasoningContent + d.Reasoning; r != "" && !yield(Event{Kind: EventReasoning, Text: r}, nil) {
+				r := d.ReasoningContent // some servers send the same text in both fields
+				if r == "" {
+					r = d.Reasoning
+				}
+				if r != "" && !yield(Event{Kind: EventReasoning, Text: r}, nil) {
 					return
 				}
 				if d.Content != "" && !yield(Event{Kind: EventText, Text: d.Content}, nil) {
