@@ -327,6 +327,19 @@ func (im *importer) importGrants(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Resources whose access list `kera apply` owns (managed models, anything
+	// with a managed grant) get no source grants: the config file decides who
+	// may use them, and a nightly sync must not widen that.
+	rows, err := im.tx.Query(ctx, `SELECT 'model', id FROM model WHERE managed
+		UNION SELECT resource_type, resource_id FROM access_grant WHERE managed`)
+	if err != nil {
+		return fmt.Errorf("list managed resources: %w", err)
+	}
+	managed := map[string]bool{}
+	var mt, mid string
+	if _, err := pgx.ForEachRow(rows, []any{&mt, &mid}, func() error { managed[mt+"/"+mid] = true; return nil }); err != nil {
+		return fmt.Errorf("list managed resources: %w", err)
+	}
 	return im.sourceRows(ctx, `SELECT id, resource_type, resource_id, principal_type, principal_id, permission, created_at
 		FROM access_grant ORDER BY id`, nil, func(r pgx.Rows) error {
 		var id, rtype, rid, ptype, pid, perm string
@@ -338,6 +351,10 @@ func (im *importer) importGrants(ctx context.Context) error {
 		kt, ok := grantTypes[rtype]
 		if !ok {
 			st.skip("resource type "+rtype+" not in Kera", id)
+			return nil
+		}
+		if managed[kt+"/"+rid] {
+			st.skip("access managed by config", id)
 			return nil
 		}
 		if perm != "read" && perm != "write" {

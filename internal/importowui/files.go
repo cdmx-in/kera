@@ -177,6 +177,10 @@ func copyFile(src, dst string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// importKnowledge upserts collections. meta is merged, not replaced: Kera
+// keeps its own keys there (reindex_to, errors) and a nightly re-import must
+// not cancel a reindex or drop indexing errors.
+// ponytail: a key the source deletes lingers in Kera; track source-owned keys if that ever matters.
 func (im *importer) importKnowledge(ctx context.Context) error {
 	st := im.rep.Stat("knowledge")
 	err := im.sourceRows(ctx, `SELECT id, user_id, coalesce(name, ''), coalesce(description, ''), meta, created_at, updated_at
@@ -196,7 +200,7 @@ func (im *importer) importKnowledge(ctx context.Context) error {
 		return im.put(ctx, st, id, `INSERT INTO knowledge (id, user_id, name, description, meta, origin, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, 'openwebui', $6, $7)
 			ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, name = EXCLUDED.name, description = EXCLUDED.description,
-				meta = EXCLUDED.meta, updated_at = EXCLUDED.updated_at
+				meta = knowledge.meta || EXCLUDED.meta, updated_at = EXCLUDED.updated_at
 			WHERE knowledge.origin = 'openwebui' AND knowledge.updated_at <= EXCLUDED.updated_at
 			RETURNING (xmax = 0)`, id, uid, name, desc, jsonObject(meta), ts(created), ts(updated))
 	})

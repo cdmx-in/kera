@@ -36,6 +36,7 @@ type Options struct {
 	PruneMissing bool      // delete origin='openwebui' rows that are gone from the source
 	Only         []string  // subset of Entities; empty means all
 	Since        time.Time // chats and files updated at or after this time (zero = all)
+	Trigger      string    // who started the run: "cli", "schedule" or "admin" (recorded in migration_run.flags)
 	Log          *slog.Logger
 }
 
@@ -130,7 +131,7 @@ type importer struct {
 // display name for the source (never a DSN with a password).
 func Run(ctx context.Context, src, dst *pgxpool.Pool, source string, opt Options) (*Report, error) {
 	flags, _ := json.Marshal(map[string]any{"dry_run": opt.DryRun, "no_files": opt.NoFiles, "prune_missing": opt.PruneMissing,
-		"only": opt.Only, "since": opt.Since, "uploads_dir": opt.UploadsDir})
+		"only": opt.Only, "since": opt.Since, "uploads_dir": opt.UploadsDir, "trigger": opt.Trigger})
 	var runID int64
 	if err := dst.QueryRow(ctx, `INSERT INTO migration_run (source, flags) VALUES ($1, $2) RETURNING id`, source, flags).Scan(&runID); err != nil {
 		return nil, fmt.Errorf("record migration run: %w", err)

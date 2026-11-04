@@ -257,3 +257,28 @@ func TestPrefixQuery(t *testing.T) {
 		t.Fatal("punctuation only")
 	}
 }
+
+// The Google Chat bridge posts votes in the Open WebUI feedback shape.
+func TestFeedback(t *testing.T) {
+	srv, s := server(t)
+	body := `{"type":"rating","data":{"rating":-1,"model_id":"m","comment":"Google Chat vote by a@x"},
+		"meta":{"source":"google-chat","voter":"a@x"},"snapshot":{"chat":{"chat":{"title":"Google Chat","messages":[]}}}}`
+	var out map[string]any
+	if code := do(t, srv, "u2", "POST", "/api/v1/evaluations/feedback", body, &out); code != 200 {
+		t.Fatalf("feedback %d %v", code, out)
+	}
+	if out["id"] == "" || out["user_id"] != "u2" || out["type"] != "rating" {
+		t.Fatalf("response %v", out)
+	}
+	var n int
+	if err := s.DB.QueryRow(context.Background(), `SELECT count(*) FROM feedback WHERE user_id = 'u2' AND data->>'model_id' = 'm'
+		AND (data->>'rating')::int = -1 AND meta->>'voter' = 'a@x' AND snapshot->'chat'->'chat'->>'title' = 'Google Chat'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("stored rows %d %v", n, err)
+	}
+	if code := do(t, srv, "u2", "POST", "/api/v1/evaluations/feedback", `{}`, &out); code != 200 || out["type"] != "rating" {
+		t.Fatalf("empty body: %d %v", code, out)
+	}
+	if code := do(t, srv, "u2", "POST", "/api/v1/evaluations/feedback", `not json`, nil); code != 400 {
+		t.Fatalf("bad json: %d", code)
+	}
+}
