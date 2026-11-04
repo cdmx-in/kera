@@ -44,10 +44,17 @@ export function Badge({ tone = 'grey', children, title }: { tone?: 'grey' | 'acc
   )
 }
 
-/** Marks a row or key that `kera apply` owns. */
-export function ManagedBadge() {
+/** Marks a row or key that `kera apply` owns. compact = icon only (settings rows). */
+export function ManagedBadge({ compact }: { compact?: boolean }) {
+  const title = 'Managed by the config file: kera apply overwrites changes made here'
+  if (compact)
+    return (
+      <span title={title} aria-label="Managed by the config file" className="inline-flex text-accent/70 dark:text-accent-bright/70">
+        <FileLock2 size={13} />
+      </span>
+    )
   return (
-    <Badge tone="accent" title="Managed by the config file: kera apply overwrites changes made here">
+    <Badge tone="accent" title={title}>
       <FileLock2 size={11} /> Config file
     </Badge>
   )
@@ -57,7 +64,7 @@ export const managedWarning = 'Managed by the config file: the next kera apply o
 
 export function Page({ title, actions, children }: { title?: string; actions?: ReactNode; children: ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-5 p-4 sm:p-6">
+    <div className="mx-auto w-full max-w-[100rem] space-y-5 p-4 sm:p-6 lg:px-8">
       {(title || actions) && (
         <div className="flex flex-wrap items-center gap-3">
           {title && <h2 className="flex-1 text-lg font-semibold">{title}</h2>}
@@ -71,12 +78,12 @@ export function Page({ title, actions, children }: { title?: string; actions?: R
 
 export function Card({ title, hint, actions, children, className }: { title?: ReactNode; hint?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={cx('rounded-xl border border-line bg-surface', className)}>
+    <section className={cx('overflow-hidden rounded-2xl border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]', className)}>
       {(title || actions) && (
-        <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+        <header className="flex flex-wrap items-center gap-2 border-b border-line bg-surface-2/40 px-5 py-3.5">
           <div className="min-w-0 flex-1">
-            {title && <h3 className="text-sm font-semibold">{title}</h3>}
-            {hint && <p className="text-xs text-muted">{hint}</p>}
+            {title && <h3 className="text-[15px] font-semibold tracking-tight">{title}</h3>}
+            {hint && <p className="mt-0.5 text-xs leading-relaxed text-muted">{hint}</p>}
           </div>
           {actions}
         </header>

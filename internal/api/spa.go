@@ -48,7 +48,7 @@ func (s *spa) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// API and OAuth paths never fall through to the app shell.
-	if strings.HasPrefix(p, "api/") || strings.HasPrefix(p, "oauth/") || p == "api" {
+	if strings.HasPrefix(p, "api/") || strings.HasPrefix(p, "oauth/") || strings.HasPrefix(p, "cache/") || p == "api" {
 		JSON(w, http.StatusNotFound, map[string]any{"detail": "not found", "code": "not_found"})
 		return
 	}

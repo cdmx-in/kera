@@ -69,15 +69,18 @@ export function SettingsForm({ sections, children }: { sections: { title: string
   return (
     <div className="space-y-4">
       {children?.(d)}
-      {sections.map((s) => (
-        <Card key={s.title} title={s.title} hint={s.hint}>
-          <div className="divide-y divide-line">
-            {s.fields.map((f) => (
-              <SettingField key={f.key} spec={f} d={d} />
-            ))}
-          </div>
-        </Card>
-      ))}
+      {/* Two columns of cards on wide screens; a card holding a text area spans both. */}
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        {sections.map((s) => (
+          <Card key={s.title} title={s.title} hint={s.hint} className={cx(s.fields.some((f) => f.kind === 'textarea') && 'xl:col-span-2')}>
+            <div className="divide-y divide-line">
+              {s.fields.map((f) => (
+                <SettingField key={f.key} spec={f} d={d} />
+              ))}
+            </div>
+          </Card>
+        ))}
+      </div>
       <SaveBar d={d} onSave={() => d.save(kinds)} />
     </div>
   )
@@ -99,23 +102,38 @@ export function SaveBar({ d, onSave }: { d: Draft; onSave?: () => Promise<void> 
 /** Label column with the managed badge, warning and reset link. */
 export function SettingRow({ k, label, hint, d, children, wide }: { k: string; label?: string; hint?: string; d: Draft; children: ReactNode; wide?: boolean }) {
   const s = d.settings?.get(k)
+  const changed = d.changed(k)
   return (
-    <div className={cx('gap-4 px-4 py-3', wide ? 'space-y-2' : 'flex flex-wrap items-center justify-between sm:flex-nowrap')} data-testid={`setting-${k}`}>
-      <div className="min-w-0 sm:max-w-md">
+    <div
+      className={cx(
+        'group relative gap-x-6 gap-y-2 px-5 py-4 transition-colors hover:bg-surface-2/40',
+        wide ? 'space-y-3' : 'flex flex-wrap items-center justify-between sm:flex-nowrap',
+        changed && 'before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-accent',
+      )}
+      data-testid={`setting-${k}`}
+    >
+      <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{label ?? humanize(k.split('.').slice(-1)[0])}</span>
-          {s?.managed && <ManagedBadge />}
+          {/* The raw key stays available as a tooltip for admins who edit the config file. */}
+          <span className="text-sm font-medium" title={k}>
+            {label ?? humanize(k.split('.').slice(-1)[0])}
+          </span>
+          {s?.managed && <ManagedBadge compact />}
           {s?.set && !s.secret && (
-            <button type="button" onClick={() => void d.reset(k)} title="Reset to the default" className="inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
-              <RotateCcw size={11} /> default
+            <button
+              type="button"
+              onClick={() => void d.reset(k)}
+              title="Reset to the default"
+              className="inline-flex items-center gap-1 rounded px-1 text-xs text-muted opacity-0 transition-opacity hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+            >
+              <RotateCcw size={11} /> Reset
             </button>
           )}
         </div>
-        <p className="font-mono text-[11px] text-muted">{k}</p>
-        {hint && <p className="text-xs text-muted">{hint}</p>}
-        {s?.managed && d.changed(k) && <p className="text-xs text-amber-700 dark:text-amber-400">{managedWarning}</p>}
+        {hint && <p className="mt-0.5 text-[13px] leading-snug text-muted">{hint}</p>}
+        {s?.managed && changed && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{managedWarning}</p>}
       </div>
-      <div className={cx(wide ? 'w-full' : 'w-full sm:w-72 sm:shrink-0 sm:text-right')}>{children}</div>
+      <div className={cx(wide ? 'w-full' : 'w-full sm:w-80 sm:shrink-0', !wide && 'sm:flex sm:justify-end')}>{children}</div>
     </div>
   )
 }

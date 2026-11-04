@@ -62,6 +62,7 @@ type UI struct {
 func Mount(a *app.App) error {
 	u := &UI{settings: a.Settings, assets: &assets{dir: brandDir(a.Env.ConfigFile, a.Env.DataDir)}, tmpl: a.Server.IndexTemplate()}
 	u.routes(a.Server)
+	mountCache(a)
 	return nil
 }
 

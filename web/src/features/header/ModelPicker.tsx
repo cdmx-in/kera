@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Popover } from 'radix-ui'
 import { Command } from 'cmdk'
-import { Check, ChevronDown, Lock } from 'lucide-react'
+import { Check, ChevronDown, Lock, ShieldCheck } from 'lucide-react'
 import { useModels } from '@/api/queries'
 import { useComposer } from '@/stores/composer'
 import { useChat } from '@/stores/chat'
@@ -34,14 +34,15 @@ export function ModelPicker() {
         aria-label="Select a model"
         className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[15px] font-medium hover:bg-surface-2"
       >
+        {current && <ModelIcon m={current} size="sm" />}
         <span className="truncate">{current?.name ?? (models ? 'Select a model' : 'Loading…')}</span>
         <ChevronDown size={16} className="shrink-0 text-muted" />
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content align="start" sideOffset={6} collisionPadding={8} className="z-50 w-[min(22rem,calc(100vw-1rem))] rounded-xl border border-line bg-surface text-fg shadow-pop">
+        <Popover.Content align="start" sideOffset={6} collisionPadding={8} className="z-50 w-[min(26rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-line bg-surface text-fg shadow-pop">
           <Command label="Models" loop>
             <Command.Input placeholder="Search models" className="w-full border-b border-line bg-transparent px-3 py-2.5 text-sm outline-none focus-visible:outline-none" />
-            <Command.List className="max-h-80 overflow-y-auto p-1">
+            <Command.List className="max-h-[26rem] overflow-y-auto p-1.5">
               <Command.Empty className="px-3 py-6 text-center text-sm text-muted">No models found</Command.Empty>
               {visible.map((m) => {
                 const blocked = locked && !m.local
@@ -57,14 +58,18 @@ export function ModelPicker() {
                     data-testid="model-option"
                     data-model-id={m.id}
                     title={blocked ? 'This chat used a local model, so it stays on local models' : undefined}
-                    className={cx('flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-sm data-[selected=true]:bg-surface-2', blocked && 'opacity-45')}
+                    className={cx('flex cursor-default items-center gap-3 rounded-xl px-2.5 py-2 text-sm data-[selected=true]:bg-surface-2', blocked && 'opacity-45')}
                   >
-                    {m.profileImageUrl ? <img src={m.profileImageUrl} alt="" className="size-5 rounded-full" /> : <span className="grid size-5 place-items-center rounded-full bg-accent-soft text-[10px] font-semibold">{(m.name || m.id)[0]?.toUpperCase()}</span>}
+                    <ModelIcon m={m} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate">{m.name || m.id}</span>
+                      <span className="block truncate font-medium">{m.name || m.id}</span>
                       {m.info?.meta?.description && <span className="block truncate text-xs text-muted">{m.info.meta.description}</span>}
                     </span>
-                    {m.local && <span className="rounded bg-surface-2 px-1.5 text-[10px] uppercase text-muted">local</span>}
+                    {m.local && (
+                      <span title="Runs on this server: data stays here" className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-accent dark:text-accent-bright">
+                        <ShieldCheck size={11} aria-hidden /> On server
+                      </span>
+                    )}
                     {blocked && <Lock size={13} className="text-muted" />}
                     {m.id === model && <Check size={15} className="text-accent" />}
                   </Command.Item>
@@ -76,4 +81,11 @@ export function ModelPicker() {
       </Popover.Portal>
     </Popover.Root>
   )
+}
+
+/** The model's image (presets set one in the config), else a tinted initial. */
+export function ModelIcon({ m, size = 'md' }: { m: Model; size?: 'sm' | 'md' }) {
+  const box = size === 'sm' ? 'size-6 rounded-md' : 'size-9 rounded-xl'
+  if (m.profileImageUrl) return <img src={m.profileImageUrl} alt="" className={cx(box, 'shrink-0 object-cover')} />
+  return <span className={cx(box, 'grid shrink-0 place-items-center bg-accent-soft text-xs font-semibold text-accent dark:text-accent-bright')}>{(m.name || m.id)[0]?.toUpperCase()}</span>
 }

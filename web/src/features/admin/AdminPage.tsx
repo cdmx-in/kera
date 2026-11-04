@@ -57,7 +57,7 @@ export default function AdminPage() {
             </NavLink>
           ))}
         </nav>
-        <div className="mx-auto w-full max-w-6xl p-4 sm:p-6">{tab[2]()}</div>
+        <div className="mx-auto w-full max-w-[100rem] p-4 sm:p-6 lg:px-8">{tab[2]()}</div>
       </>
     )
   } else return <Navigate to="/admin/users" replace />

@@ -287,3 +287,30 @@ func TestBrandDir(t *testing.T) {
 		t.Errorf("env: %s", d)
 	}
 }
+
+func TestServeCache(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "ext"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ext", "a.zip"), []byte("PK\x03\x04zip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(root), "secret.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	get := func(rel string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		serveCache(rec, httptest.NewRequest("GET", "/cache/"+rel, nil), root, rel)
+		return rec
+	}
+	if rec := get("ext/a.zip"); rec.Code != 200 || rec.Header().Get("Content-Type") != "application/zip" ||
+		!strings.Contains(rec.Header().Get("Content-Disposition"), `filename="a.zip"`) || rec.Body.String() != "PK\x03\x04zip" {
+		t.Fatalf("zip: %d %v %q", rec.Code, rec.Header(), rec.Body.String())
+	}
+	for _, bad := range []string{"../secret.txt", "ext/../../secret.txt", "ext", "", ".hidden", "ext/missing.zip"} {
+		if rec := get(bad); rec.Code != 404 {
+			t.Errorf("%q: %d", bad, rec.Code)
+		}
+	}
+}
