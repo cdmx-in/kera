@@ -9,6 +9,7 @@ import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
 import { Switch } from '@/ui/misc'
 import { toast } from '@/stores/toast'
 import { AccessEditor } from '../Access'
+import { ProviderIcon, ToolServerIcon } from './serviceIcons'
 import { enc, useHookServers, useProviders, useToolServers, type HookServer, type OAuthProvider, type ToolServer } from '../api'
 import { parseList } from '../lib'
 import { attempt, Badge, Btn, Card, Check, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, SecretInput } from '../ui'
@@ -21,6 +22,7 @@ function ServerList<T extends { id: string; managed: boolean }>(props: {
   empty: string
   summary: (x: T) => ReactNode
   badges: (x: T) => ReactNode
+  icon?: (x: T) => ReactNode
   toggle?: (x: T) => ReactNode
   path: string
   queryKey: string
@@ -42,6 +44,7 @@ function ServerList<T extends { id: string; managed: boolean }>(props: {
       {props.q.data?.map((x) => (
         <Card key={x.id} className="p-4">
           <div className="flex flex-wrap items-center gap-3" data-testid={`${props.queryKey}-row`}>
+            {props.icon?.(x)}
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-semibold">{x.id}</span>
@@ -115,6 +118,7 @@ const TOOLS = '/api/v1/configs/tool_servers'
 
 export function ToolServersTab() {
   const q = useToolServers()
+  const providers = useProviders()
   const save = useSaver<ToolServer>(TOOLS, 'tool_servers')
   return (
     <ServerList
@@ -124,6 +128,7 @@ export function ToolServersTab() {
       empty="No tool servers. Add an OpenAPI or MCP server to give models tools."
       path={TOOLS}
       queryKey="tool_servers"
+      icon={(t) => <ToolServerIcon kind={t.kind} provider={t.auth.type === 'user_oauth' ? providers.data?.find((p) => p.id === t.auth.provider) : undefined} />}
       summary={(t) => `${t.name ? t.name + ' · ' : ''}${t.url}`}
       badges={(t) => (
         <>
@@ -398,10 +403,14 @@ export function OAuthTab() {
       empty="No OAuth providers."
       path={PROVIDERS}
       queryKey="oauth_providers"
+      icon={(p) => <ProviderIcon p={p} />}
       summary={(p) => (
-        <>
-          {p.name ? `${p.name} · ` : ''}Redirect URI <code className="text-xs">{p.redirect_uri}</code>
-        </>
+        <span className="inline-flex max-w-full items-center gap-1.5">
+          <span className="truncate">
+            {p.name ? `${p.name} · ` : ''}Redirect URI <code className="text-xs">{p.redirect_uri}</code>
+          </span>
+          <CopyInline text={p.redirect_uri} />
+        </span>
       )}
       badges={(p) => (
         <>
@@ -499,5 +508,14 @@ function ProviderEditor({ provider, onClose, save }: { provider: OAuthProvider |
       </div>
       {text('scope', 'Scope', 'Space-separated.', 'text')}
     </EditorDialog>
+  )
+}
+
+/** Small copy-to-clipboard button for inline values such as redirect URIs. */
+function CopyInline({ text }: { text: string }) {
+  return (
+    <IconButton label="Copy" className="size-6" onClick={() => void navigator.clipboard?.writeText(text).then(() => toast('Copied'))}>
+      <Copy size={12} />
+    </IconButton>
   )
 }
