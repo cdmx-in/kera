@@ -156,3 +156,18 @@ func TestOpenAPICall(t *testing.T) {
 		t.Fatal("a .. path parameter was sent")
 	}
 }
+
+func TestAuthorizeUserOAuthServiceKey(t *testing.T) {
+	h := http.Header{}
+	s := &Server{row: Row{Auth: Auth{Type: "user_oauth", Provider: "p", Header: "X-Service-Key", key: "svc"}}}
+	s.authorize(h, "user-tok")
+	if h.Get("Authorization") != "Bearer user-tok" || h.Get("X-Service-Key") != "svc" {
+		t.Fatalf("headers %v", h)
+	}
+	h = http.Header{}
+	s.row.Auth.Header, s.row.Auth.key = "", ""
+	s.authorize(h, "user-tok")
+	if len(h) != 1 {
+		t.Fatalf("plain user_oauth sent %v", h)
+	}
+}

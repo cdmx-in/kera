@@ -37,7 +37,10 @@ type Engine struct {
 	Files     *files.Service
 	Chats     *chats.Store
 	PublicURL string
-	HTTP      *http.Client // hook servers
+	// CallbackURL is the base of the run callback URLs handed to tool and
+	// hook servers (KERA_CALLBACK_URL); empty means PublicURL.
+	CallbackURL string
+	HTTP        *http.Client // hook servers
 
 	runs *registry
 	wg   sync.WaitGroup
@@ -59,6 +62,7 @@ func New(db *pgxpool.Pool, keys *secret.Keys, st *settings.Store, reg *models.Re
 // Mount registers the completion, stream and callback routes and the built-in tools.
 func Mount(a *app.App) error {
 	e := New(a.DB, a.Keys, a.Settings, models.For(a), files.For(a), chats.For(a), a.Env.PublicURL)
+	e.CallbackURL = a.Env.CallbackURL
 	e.Chats.SetLive(func(id string) (chats.Live, bool) {
 		if r := e.runs.byMessage(id); r != nil {
 			return r.Live(), true
@@ -137,4 +141,13 @@ func (e *Engine) profile(ctx context.Context, u *auth.User) userProfile {
 		}
 	}
 	return p
+}
+
+// callbackURL is where a tool or hook server reaches the run's callbacks.
+func (e *Engine) callbackURL(runID string) string {
+	base := e.CallbackURL
+	if base == "" {
+		base = e.PublicURL
+	}
+	return base + "/api/v1/runs/" + runID
 }

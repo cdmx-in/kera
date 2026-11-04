@@ -284,7 +284,7 @@ func (e *Engine) toolCall(x *exec, c provider.ToolCall) tools.Call {
 	tok, _ := signRunToken(e.Keys, run.ID, run.UserID, time.Now().Add(15*time.Minute))
 	return tools.Call{ID: c.ID, Name: c.Name, Args: c.Arguments, User: x.u, ModelID: x.m.ID, ChatID: chatID,
 		MessageID: run.MessageID, RunID: run.ID, FileIDs: x.fileIDs,
-		CallbackURL: e.PublicURL + "/api/v1/runs/" + run.ID, CallbackToken: tok,
+		CallbackURL: e.callbackURL(run.ID), CallbackToken: tok,
 		Emit: func(ev tools.Event) { e.applyEvent(run, c.ID, ev.Type, ev.Data) },
 		Ask: func(ctx context.Context, r tools.AskRequest) (json.RawMessage, error) {
 			timeout := askTimeout

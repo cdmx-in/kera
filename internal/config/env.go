@@ -14,6 +14,7 @@ type Env struct {
 	DatabaseURL string // KERA_DATABASE_URL
 	SecretKey   string // KERA_SECRET_KEY, >= 32 bytes; signs sessions, encrypts tokens
 	PublicURL   string // KERA_URL, e.g. https://chat.example.com (OAuth redirect URIs derive from it)
+	CallbackURL string // KERA_CALLBACK_URL, base URL tool and hook servers call back on; default KERA_URL
 	DataDir     string // KERA_DATA_DIR, uploads/, cache/, brand/
 	ConfigFile  string // KERA_CONFIG, optional YAML applied by `kera apply`
 	Listen      string // KERA_LISTEN, default :8080
@@ -27,10 +28,14 @@ func Load(requireSecret bool) (Env, error) {
 		DatabaseURL: os.Getenv("KERA_DATABASE_URL"),
 		SecretKey:   os.Getenv("KERA_SECRET_KEY"),
 		PublicURL:   strings.TrimRight(getenv("KERA_URL", "http://localhost:8080"), "/"),
+		CallbackURL: strings.TrimRight(os.Getenv("KERA_CALLBACK_URL"), "/"),
 		DataDir:     getenv("KERA_DATA_DIR", "./data"),
 		ConfigFile:  os.Getenv("KERA_CONFIG"),
 		Listen:      getenv("KERA_LISTEN", ":8080"),
 		OllamaURL:   strings.TrimRight(os.Getenv("OLLAMA_BASE_URL"), "/"),
+	}
+	if e.CallbackURL == "" {
+		e.CallbackURL = e.PublicURL
 	}
 	var errs []error
 	if e.DatabaseURL == "" {
