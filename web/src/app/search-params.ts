@@ -23,11 +23,12 @@ export function parseChatParams(search: string | URLSearchParams): ChatParams {
   }
 }
 
-/** Removes one-shot params (q, tools) after they are consumed, keeping the rest. */
+/** Removes one-shot params (q, tools, oauth_error) after they are consumed, keeping the rest. */
 export function withoutOneShot(search: string): string {
   const p = new URLSearchParams(search)
   p.delete('q')
   p.delete('tools')
+  p.delete('oauth_error')
   const s = p.toString()
   return s ? `?${s}` : ''
 }

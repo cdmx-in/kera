@@ -140,10 +140,17 @@ export interface Folder {
 export interface ToolServer {
   id: string
   name: string
-  kind?: string
+  kind?: 'openapi' | 'mcp' | 'builtin' | string
   description?: string
   authenticated?: boolean
+  auth_type?: 'none' | 'bearer' | 'header' | 'user_oauth' | string
+  /** OAuth provider id when auth_type is user_oauth. */
+  provider?: string
+  /** Turn on in new chats once the user is connected. */
+  auto_enable?: boolean
   connected_at?: number
+  functions?: string[]
+  error?: string
 }
 
 export interface ApiKey {

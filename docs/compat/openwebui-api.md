@@ -84,6 +84,17 @@ Every route accepts `Authorization: Bearer <token>` where the token is either a 
 | `GET/POST /api/v1/auths/api_keys` | done | named keys: list `[{id, name, prefix, created_at, last_used_at}]`; POST `{name}` -> `{id, name, key, prefix}` (key shown once). |
 | `DELETE /api/v1/auths/api_keys/{id}` | done | one of the caller's keys. |
 | `GET/PUT /api/v1/grants/{type}/{id}` | done | admin; `[{principal: "user:<id>" \| "user:*" \| "group:<id>", permission: "read" \| "write"}]`. PUT replaces every grant of the resource, including ones `kera apply` made; the new rows are not managed. |
+## Tool servers and per-user OAuth
+
+| Route | Status | Notes |
+|---|---|---|
+| `GET /api/v1/tools/` | done | `[{id, name, kind: "openapi" \| "mcp" \| "builtin", description, authenticated, auth_type: "none" \| "bearer" \| "header" \| "user_oauth", provider?, auto_enable?, connected_at?, functions: [names], error?}]`: the tool servers the caller may read (admins: all enabled ones) plus the built-in tool sets. `authenticated` is true unless the server needs the caller's own OAuth grant and the caller has not connected it; `connected_at` (epoch seconds) is set when they have. `functions` honours the server's name filter and disabled list; a server that cannot be reached within 8 s lists none and sets `error`. |
+| `GET /oauth/clients/{provider}/authorize?next=` | done | Kera extension, browser only. Needs a session (otherwise redirects to `/auth?redirect=...`). Redirects to the provider with PKCE S256 and the provider's scopes; Google also gets `access_type=offline` and `prompt=consent` (so a refresh token is issued). The redirect URI is `<KERA_URL>/oauth/clients/{provider}/callback`. State, verifier, user and `next` travel in an encrypted 10-minute cookie. |
+| `GET /oauth/clients/{provider}/callback` | done | exchanges the code, stores the token encrypted per user and provider, redirects to `next` (a same-origin path) or `/?tools=<tool server id>`. Failures redirect with `?oauth_error=<code>` (`invalid_state`, `session_mismatch`, `provider_denied`, `unknown_provider`, `exchange_failed`, `server_error`). |
+| `DELETE /api/v1/oauth/clients/{provider}/session` | done | revokes the grant at the provider (RFC 7009: refresh token, else access token; HTTP 200 or 400 = revoked) and deletes it; `{ok: true}`, also when nothing was connected. When the provider fails or is unreachable the grant is kept and the answer is 409 `{detail, code: "revoke_failed"}` (never 5xx, which a CDN may rewrite). |
+
+Tool calls carry `X-Kera-User-Id`, `X-Kera-User-Email`, `X-Kera-Chat-Id`, `X-Kera-Message-Id`, `X-Kera-Files` (comma-separated file ids), `X-Kera-Callback` and `X-Kera-Callback-Token` headers (OpenAPI and MCP alike), plus `Authorization: Bearer` with the server's key or the user's OAuth access token (refreshed when it expires within 5 minutes; a refresh the provider rejects deletes the grant). An OpenAPI result that is a JSON object with `content` gives the model only `content` and the chat its `parts` (UI blocks), `files` and `sources`; anything else goes to the model as is. Results longer than the server's `max_result_chars` (default setting `tools.max_result_chars`) are cut with a note. MCP servers are spoken to over Streamable HTTP, protocol revisions 2024-11-05 to 2025-11-25 (initialize, sessions, SSE responses, elicitation in form mode, progress and log notifications).
+
 ## Database import (`kera migrate from-openwebui`)
 Observed source schema (0.13, Postgres) and how `internal/importowui` maps it. Status: **done**.
 | Source | Meaning | Kera |

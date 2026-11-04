@@ -33,8 +33,9 @@ const models = [
 ]
 
 const tools = [
-  { id: 'server:docs', name: 'Docs search', kind: 'openapi', authenticated: true },
-  { id: 'mcp:sheets', name: 'Spreadsheets', kind: 'mcp', authenticated: false },
+  { id: 'docs', name: 'Docs search', kind: 'openapi', auth_type: 'bearer', authenticated: true, functions: ['search_docs'] },
+  { id: 'mcp:sheets', name: 'Spreadsheets', kind: 'mcp', auth_type: 'user_oauth', provider: 'mcp:sheets', auto_enable: true, authenticated: false, functions: [] as string[] },
+  { id: 'builtin:web', name: 'builtin:web', kind: 'builtin', auth_type: 'none', authenticated: true, functions: ['search_web', 'fetch_url'] },
 ]
 
 const ui = {

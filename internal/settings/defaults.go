@@ -87,6 +87,8 @@ var Defaults = map[string]json.RawMessage{
 	"spend.source.kind":            raw(`""`),
 	"skills.dir":                   raw(`""`),
 	"skills.grants":                raw(`[]`),
+	// Cap on one tool result passed to the model (characters; a tool server's max_result_chars wins; 0 = no cap).
+	"tools.max_result_chars": raw(`100000`),
 }
 
 func raw(s string) json.RawMessage {
