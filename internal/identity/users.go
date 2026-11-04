@@ -20,7 +20,21 @@ import (
 	"github.com/cdmx-in/kera/internal/auth"
 )
 
-const usersPerPage = 30
+// Page size of GET /api/v1/users/: ?size= picks one within [minUsersPerPage, maxUsersPerPage].
+const (
+	usersPerPage    = 30
+	minUsersPerPage = 10
+	maxUsersPerPage = 200
+)
+
+// pageSize reads ?size=, clamped to the allowed range; missing or invalid means the default.
+func pageSize(r *http.Request) int {
+	n, err := strconv.Atoi(r.URL.Query().Get("size"))
+	if err != nil {
+		return usersPerPage
+	}
+	return min(max(n, minUsersPerPage), maxUsersPerPage)
+}
 
 type userOut struct {
 	ID              string          `json:"id"`
@@ -52,6 +66,7 @@ func (h *handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("query"))
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	page = min(max(page, 1), 1_000_000) // keeps OFFSET from overflowing
+	size := pageSize(r)
 	const match = `($1 = '' OR strpos(lower(u.name), lower($1)) > 0 OR strpos(lower(u.email), lower($1)) > 0)`
 	var total int
 	if err := h.a.DB.QueryRow(ctx, `SELECT count(*) FROM "user" u WHERE `+match, q).Scan(&total); err != nil {
@@ -59,7 +74,7 @@ func (h *handler) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.a.DB.Query(ctx, userSelect+`WHERE `+match+` ORDER BY u.created_at, u.id LIMIT $2 OFFSET $3`,
-		q, usersPerPage, (page-1)*usersPerPage)
+		q, size, (page-1)*size)
 	if err != nil {
 		api.Fail(w, r, fmt.Errorf("list users: %w", err))
 		return

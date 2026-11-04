@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ago, collapse, compact, humanize, lastDays, monthRange, move, parseList, permRows, setPerm, sortPeople, spendLevel, spendView } from './lib'
+import { clampPage, errorField, groupIcon, pageCount, pageForSize, pageRange, pageSlice, permChips, validateGroup, validateUser } from './lib'
 
 describe('admin lib', () => {
   it('humanizes keys', () => {
@@ -83,5 +84,66 @@ describe('access', () => {
       { principal: 'group:g1', permission: 'write' },
       { principal: 'user:u1', permission: 'read' },
     ])
+  })
+})
+
+describe('pagination', () => {
+  it('counts pages and clamps the page when the total shrinks', () => {
+    expect([pageCount(0, 25), pageCount(25, 25), pageCount(26, 25), pageCount(59, 25)]).toEqual([1, 1, 2, 3])
+    expect(clampPage(3, 59, 25)).toBe(3)
+    expect(clampPage(3, 50, 25)).toBe(2) // last row of page 3 deleted
+    expect(clampPage(9, 0, 25)).toBe(1)
+    expect([clampPage(0, 59, 25), clampPage(-2, 59, 25), clampPage(NaN, 59, 25)]).toEqual([1, 1, 1])
+  })
+  it('slices one page of rows', () => {
+    const rows = Array.from({ length: 59 }, (_, i) => i + 1)
+    expect(pageSlice(rows, 1, 25)).toEqual(rows.slice(0, 25))
+    expect(pageSlice(rows, 3, 25)).toEqual([51, 52, 53, 54, 55, 56, 57, 58, 59])
+    expect(pageSlice(rows, 7, 25)).toEqual(pageSlice(rows, 3, 25)) // clamped
+    expect(pageSlice([], 2, 25)).toEqual([])
+  })
+  it('keeps the first visible row when the page size changes', () => {
+    expect(pageForSize(3, 25, 50)).toBe(2) // row 51 is on page 2 of 50
+    expect(pageForSize(2, 50, 25)).toBe(3) // row 51 is on page 3 of 25
+    expect(pageForSize(1, 100, 25)).toBe(1)
+  })
+  it('lists page buttons with ellipses', () => {
+    expect(pageRange(1, 1)).toEqual([1])
+    expect(pageRange(4, 7)).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(pageRange(1, 10)).toEqual([1, 2, 3, 4, 5, null, 10])
+    expect(pageRange(3, 10)).toEqual([1, 2, 3, 4, 5, null, 10])
+    expect(pageRange(5, 10)).toEqual([1, null, 4, 5, 6, null, 10])
+    expect(pageRange(8, 10)).toEqual([1, null, 6, 7, 8, 9, 10])
+    expect(pageRange(10, 10)).toEqual([1, null, 6, 7, 8, 9, 10])
+    for (let p = 1; p <= 40; p++) expect(pageRange(p, 40)).toHaveLength(7)
+  })
+})
+
+describe('dialog validation', () => {
+  it('validates users', () => {
+    expect(validateUser({ name: 'Ada', role: 'user' }, { role: 'user', self: false })).toEqual({})
+    expect(validateUser({ name: '  ', role: 'admin' }, { role: 'user', self: false })).toEqual({ name: 'Name is required' })
+    expect(validateUser({ name: 'x'.repeat(101), role: 'user' }, { role: 'user', self: false }).name).toMatch(/too long \(101\/100/)
+    expect(validateUser({ name: 'Me', role: 'user' }, { role: 'admin', self: true })).toEqual({ role: 'You cannot change your own role' })
+    expect(validateUser({ name: 'Me', role: 'admin' }, { role: 'admin', self: true })).toEqual({})
+  })
+  it('validates groups: required, unique ignoring case and itself, short description', () => {
+    const groups = [
+      { id: 'g1', name: 'Admins' },
+      { id: 'g2', name: 'Sales' },
+    ]
+    expect(validateGroup({ name: 'Ops', description: '' }, groups)).toEqual({})
+    expect(validateGroup({ name: '', description: '' }, groups)).toEqual({ name: 'Name is required' })
+    expect(validateGroup({ name: ' sales ', description: '' }, groups)).toEqual({ name: 'A group with that name already exists' })
+    expect(validateGroup({ name: 'Sales', description: '' }, groups, 'g2')).toEqual({})
+    expect(validateGroup({ name: 'Ops', description: 'd'.repeat(501) }, groups).description).toMatch(/too long/)
+  })
+  it('maps API error codes to fields', () => {
+    expect([errorField('duplicate'), errorField('bad_name'), errorField('last_admin'), errorField('own_role'), errorField('boom'), errorField()]).toEqual(['name', 'name', 'role', 'role', undefined, undefined])
+  })
+  it('derives group icons and permission chips', () => {
+    expect([groupIcon('Admin'), groupIcon('Backend developers'), groupIcon('QA team'), groupIcon('Everyone')]).toEqual(['shield', 'code', 'flask', 'users'])
+    expect(permChips({ workspace: { models: true, tools: false }, features: { api_keys: true } })).toEqual(['Workspace models', 'Features API keys'])
+    expect(permChips(null)).toEqual([])
   })
 })

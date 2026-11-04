@@ -4,9 +4,10 @@ import { Search } from 'lucide-react'
 import { cx } from '@/lib/format'
 import { useAdmin } from './api'
 import { EmptyRow } from './Analytics'
-import { ago, monthRange, num, sortPeople, spendLevel, spendView, usd, type SortKey, type SpendData } from './lib'
+import { ago, monthRange, num, pageSlice, sortPeople, spendLevel, spendView, usd, type SortKey, type SpendData } from './lib'
+import { Pagination, useUrlPager } from './Pagination'
 import { UserAvatar } from './Users'
-import { Badge, Bar, Card, DateRange, DayBars, inputCls, Kpi, Loading, Page, tdCls, thCls } from './ui'
+import { Badge, Bar, Card, DateRange, DayBars, inputCls, Kpi, Loading, Page, scrollCls, tdCls, theadCls, thCls } from './ui'
 
 const levels = { high: ['red', 'High'], medium: ['amber', 'Medium'], light: ['green', 'Light'], none: ['grey', 'No usage'] } as const
 
@@ -14,6 +15,8 @@ export function SpendPage() {
   const [range, setRange] = useState(monthRange)
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'spend', desc: true })
+  const userPager = useUrlPager()
+  const modelPager = useUrlPager('models')
   const data = useAdmin<SpendData>(['spend', ...range], `/api/v1/analytics/spend?start_date=${range[0]}&end_date=${range[1]}`)
   const view = useMemo(() => (data.data ? spendView(data.data) : null), [data.data])
   const people = useMemo(() => {
@@ -24,7 +27,7 @@ export function SpendPage() {
   const maxSpend = Math.max(0, ...(view?.people ?? []).map((p) => p.spend))
   const head = (key: SortKey, label: string, right = false) => (
     <th className={cx(thCls, right && 'text-right')} aria-sort={sort.key === key ? (sort.desc ? 'descending' : 'ascending') : undefined}>
-      <button type="button" className="hover:text-fg" onClick={() => setSort({ key, desc: key === sort.key ? !sort.desc : key !== 'name' })}>
+      <button type="button" className="hover:text-fg" onClick={() => (setSort({ key, desc: key === sort.key ? !sort.desc : key !== 'name' }), userPager.setPage(1, true))}>
         {label}
         {sort.key === key ? (sort.desc ? ' ▾' : ' ▴') : ''}
       </button>
@@ -52,13 +55,13 @@ export function SpendPage() {
             actions={
               <label className="relative w-full sm:w-64">
                 <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
-                <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or email" aria-label="Search spend users" className={cx(inputCls, 'pl-8')} />
+                <input type="search" value={q} onChange={(e) => (setQ(e.target.value), userPager.setPage(1, true))} placeholder="Search name or email" aria-label="Search spend users" className={cx(inputCls, 'pl-8')} />
               </label>
             }
           >
-            <div className="overflow-x-auto">
+            <div className={scrollCls}>
               <table className="w-full text-sm" data-testid="spend-users">
-                <thead className="border-b border-line">
+                <thead className={theadCls}>
                   <tr>
                     {head('name', 'User')}
                     {head('last', 'Last active')}
@@ -70,7 +73,7 @@ export function SpendPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line tabular-nums">
-                  {people.map((p) => {
+                  {pageSlice(people, userPager.page, userPager.size).map((p) => {
                     const [tone, label] = levels[spendLevel(p.spend)]
                     const inactive = p.last != null && Date.now() / 1000 - p.last > 30 * 86400
                     return (
@@ -103,11 +106,12 @@ export function SpendPage() {
                 </tbody>
               </table>
             </div>
+            {!!people.length && <Pagination pager={userPager} total={people.length} label="Users pages" />}
           </Card>
           <Card title="Per model">
-            <div className="overflow-x-auto">
+            <div className={scrollCls}>
               <table className="w-full text-sm" data-testid="spend-models">
-                <thead className="border-b border-line">
+                <thead className={theadCls}>
                   <tr>
                     <th className={thCls}>Model</th>
                     <th className={cx(thCls, 'text-right')}>Requests</th>
@@ -117,7 +121,7 @@ export function SpendPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line tabular-nums">
-                  {view.models.map((m) => (
+                  {pageSlice(view.models, modelPager.page, modelPager.size).map((m) => (
                     <tr key={m.model}>
                       <td className={cx(tdCls, 'font-medium')}>{m.model || '(none)'}</td>
                       <td className={cx(tdCls, 'text-right')}>{num(m.requests)}</td>
@@ -130,6 +134,7 @@ export function SpendPage() {
                 </tbody>
               </table>
             </div>
+            {!!view.models.length && <Pagination pager={modelPager} total={view.models.length} label="Models pages" />}
           </Card>
         </>
       )}

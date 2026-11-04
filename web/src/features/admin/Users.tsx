@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, Pencil, Search, Trash2 } from 'lucide-react'
-import { api } from '@/api/client'
+import { Pencil, Search, Trash2 } from 'lucide-react'
+import { api, type ApiError } from '@/api/client'
+import { toast } from '@/stores/toast'
 import { useMe } from '@/api/queries'
 import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
 import { Tip } from '@/ui/misc'
 import { cx } from '@/lib/format'
 import { enc, useSettings, useSaveSettings, type AdminUser, type RoleName } from './api'
-import { ago, type Perms } from './lib'
+import { ago, errorField, NAME_MAX, validateUser, type FieldErrors, type Perms } from './lib'
 import { PermSwitches } from './Perms'
-import { attempt, Badge, Btn, Card, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, Page, tdCls, thCls } from './ui'
+import { Pagination, useUrlPager } from './Pagination'
+import { attempt, Badge, Btn, Card, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, Page, scrollCls, tdCls, theadCls, thCls } from './ui'
 import { Select } from '@/ui/Select'
 
-const PER_PAGE = 30
 const roles: RoleName[] = ['admin', 'user', 'pending']
 const roleOptions = roles.map((r) => ({ value: r, label: r[0].toUpperCase() + r.slice(1) }))
 
@@ -34,25 +35,24 @@ export function useDebounced<T>(v: T, ms = 250): T {
   return d
 }
 
-export function useUserSearch(query: string, page = 1) {
+/** One page of users matching query (server-side paging; size omitted = the server default). */
+export function useUserSearch(query: string, page = 1, size?: number) {
   return useQuery({
-    queryKey: ['admin', 'users', query, page],
-    queryFn: () => api<{ users: AdminUser[]; total: number }>(`/api/v1/users/?query=${enc(query)}&page=${page}`),
+    queryKey: ['admin', 'users', query, page, size],
+    queryFn: () => api<{ users: AdminUser[]; total: number }>(`/api/v1/users/?query=${enc(query)}&page=${page}${size ? `&size=${size}` : ''}`),
     placeholderData: (prev) => prev,
   })
 }
 
 export function UsersPage() {
   const [q, setQ] = useState('')
-  const [page, setPage] = useState(1)
+  const pager = useUrlPager()
   const query = useDebounced(q.trim())
-  const users = useUserSearch(query, page)
+  const users = useUserSearch(query, pager.page, pager.size)
   const me = useMe().data
   const qc = useQueryClient()
   const [editing, setEditing] = useState<AdminUser | null>(null)
   const [deleting, setDeleting] = useState<AdminUser | null>(null)
-  const total = users.data?.total ?? 0
-  const pages = Math.max(1, Math.ceil(total / PER_PAGE))
   const refresh = () => qc.invalidateQueries({ queryKey: ['admin', 'users'] })
 
   const setRole = (u: AdminUser, role: RoleName) =>
@@ -70,7 +70,7 @@ export function UsersPage() {
           <input
             type="search"
             value={q}
-            onChange={(e) => (setQ(e.target.value), setPage(1))}
+            onChange={(e) => (setQ(e.target.value), pager.setPage(1, true))}
             placeholder="Search name or email"
             aria-label="Search users"
             className={cx(inputCls, 'pl-8')}
@@ -82,9 +82,9 @@ export function UsersPage() {
       <Card>
         <Loading q={users} />
         {users.data && (
-          <div className="overflow-x-auto">
+          <div className={scrollCls}>
             <table className="w-full text-sm" data-testid="users-table">
-              <thead className="border-b border-line">
+              <thead className={theadCls}>
                 <tr>
                   <th className={thCls}>User</th>
                   <th className={thCls}>Role</th>
@@ -163,20 +163,7 @@ export function UsersPage() {
             </table>
           </div>
         )}
-        <footer className="flex items-center justify-between gap-2 border-t border-line px-4 py-2 text-xs text-muted">
-          <span>
-            {total} user{total === 1 ? '' : 's'}
-          </span>
-          <span className="flex items-center gap-1">
-            <IconButton label="Previous page" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-              <ChevronLeft size={16} />
-            </IconButton>
-            Page {page} of {pages}
-            <IconButton label="Next page" disabled={page >= pages} onClick={() => setPage(page + 1)}>
-              <ChevronRight size={16} />
-            </IconButton>
-          </span>
-        </footer>
+        {users.data && <Pagination pager={pager} total={users.data.total} label="Users pages" />}
       </Card>
       <DefaultPermissions />
       {editing && <EditUser user={editing} self={editing.id === me?.id} onClose={() => setEditing(null)} onSaved={refresh} />}
@@ -201,28 +188,50 @@ export function UsersPage() {
 function EditUser({ user, self, onClose, onSaved }: { user: AdminUser; self: boolean; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(user.name)
   const [role, setRole] = useState(user.role)
+  const [touched, setTouched] = useState(false)
+  const [server, setServer] = useState<FieldErrors>({})
+  const errors = validateUser({ name, role }, { role: user.role, self })
+  const valid = !Object.keys(errors).length
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
-    const body: Record<string, string> = { name }
+    if (!valid) return setTouched(true)
+    const body: Record<string, string> = { name: name.trim() }
     if (role !== user.role) body.role = role
-    if (await attempt(() => api(`/api/v1/users/${enc(user.id)}/update`, { method: 'POST', json: body }), 'User saved')) {
-      onSaved()
-      onClose()
+    try {
+      await api(`/api/v1/users/${enc(user.id)}/update`, { method: 'POST', json: body })
+    } catch (err) {
+      const field = errorField((err as ApiError).code)
+      if (field) return setServer({ [field]: (err as Error).message })
+      return toast((err as Error).message, 'error')
     }
+    toast('User saved')
+    onSaved()
+    onClose()
   }
   return (
     <Dialog open onClose={onClose} label="Edit user" className="w-[min(28rem,calc(100vw-2rem))]">
       <DialogHeader title={`Edit ${user.email}`} onClose={onClose} />
-      <form onSubmit={save} className="space-y-4 p-4">
-        <Field label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} required className={inputCls} />
+      <form onSubmit={save} noValidate className="space-y-4 p-4">
+        <Field label="Name" error={server.name ?? (touched ? errors.name : undefined)}>
+          <input
+            value={name}
+            onChange={(e) => (setName(e.target.value), setTouched(true), setServer({ ...server, name: undefined }))}
+            maxLength={NAME_MAX}
+            aria-invalid={!!(server.name || (touched && errors.name))}
+            className={inputCls}
+            data-testid="user-name"
+          />
         </Field>
-        <Field label="Role" hint={self ? 'You cannot change your own role.' : 'At least one admin must remain.'}>
-          <Select value={role} disabled={self} onChange={(v) => setRole(v as RoleName)} options={roleOptions} aria-label="Role" />
+        <Field
+          label="Role"
+          error={server.role ?? errors.role}
+          hint={self ? 'You cannot change your own role.' : user.role === 'admin' && role !== 'admin' ? 'At least one admin must remain: the last admin cannot be demoted.' : 'At least one admin must remain.'}
+        >
+          <Select value={role} disabled={self} onChange={(v) => (setRole(v as RoleName), setServer({ ...server, role: undefined }))} options={roleOptions} aria-label="Role" />
         </Field>
         <div className="flex justify-end gap-2">
           <Btn onClick={onClose}>Cancel</Btn>
-          <Btn type="submit" variant="primary">
+          <Btn type="submit" variant="primary" disabled={!valid} data-testid="save-user">
             Save
           </Btn>
         </div>

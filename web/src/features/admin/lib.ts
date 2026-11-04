@@ -4,7 +4,11 @@ export type Perms = Record<string, Record<string, boolean>>
 
 /** "max_tool_iterations" -> "Max tool iterations"; "api_keys" -> "API keys". */
 export function humanize(key: string): string {
-  const s = key.replace(/[._]/g, ' ').replace(/\bapi\b/gi, 'API').replace(/\burl\b/gi, 'URL').replace(/\bid(s?)\b/gi, 'ID$1')
+  const s = key
+    .replace(/[._]/g, ' ')
+    .replace(/\bapi\b/gi, 'API')
+    .replace(/\burl\b/gi, 'URL')
+    .replace(/\bid(s?)\b/gi, 'ID$1')
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
@@ -12,7 +16,12 @@ export function humanize(key: string): string {
 export function permRows(known: Perms, value: Perms): { cat: string; leaves: { key: string; on: boolean }[] }[] {
   return Object.keys(known)
     .sort()
-    .map((cat) => ({ cat, leaves: Object.keys(known[cat] ?? {}).sort().map((key) => ({ key, on: !!value?.[cat]?.[key] })) }))
+    .map((cat) => ({
+      cat,
+      leaves: Object.keys(known[cat] ?? {})
+        .sort()
+        .map((key) => ({ key, on: !!value?.[cat]?.[key] })),
+    }))
 }
 
 /** Returns a copy of p with cat.key set. */
@@ -189,3 +198,92 @@ export function collapse(grants: GrantLike[]): GrantLike[] {
 
 const order = (p: string) => (p === 'user:*' ? 0 : p.startsWith('group:') ? 1 : 2)
 
+/** Number of pages for total rows (at least 1, so an empty table is "page 1 of 1"). */
+export const pageCount = (total: number, size: number) => Math.max(1, Math.ceil(total / size))
+
+/** page clamped to [1, pageCount]: a shrinking total (a delete, a narrower search) never strands you past the end. */
+export const clampPage = (page: number, total: number, size: number) => Math.min(Math.max(1, Math.floor(page) || 1), pageCount(total, size))
+
+/** The rows of one page (client-side paging), after clamping the page. */
+export function pageSlice<T>(rows: T[], page: number, size: number): T[] {
+  const p = clampPage(page, rows.length, size)
+  return rows.slice((p - 1) * size, p * size)
+}
+
+/** The page that keeps the first visible row in view after the page size changes. */
+export const pageForSize = (page: number, size: number, next: number) => Math.floor(((page - 1) * size) / next) + 1
+
+/**
+ * Page buttons: first, last and the pages around the current one, null for an
+ * ellipsis. Always 7 slots once there are more than 7 pages, so the bar never jumps.
+ */
+export function pageRange(page: number, pages: number): (number | null)[] {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1)
+  const lo = Math.max(2, Math.min(page - 1, pages - 4))
+  const hi = Math.min(pages - 1, Math.max(page + 1, 5))
+  const out: (number | null)[] = [1]
+  if (lo > 2) out.push(null)
+  for (let i = lo; i <= hi; i++) out.push(i)
+  if (hi < pages - 1) out.push(null)
+  out.push(pages)
+  return out
+}
+
+export const NAME_MAX = 100
+export const DESCRIPTION_MAX = 500
+
+/** Field name -> message; empty means valid. */
+export type FieldErrors = Partial<Record<'name' | 'description' | 'role' | 'permissions', string>>
+
+function nameError(name: string, what: string): string | undefined {
+  const n = name.trim()
+  if (!n) return `${what} is required`
+  if (n.length > NAME_MAX) return `${what} is too long (${n.length}/${NAME_MAX} characters)`
+}
+
+/** The edit-user dialog: a name, and a role that is not your own. */
+export function validateUser(f: { name: string; role: string }, was: { role: string; self: boolean }): FieldErrors {
+  const e: FieldErrors = {}
+  const name = nameError(f.name, 'Name')
+  if (name) e.name = name
+  if (was.self && f.role !== was.role) e.role = 'You cannot change your own role'
+  return e
+}
+
+/** The group dialog: a name unique among the other groups (ignoring case), a short description. */
+export function validateGroup(f: { name: string; description: string }, groups: { id: string; name: string }[], id?: string): FieldErrors {
+  const e: FieldErrors = {}
+  const name = nameError(f.name, 'Name') ?? (groups.some((g) => g.id !== id && g.name.trim().toLowerCase() === f.name.trim().toLowerCase()) ? 'A group with that name already exists' : undefined)
+  if (name) e.name = name
+  if (f.description.length > DESCRIPTION_MAX) e.description = `Description is too long (${f.description.length}/${DESCRIPTION_MAX} characters)`
+  return e
+}
+
+/** The dialog field an API error code belongs to (server-side validation shown inline). */
+export function errorField(code?: string): keyof FieldErrors | undefined {
+  if (code === 'bad_name' || code === 'duplicate') return 'name'
+  if (code === 'bad_role' || code === 'own_role' || code === 'last_admin') return 'role'
+  if (code === 'bad_permissions') return 'permissions'
+}
+
+const groupIcons: [RegExp, string][] = [
+  [/admin|owner|root|super/i, 'shield'],
+  [/dev|eng|code|tech|platform/i, 'code'],
+  [/qa|test|quality/i, 'flask'],
+  [/design|ux|\bui\b|creative/i, 'palette'],
+  [/sales|business|account/i, 'briefcase'],
+  [/support|help|service|care/i, 'lifebuoy'],
+  [/financ|billing|pay|money/i, 'wallet'],
+  [/\bhr\b|people|talent|recruit/i, 'heart'],
+  [/market|growth|brand/i, 'megaphone'],
+  [/ops|infra|sre|\bit\b/i, 'server'],
+  [/data|analyt|research|science/i, 'chart'],
+  [/manage|lead|exec|director/i, 'crown'],
+]
+
+/** An icon name for a group, guessed from its name; "users" when nothing matches. */
+export const groupIcon = (name: string) => groupIcons.find(([re]) => re.test(name))?.[1] ?? 'users'
+
+/** "Workspace models"-style labels for the permissions a group turns on. */
+export const permChips = (p: Perms | null | undefined) =>
+  Object.entries(p ?? {}).flatMap(([cat, leaves]) => Object.entries(leaves ?? {}).filter(([, on]) => on).map(([key]) => humanize(`${cat} ${key}`)))
