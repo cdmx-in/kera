@@ -24,7 +24,7 @@ var piiRules = []rule{
 	{"pii.email", regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`), nil, "[email]"},
 	{"pii.iban", regexp.MustCompile(`\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b`), ibanOK, "[iban]"},
 	{"pii.card", regexp.MustCompile(`\b(?:\d[ -]?){12,18}\d\b`), cardOK, "[card]"},
-	{"pii.aadhaar", regexp.MustCompile(`\b[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?:[ -]?\d+)*\b`), exactly12, "[aadhaar]"},
+	{"pii.aadhaar", regexp.MustCompile(`\b[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?:[ -]?\d+)*\b`), aadhaarOK, "[aadhaar]"},
 	{"pii.ssn", regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`), nil, "[ssn]"},
 	{"pii.pan", regexp.MustCompile(`\b[A-Z]{5}\d{4}[A-Z]\b`), nil, "[pan]"},
 	// ponytail: phone formats are a heuristic (international +cc, US dashed or
@@ -76,7 +76,29 @@ func cardOK(s string) bool {
 	return len(d) >= 13 && len(d) <= 19 && luhn(d)
 }
 
-func exactly12(s string) bool { return len(digits(s)) == 12 }
+// aadhaarOK: 12 digits with a valid Verhoeff check digit (bare 12-digit ids
+// such as transaction numbers fail it nine times out of ten).
+func aadhaarOK(s string) bool {
+	d := digits(s)
+	return len(d) == 12 && verhoeff(d)
+}
+
+var (
+	verhoeffD = [10][10]int{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 2, 3, 4, 0, 6, 7, 8, 9, 5}, {2, 3, 4, 0, 1, 7, 8, 9, 5, 6}, {3, 4, 0, 1, 2, 8, 9, 5, 6, 7},
+		{4, 0, 1, 2, 3, 9, 5, 6, 7, 8}, {5, 9, 8, 7, 6, 0, 4, 3, 2, 1}, {6, 5, 9, 8, 7, 1, 0, 4, 3, 2}, {7, 6, 5, 9, 8, 2, 1, 0, 4, 3},
+		{8, 7, 6, 5, 9, 3, 2, 1, 0, 4}, {9, 8, 7, 6, 5, 4, 3, 2, 1, 0}}
+	verhoeffP = [8][10]int{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {1, 5, 7, 6, 2, 8, 3, 0, 9, 4}, {5, 8, 0, 3, 7, 9, 6, 1, 4, 2}, {8, 9, 1, 6, 0, 4, 3, 5, 2, 7},
+		{9, 4, 5, 3, 1, 2, 6, 8, 7, 0}, {4, 2, 8, 6, 5, 7, 3, 9, 0, 1}, {2, 7, 9, 3, 8, 0, 6, 4, 1, 5}, {7, 0, 4, 6, 9, 1, 3, 2, 5, 8}}
+)
+
+func verhoeff(d string) bool {
+	c := 0
+	for i := 0; i < len(d); i++ {
+		n := int(d[len(d)-1-i] - '0')
+		c = verhoeffD[c][verhoeffP[i%8][n]]
+	}
+	return c == 0
+}
 
 func phoneOK(s string) bool {
 	n := len(digits(s))

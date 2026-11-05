@@ -21,7 +21,8 @@ func TestScanRules(t *testing.T) {
 		{"mail me at jane.doe+x@example.co.in now", "mail me at [email] now", "pii.email"},
 		{"card 4111 1111 1111 1111 ok", "card [card] ok", "pii.card"},
 		{"card 4111-1111-1111-1112 ok", "card 4111-1111-1111-1112 ok", ""}, // bad Luhn
-		{"aadhaar 2345 6789 0123", "aadhaar [aadhaar]", "pii.aadhaar"},
+		{"aadhaar 2345 6789 0124", "aadhaar [aadhaar]", "pii.aadhaar"},     // Verhoeff-valid
+		{"txn 234567890123 settled", "txn 234567890123 settled", ""},       // 12-digit id, bad check digit
 		{"pan ABCDE1234F here", "pan [pan] here", "pii.pan"},
 		{"iban GB82WEST12345698765432", "iban [iban]", "pii.iban"},
 		{"iban GB82WEST12345698765431", "iban GB82WEST12345698765431", ""},

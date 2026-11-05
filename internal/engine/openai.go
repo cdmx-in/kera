@@ -116,8 +116,13 @@ func respondOpenAI(w http.ResponseWriter, r *http.Request, run *Run, model strin
 				code, _ = ev.Data["code"].(string)
 			}
 		}
-		api.JSON(w, http.StatusBadGateway, map[string]any{"detail": run.state.Error, "code": code,
-			"error": map[string]any{"message": run.state.Error, "code": code, "type": "server_error"}})
+		// a refusal of the request itself (guardrails, local lock) is the caller's 400, not an upstream failure
+		status, typ := http.StatusBadGateway, "server_error"
+		if code == "guardrail_blocked" || code == "local_lock" || code == "hook_error" {
+			status, typ = http.StatusBadRequest, "invalid_request_error"
+		}
+		api.JSON(w, status, map[string]any{"detail": run.state.Error, "code": code,
+			"error": map[string]any{"message": run.state.Error, "code": code, "type": typ}})
 		return
 	}
 	content := run.roundText

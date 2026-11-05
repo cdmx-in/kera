@@ -34,7 +34,7 @@ Every call to a model server (chats, background tasks, memory, embeddings) passe
 
 | Key | Modes | What it checks |
 |---|---|---|
-| `guardrails.pii` | off, log, redact, block | Email, phone, card (Luhn), PAN, Aadhaar, IBAN and SSN in messages, tool results and embedding texts. Redacted values become `[card]`, `[email]`, ... |
+| `guardrails.pii` | off, log, redact, block | Email, phone, card (Luhn), PAN, Aadhaar (Verhoeff check digit), IBAN (mod 97) and SSN in messages, tool results and embedding texts. Redacted values become `[card]`, `[email]`, ... |
 | `guardrails.output_pii` | off, log, redact | The same detectors on the model's reply, with a short hold-back so values split across stream chunks are caught. |
 | `guardrails.injection` | off, log, block | Phrases that try to override the system prompt. |
 | `guardrails.blocklist` | list of regexes | Case-insensitive; a match in a user message always blocks. |
