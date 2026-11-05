@@ -2,6 +2,7 @@ package guard
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"log/slog"
 	"net/http"
@@ -45,6 +46,46 @@ type Event struct {
 // Audit receives the events of one call (the context carries the user).
 type Audit func(ctx context.Context, events []Event)
 
+// Notifier receives the same events inside the call's context (the chat
+// engine uses it to show the user what was redacted).
+type Notifier func(events []Event)
+
+type notifierKey struct{}
+
+// WithNotifier returns ctx with fn called for every batch of events.
+func WithNotifier(ctx context.Context, fn Notifier) context.Context {
+	return context.WithValue(ctx, notifierKey{}, fn)
+}
+
+var nouns = map[string][2]string{
+	"pii.email": {"email address", "email addresses"}, "pii.phone": {"phone number", "phone numbers"},
+	"pii.card": {"card number", "card numbers"}, "pii.pan": {"PAN", "PANs"}, "pii.aadhaar": {"Aadhaar number", "Aadhaar numbers"},
+	"pii.iban": {"IBAN", "IBANs"}, "pii.ssn": {"SSN", "SSNs"},
+}
+
+// Describe reads a list of events as "1 card number and 2 email addresses".
+func Describe(events []Event) string {
+	var parts []string
+	for _, e := range events {
+		n := nouns[strings.TrimPrefix(e.Rule, "output.")]
+		if n[0] == "" {
+			continue
+		}
+		if e.Count == 1 {
+			parts = append(parts, "1 "+n[0])
+		} else {
+			parts = append(parts, fmt.Sprintf("%d %s", e.Count, n[1]))
+		}
+	}
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
 // Active reports whether any check is on.
 func (p Policy) Active() bool {
 	on := func(m Mode) bool { return m != "" && m != Off }
@@ -80,13 +121,29 @@ func Wrap(inner provider.Client, p Policy, local bool, mod Moderator, audit Audi
 func (c *client) ListModels(ctx context.Context) ([]string, error) { return c.inner.ListModels(ctx) }
 
 func (c *client) emit(ctx context.Context, evs []Event) {
-	if len(evs) > 0 && c.audit != nil {
+	if len(evs) == 0 {
+		return
+	}
+	if c.audit != nil {
 		c.audit(ctx, evs)
+	}
+	if fn, _ := ctx.Value(notifierKey{}).(Notifier); fn != nil {
+		fn(evs)
 	}
 }
 
-func blocked(rule string) error {
-	return api.Errf(http.StatusBadRequest, "guardrail_blocked", "Blocked by the "+rule+" guardrail")
+// blocked is the error the caller sees; detail names what was found.
+func blocked(rule, detail string) error {
+	msg := map[string]string{
+		"pii":        "This message was not sent: it contains " + detail + ", and this assistant's guardrails block personal data. Remove it and try again.",
+		"injection":  "This message was not sent: it looks like an attempt to override the assistant's instructions.",
+		"blocklist":  "This message was not sent: it matches a term the administrator has blocked.",
+		"moderation": "This message was not sent: the moderation check flagged it (" + detail + ").",
+	}[rule]
+	if msg == "" {
+		msg = "Blocked by the " + rule + " guardrail"
+	}
+	return api.Errf(http.StatusBadRequest, "guardrail_blocked", msg)
 }
 
 // scanPII applies the PII mode to one text: the (possibly redacted) text,
@@ -128,7 +185,7 @@ func (c *client) checkInput(ctx context.Context, msgs []provider.Message) ([]pro
 				if n := ScanInjection(m.Content); n > 0 {
 					events = append(events, Event{Rule: "injection", Action: string(c.p.Injection), Count: n})
 					if c.p.Injection == Block && stop == nil {
-						stop = blocked("injection")
+						stop = blocked("injection", "")
 					}
 				}
 			}
@@ -136,7 +193,7 @@ func (c *client) checkInput(ctx context.Context, msgs []provider.Message) ([]pro
 				if n := len(re.FindAllStringIndex(m.Content, -1)); n > 0 {
 					events = append(events, Event{Rule: "blocklist", Action: string(Block), Count: n})
 					if stop == nil {
-						stop = blocked("blocklist")
+						stop = blocked("blocklist", "")
 					}
 				}
 			}
@@ -144,7 +201,7 @@ func (c *client) checkInput(ctx context.Context, msgs []provider.Message) ([]pro
 		text, s := c.scanPII(m.Content, &events)
 		m.Content = text
 		if s && stop == nil {
-			stop = blocked("pii")
+			stop = blocked("pii", Describe(events))
 		}
 	}
 	if stop == nil && lastUser >= 0 && (c.p.Moderation == Log || c.p.Moderation == Block) {
@@ -158,7 +215,7 @@ func (c *client) checkInput(ctx context.Context, msgs []provider.Message) ([]pro
 				events = append(events, Event{Rule: "moderation." + cat, Action: string(c.p.Moderation), Count: 1})
 			}
 			if len(cats) > 0 && c.p.Moderation == Block {
-				stop = blocked("moderation")
+				stop = blocked("moderation", strings.Join(cats, ", "))
 			}
 		}
 	}
@@ -259,7 +316,7 @@ func (c *client) Embed(ctx context.Context, model string, texts []string) ([][]f
 	}
 	c.emit(ctx, events)
 	if stop {
-		return nil, blocked("pii")
+		return nil, blocked("pii", Describe(events))
 	}
 	return c.inner.Embed(ctx, model, out)
 }

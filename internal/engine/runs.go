@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cdmx-in/kera/internal/chats"
+	"github.com/cdmx-in/kera/internal/guard"
 	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/provider"
 )
@@ -317,6 +319,31 @@ func (r *Run) block(b json.RawMessage) {
 	r.state.closeReasoning(time.Now())
 	r.state.Parts = append(r.state.Parts, &Part{Type: "block", Block: slices.Clone(b)})
 	r.emitLocked("block", map[string]any{"block": json.RawMessage(slices.Clone(b))})
+}
+
+// guardNotice tells the user what the guardrails redacted (log-only and
+// blocked events need no note: nothing changed, or the error says why).
+func (r *Run) guardNotice(evs []guard.Event) {
+	var in, out []guard.Event
+	for _, e := range evs {
+		if e.Action != string(guard.Redact) {
+			continue
+		}
+		if strings.HasPrefix(e.Rule, "output.") {
+			out = append(out, e)
+		} else {
+			in = append(in, e)
+		}
+	}
+	for _, n := range []struct {
+		evs  []guard.Event
+		text string
+	}{{in, "Removed %s before sending this to the model."}, {out, "Masked %s in the reply."}} {
+		if d := guard.Describe(n.evs); d != "" {
+			b, _ := json.Marshal(map[string]any{"type": "notice", "kind": "guardrail", "text": fmt.Sprintf(n.text, d)})
+			r.block(b)
+		}
+	}
 }
 
 func (r *Run) compaction(state, summary string, before, after int) {

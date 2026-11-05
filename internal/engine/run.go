@@ -13,6 +13,7 @@ import (
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/chats"
+	"github.com/cdmx-in/kera/internal/guard"
 	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/provider"
@@ -112,6 +113,7 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 		// away from external services such as a hosted reranker
 		runCtx = retrieval.WithLocalRun(runCtx)
 	}
+	runCtx = guard.WithNotifier(runCtx, run.guardNotice)
 	run.cancel = cancel
 	e.wg.Add(1)
 	go e.execute(runCtx, x)

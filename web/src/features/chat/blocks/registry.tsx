@@ -5,6 +5,7 @@ import type { Block } from '@/api/types'
 const renderers: Record<string, ComponentType<{ block: Block }>> = {
   cards: lazy(() => import('./Cards')),
   product_cards: lazy(() => import('./Cards')),
+  notice: lazy(() => import('./Notice')),
 }
 
 export function BlockView({ block }: { block: Block }) {
