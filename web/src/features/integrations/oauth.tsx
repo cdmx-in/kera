@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
-import { useTools } from '@/api/queries'
+import { useModels, useTools } from '@/api/queries'
 import type { OAuthToolServerIntegration } from '@/lib/ui-config'
 import { iconFor } from '@/lib/icons'
 import { useComposer } from '@/stores/composer'
@@ -27,14 +27,18 @@ export function useConnected(i: OAuthToolServerIntegration) {
 }
 
 export function OAuthPlusItem({ integration: i }: { integration: OAuthToolServerIntegration }) {
-  const { connected, provider } = useConnected(i)
+  const { connected, provider, server } = useConnected(i)
   const selected = useComposer((s) => s.toolIds.includes(i.toolServerId))
   const toggle = useComposer((s) => s.toggleTool)
+  const { data: models } = useModels()
+  const model = useComposer((s) => s.model)
+  // the server skips local-only tools on hosted models; say so instead of failing silently
+  const hostedOnly = !!server?.local_only && !models?.find((m) => m.id === model)?.local
   const Icon = iconFor(i.icon)
   if (connected)
     return (
       <MenuCheckItem checked={selected} onChange={(v) => toggle(i.toolServerId, v)} testId={`integration-${i.id}`}>
-        <Icon size={15} /> {i.label} <span className="ml-auto pl-3 text-xs text-muted">Connected</span>
+        <Icon size={15} /> {i.label} <span className="ml-auto pl-3 text-xs text-muted">{hostedOnly ? 'Local models only' : 'Connected'}</span>
       </MenuCheckItem>
     )
   return (

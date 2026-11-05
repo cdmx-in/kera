@@ -27,6 +27,7 @@ type toolEntry struct {
 	AuthType      string   `json:"auth_type"`
 	Provider      string   `json:"provider,omitempty"`
 	AutoEnable    bool     `json:"auto_enable,omitempty"`
+	LocalOnly     bool     `json:"local_only,omitempty"`
 	ConnectedAt   int64    `json:"connected_at,omitempty"`
 	Functions     []string `json:"functions"`
 	Error         string   `json:"error,omitempty"`
@@ -74,6 +75,7 @@ func (h *handler) entry(ctx context.Context, u *auth.User, p tools.Provider, con
 		}
 		row := s.Row()
 		e.Name, e.Kind, e.Description, e.AuthType, e.AutoEnable = s.label(), row.Kind, row.Description, row.Auth.Type, row.AutoEnable
+		e.LocalOnly = row.LocalOnly
 		if row.Auth.Type == "user_oauth" {
 			e.Provider = row.Auth.Provider
 			at, ok := connected[row.Auth.Provider]

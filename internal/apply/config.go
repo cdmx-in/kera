@@ -337,6 +337,7 @@ type ToolServer struct {
 	Disable                 []string           `yaml:"disable,omitempty"`
 	MaxResultChars          int                `yaml:"max_result_chars,omitempty"`
 	AutoEnableWhenConnected bool               `yaml:"auto_enable_when_connected,omitempty"`
+	LocalOnly               bool               `yaml:"local_only,omitempty"`
 	Display                 *ToolServerDisplay `yaml:"display,omitempty"`
 	Enabled                 *bool              `yaml:"enabled,omitempty"`
 }

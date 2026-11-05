@@ -111,6 +111,10 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 		for _, id := range x.serverIDs() {
 			for _, p := range all {
 				if p.ID() == id && !strings.HasPrefix(id, "builtin:") {
+					if s, ok := p.(interface{ LocalOnly() bool }); ok && s.LocalOnly() && !x.m.Local {
+						slog.Debug("local-only tool server skipped for a hosted model", "server", id, "model", x.m.ID)
+						continue // its data (mail, documents) must never reach a hosted provider
+					}
 					order = append(order, p)
 				}
 			}

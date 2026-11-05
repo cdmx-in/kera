@@ -1062,3 +1062,22 @@ func TestCallbackFileUpload(t *testing.T) {
 		t.Fatalf("over the run's upload cap: %d %s", w.Code, w.Body)
 	}
 }
+
+// localOnlyTools is fakeTools marked local-only (like Gmail or Docs).
+type localOnlyTools struct{ fakeTools }
+
+func (*localOnlyTools) ID() string      { return "fake-local" }
+func (*localOnlyTools) LocalOnly() bool { return true }
+
+func TestLocalOnlyServerSkippedForHostedModel(t *testing.T) {
+	h := newHarness(t)
+	tools.Register(&localOnlyTools{})
+	run, err := h.e.Start(context.Background(), h.u, &Request{Model: "m1", StreamFormat: "events", Temporary: true,
+		ToolIDs: []string{"server:fake-local"}, Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"please use tool"`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := types(wait(t, run)); strings.Contains(got, "tool_call") {
+		t.Fatalf("hosted model got a local-only tool: %s", got)
+	}
+}

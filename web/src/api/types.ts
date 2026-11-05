@@ -155,6 +155,8 @@ export interface ToolServer {
   provider?: string
   /** Turn on in new chats once the user is connected. */
   auto_enable?: boolean
+  /** Joins only chats on a local (on-server) model. */
+  local_only?: boolean
   connected_at?: number
   functions?: string[]
   error?: string

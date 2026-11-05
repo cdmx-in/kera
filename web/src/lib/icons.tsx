@@ -1,4 +1,4 @@
-import { BookOpen, Brain, Code2, FileText, Globe, HelpCircle, Pencil, Puzzle, Search, Sheet, Sparkles, Terminal, Wrench, type LucideIcon } from 'lucide-react'
+import { BookOpen, Brain, Calendar, Code2, FileText, Globe, HelpCircle, Mail, Pencil, Puzzle, Search, Sheet, Sparkles, Terminal, Wrench, type LucideIcon } from 'lucide-react'
 import type { ToolKind } from './ui-config'
 
 // Icon names usable in toolDisplay / features / integrations config.
@@ -18,6 +18,8 @@ const byName: Record<string, LucideIcon> = {
   help: HelpCircle,
   ask: HelpCircle,
   sheet: Sheet,
+  calendar: Calendar,
+  mail: Mail,
   sheets: Sheet,
   puzzle: Puzzle,
   sparkles: Sparkles,
