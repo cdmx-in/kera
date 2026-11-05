@@ -15,6 +15,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/ui/Me
 import { SearchDialog } from './SearchDialog'
 import { brandMark } from '@/features/brand/Splash'
 import { canCowork } from '@/features/cowork/lib'
+import { Confirm } from '@/features/admin/ui'
 
 const DAY = 86_400_000
 
@@ -245,6 +246,7 @@ function ChatRow({ chat, mut, onOpen }: { chat: ChatSummary; mut: Mut; onOpen: (
   const { chatId } = useParams()
   const liveTitle = useChat((s) => (s.chatId === chat.id ? s.title : ''))
   const [editing, setEditing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const active = chatId === chat.id
   const title = liveTitle || chat.title || 'New Chat'
   if (editing)
@@ -300,11 +302,12 @@ function ChatRow({ chat, mut, onOpen }: { chat: ChatSummary; mut: Mut; onOpen: (
             <Archive size={14} /> Archive
           </MenuItem>
           <MenuSeparator />
-          <MenuItem danger onSelect={() => confirm(`Delete "${title}"?`) && void mut.remove(chat)}>
+          <MenuItem danger onSelect={() => setDeleting(true)}>
             <Trash2 size={14} /> Delete
           </MenuItem>
         </MenuContent>
       </Menu>
+      <Confirm open={deleting} title="Delete chat?" body={<p className="line-clamp-3 break-words text-muted">{title}</p>} onConfirm={() => mut.remove(chat)} onClose={() => setDeleting(false)} />
     </li>
   )
 }
