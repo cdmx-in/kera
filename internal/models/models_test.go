@@ -620,3 +620,50 @@ func TestConnectionDraftTest(t *testing.T) {
 		t.Fatalf("bad id %v", got)
 	}
 }
+
+// TestGuardrailsAudit: a blocked prompt fails before the server is called and
+// leaves an audit row; a local model is exempt by default.
+func TestGuardrailsAudit(t *testing.T) {
+	db := testdb.New(t)
+	keys, _ := secret.Derive(strings.Repeat("s", 32))
+	f := newFakes(t)
+	st := settings.New(db)
+	r := New(db, keys, st, f.ollama.URL)
+	ctx := context.Background()
+	must(t, st.Set(ctx, "guardrails.pii", "block", false))
+	u := &auth.User{ID: "root", Role: "admin"}
+	must(t, db.QueryRow(ctx, `INSERT INTO "user" (id, name, email, role) VALUES ('root', 'Root', 'root@example.com', 'admin') RETURNING id`).Scan(new(string)))
+	m, err := r.Resolve(ctx, u, "qwen")
+	must(t, err)
+	req := provider.Request{Model: m.ProviderModel, Messages: []provider.Message{{Role: "user", Content: "card 4111 1111 1111 1111"}}}
+
+	stream := func() error {
+		cl, err := r.Client(m)
+		must(t, err)
+		for _, err := range cl.Stream(auth.WithUser(ctx, u), req) {
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := stream(); err != nil { // local model, exempt by default
+		t.Fatalf("local model should be exempt: %v", err)
+	}
+	must(t, st.Set(ctx, "guardrails.local_exempt", false, false))
+	err = stream()
+	var ae *api.Error
+	if !errors.As(err, &ae) || ae.Code != "guardrail_blocked" {
+		t.Fatalf("want guardrail_blocked, got %v", err)
+	}
+	var rule, action, uid string
+	for i := 0; i < 50; i++ { // the audit insert runs off the request path
+		if db.QueryRow(ctx, `SELECT rule, action, user_id FROM guardrail_event`).Scan(&rule, &action, &uid) == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if rule != "pii.card" || action != "block" || uid != "root" {
+		t.Fatalf("audit row: %q %q %q", rule, action, uid)
+	}
+}

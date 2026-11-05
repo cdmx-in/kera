@@ -44,6 +44,16 @@ var Defaults = map[string]json.RawMessage{
 	"chat.memory.local_only":    raw(`true`),
 	"compat.throwaway_chats":    raw(`true`),
 
+	// Guardrails on every model call. Modes: off | log | redact | block (output_pii: off | log | redact;
+	// injection and moderation: off | log | block). Audit-first defaults: nothing changes until an admin flips a mode.
+	"guardrails.pii":              raw(`"log"`),
+	"guardrails.output_pii":       raw(`"off"`),
+	"guardrails.injection":        raw(`"log"`),
+	"guardrails.blocklist":        raw(`[]`),
+	"guardrails.moderation":       raw(`"off"`),
+	"guardrails.moderation.model": raw(`"omni-moderation-latest"`),
+	"guardrails.local_exempt":     raw(`true`),
+
 	// Cowork (task mode): the prompt added after the preset prompt ("" = cowork.DefaultPrompt) and its tool-round cap.
 	"cowork.prompt":              raw(`""`),
 	"cowork.max_tool_iterations": raw(`100`),

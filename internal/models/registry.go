@@ -21,6 +21,7 @@ import (
 	"github.com/cdmx-in/kera/internal/access"
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/auth"
+	"github.com/cdmx-in/kera/internal/guard"
 	"github.com/cdmx-in/kera/internal/provider"
 	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/settings"
@@ -247,13 +248,95 @@ func (r *Registry) ConnectionClient(ctx context.Context, id string) (provider.Cl
 	if err != nil {
 		return nil, err
 	}
-	return r.client(c, nil)
+	cl, err := r.client(c, nil)
+	if err != nil {
+		return nil, err
+	}
+	return r.guarded(cl, c, c.Kind == provider.KindOllama, nil, c.ID), nil
 }
 
 // Client returns a client for m; connection headers and the user headers
 // from Resolve are sent with every request.
 func (r *Registry) Client(m *Resolved) (provider.Client, error) {
-	return r.client(m.Connection, m.UserHeaders)
+	cl, err := r.client(m.Connection, m.UserHeaders)
+	if err != nil {
+		return nil, err
+	}
+	return r.guarded(cl, m.Connection, m.Local, m.Features, m.ID), nil
+}
+
+// guarded wraps cl with the guardrails policy: the guardrails.* settings
+// overlaid by the model's features.guardrails map. Every provider client is
+// built here, so chat, tasks, compaction, memory and embeddings are covered.
+func (r *Registry) guarded(cl provider.Client, c Connection, local bool, features map[string]any, modelID string) provider.Client {
+	if r.Settings == nil || r.DB == nil {
+		return cl
+	}
+	p := r.policy(features)
+	var mod guard.Moderator
+	if c.Kind != provider.KindOllama && p.ModerationModel != "" {
+		mod = guard.OpenAIModerator(r.HTTP, c.BaseURL, c.APIKey, p.ModerationModel)
+	}
+	return guard.Wrap(cl, p, local, mod, r.audit(modelID))
+}
+
+func (r *Registry) policy(features map[string]any) guard.Policy {
+	ctx := context.Background()
+	get := func(key string, dst any) { _ = r.Settings.Get(ctx, key, dst) }
+	var p guard.Policy
+	get("guardrails.pii", &p.PII)
+	get("guardrails.output_pii", &p.OutputPII)
+	get("guardrails.injection", &p.Injection)
+	get("guardrails.moderation", &p.Moderation)
+	get("guardrails.moderation.model", &p.ModerationModel)
+	get("guardrails.blocklist", &p.Blocklist)
+	p.LocalExempt = r.Settings.Bool(ctx, "guardrails.local_exempt")
+	if o, _ := features["guardrails"].(map[string]any); o != nil { // per-model override, same leaf names
+		mode := func(k string, dst *guard.Mode) {
+			if v, ok := o[k].(string); ok {
+				*dst = guard.Mode(v)
+			}
+		}
+		mode("pii", &p.PII)
+		mode("output_pii", &p.OutputPII)
+		mode("injection", &p.Injection)
+		mode("moderation", &p.Moderation)
+		if v, ok := o["local_exempt"].(bool); ok {
+			p.LocalExempt = v
+		}
+		if v, ok := o["blocklist"].([]any); ok {
+			p.Blocklist = nil
+			for _, x := range v {
+				if s, ok := x.(string); ok {
+					p.Blocklist = append(p.Blocklist, s)
+				}
+			}
+		}
+	}
+	return p
+}
+
+// audit writes guardrail events for modelID; the user comes from the call's
+// context. Inserts run off the request path and only log failures.
+func (r *Registry) audit(modelID string) guard.Audit {
+	return func(ctx context.Context, evs []guard.Event) {
+		var uid *string
+		via := false
+		if u := auth.FromContext(ctx); u != nil {
+			uid, via = &u.ID, u.ViaAPIKey
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			for _, e := range evs {
+				if _, err := r.DB.Exec(ctx, `INSERT INTO guardrail_event (user_id, via_api_key, model_id, rule, action, count) VALUES ($1, $2, $3, $4, $5, $6)`,
+					uid, via, modelID, e.Rule, e.Action, e.Count); err != nil {
+					slog.Error("guardrail audit", "err", err)
+					return
+				}
+			}
+		}()
+	}
 }
 
 func (r *Registry) client(c Connection, extra http.Header) (provider.Client, error) {

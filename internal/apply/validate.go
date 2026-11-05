@@ -122,6 +122,26 @@ func validate(f *File, errs *Errors) {
 		oneOf(0, "rag.reranker.local_runs", *f.RAG.Reranker.LocalRuns, errs, "skip", "allow")
 	}
 
+	if g := f.Guardrails; g != nil {
+		if g.PII != nil {
+			oneOf(0, "guardrails.pii", *g.PII, errs, "off", "log", "redact", "block")
+		}
+		if g.OutputPII != nil {
+			oneOf(0, "guardrails.output_pii", *g.OutputPII, errs, "off", "log", "redact")
+		}
+		if g.Injection != nil {
+			oneOf(0, "guardrails.injection", *g.Injection, errs, "off", "log", "block")
+		}
+		if g.Moderation != nil && g.Moderation.Mode != nil {
+			oneOf(0, "guardrails.moderation", *g.Moderation.Mode, errs, "off", "log", "block")
+		}
+		for _, b := range g.Blocklist {
+			if _, err := regexp.Compile(b); err != nil {
+				errs.add(0, "guardrails.blocklist: %q is not a valid regex: %v", b, err)
+			}
+		}
+	}
+
 	unique(f, "knowledge", len(f.Knowledge), func(i int) string { return f.Knowledge[i].Name }, errs)
 	for i, k := range f.Knowledge {
 		l := f.line("knowledge", i)

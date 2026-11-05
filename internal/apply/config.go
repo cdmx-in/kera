@@ -34,6 +34,7 @@ type Config struct {
 	Integrations    []Integration    `yaml:"integrations,omitempty"`
 	Spend           *Spend           `yaml:"spend,omitempty"`
 	Compat          *Compat          `yaml:"compat,omitempty"`
+	Guardrails      *Guardrails      `yaml:"guardrails,omitempty"`
 	Skills          *Skills          `yaml:"skills,omitempty"`
 }
 
@@ -406,6 +407,9 @@ type ModelFeatures struct {
 	WebSearch       string `yaml:"web_search,omitempty" json:"web_search,omitempty"`
 	CodeInterpreter *bool  `yaml:"code_interpreter,omitempty" json:"code_interpreter,omitempty"`
 	Memory          *bool  `yaml:"memory,omitempty" json:"memory,omitempty"`
+	// Guardrails overrides the guardrails.* settings for this model (keys pii,
+	// output_pii, injection, moderation, local_exempt, blocklist).
+	Guardrails map[string]any `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
 }
 
 type ModelTools struct {
@@ -465,6 +469,23 @@ type SpendSource struct {
 
 type Compat struct {
 	ThrowawayChats *bool `yaml:"throwaway_chats,omitempty"`
+}
+
+// Guardrails: checks on every model call. Modes are off, log, redact (pii
+// and output_pii only) or block (not output_pii). Blocklist regexes always
+// block. Models override leaves with features.guardrails.
+type Guardrails struct {
+	PII         *string          `yaml:"pii,omitempty"`
+	OutputPII   *string          `yaml:"output_pii,omitempty"`
+	Injection   *string          `yaml:"injection,omitempty"`
+	Blocklist   []string         `yaml:"blocklist,omitempty"`
+	Moderation  *GuardModeration `yaml:"moderation,omitempty"`
+	LocalExempt *bool            `yaml:"local_exempt,omitempty"`
+}
+
+type GuardModeration struct {
+	Mode  *string `yaml:"mode,omitempty" key:"guardrails.moderation"`
+	Model *string `yaml:"model,omitempty"`
 }
 
 // Skills imports every SKILL.md under Dir and in ImportZip (paths relative to

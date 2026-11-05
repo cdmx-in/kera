@@ -549,7 +549,7 @@ func normModel(m Model) Model {
 	if m.FileContext == "tools" {
 		m.FileContext = ""
 	}
-	if m.Features != nil && *m.Features == (ModelFeatures{}) {
+	if f := m.Features; f != nil && f.WebSearch == "" && f.CodeInterpreter == nil && f.Memory == nil && len(f.Guardrails) == 0 {
 		m.Features = nil
 	}
 	if m.Tools != nil && len(m.Tools.Servers) == 0 && len(m.Tools.Builtins) == 0 {

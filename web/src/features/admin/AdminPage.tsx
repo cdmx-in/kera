@@ -12,6 +12,7 @@ import { BrandingTab } from './settings/Branding'
 import { ConnectionsTab } from './settings/Connections'
 import { ModelsTab } from './settings/Models'
 import { HookServersTab, OAuthTab, ToolServersTab } from './settings/Servers'
+import { GuardrailsTab } from './settings/Guardrails'
 import { ChatTab, CodeTab, InterfaceTab, RetrievalTab, TasksTab, WebTab } from './settings/tabs'
 import { SyncTab } from './settings/Sync'
 
@@ -20,6 +21,7 @@ const settingsTabs: [string, string, () => React.ReactNode][] = [
   ['models', 'Models', () => <ModelsTab />],
   ['tools', 'Tool servers', () => <ToolServersTab />],
   ['hooks', 'Hook servers', () => <HookServersTab />],
+  ['guardrails', 'Guardrails', () => <GuardrailsTab />],
   ['oauth', 'OAuth providers', () => <OAuthTab />],
   ['branding', 'Branding', () => <BrandingTab />],
   ['interface', 'Interface', () => <InterfaceTab />],

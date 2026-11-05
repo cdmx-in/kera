@@ -15,6 +15,7 @@ A self-hosted team chat for Ollama and OpenAI-compatible models, shipped as one 
 - **Code interpreter.** Runs code in a Jupyter sandbox and returns the files it creates.
 - **Plugins in any language.** Hooks and tools are HTTP services, not code loaded into the server.
 - **Migration from Open WebUI.** `kera migrate from-openwebui` imports users, chats, files and knowledge.
+- **Guardrails.** Personal data redaction or blocking, prompt-injection and blocklist checks and optional moderation on every model call, with an audit trail (see below).
 
 ## Quick start (development)
 
@@ -26,6 +27,21 @@ make build && ./kera serve        # http://localhost:8080
 ```
 
 Run the tests with `make test` (database tests use the `testdb` container).
+
+## Guardrails
+
+Every call to a model server (chats, background tasks, memory, embeddings) passes through one guard. Settings live under `guardrails.*` (Admin > Settings > Guardrails, or the `guardrails:` section of a config file):
+
+| Key | Modes | What it checks |
+|---|---|---|
+| `guardrails.pii` | off, log, redact, block | Email, phone, card (Luhn), PAN, Aadhaar, IBAN and SSN in messages, tool results and embedding texts. Redacted values become `[card]`, `[email]`, ... |
+| `guardrails.output_pii` | off, log, redact | The same detectors on the model's reply, with a short hold-back so values split across stream chunks are caught. |
+| `guardrails.injection` | off, log, block | Phrases that try to override the system prompt. |
+| `guardrails.blocklist` | list of regexes | Case-insensitive; a match in a user message always blocks. |
+| `guardrails.moderation` / `.model` | off, log, block | Classifies the latest user message with a moderation model on the same connection (`/v1/moderations`). |
+| `guardrails.local_exempt` | bool | Skip everything for local (Ollama) models. |
+
+A blocked call fails with HTTP 400 and code `guardrail_blocked`. Events (rule, action, count, user, model; never the matched text) are listed in the admin console and the `guardrail_event` table. A model preset overrides any key with `features: {guardrails: {pii: off}}`. Hook servers remain the way to add custom checks.
 
 ## Layout
 

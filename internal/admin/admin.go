@@ -44,5 +44,7 @@ func Mount(a *app.App) error {
 	s.Handle("GET /api/v1/analytics/models", admin(h.byModel))
 	s.Handle("GET /api/v1/analytics/users", admin(h.byUser))
 	s.Handle("GET /api/v1/analytics/spend", admin(h.getSpend))
+	s.Handle("GET /api/v1/admin/guardrails/events", admin(h.guardrailEvents))
+	s.Handle("GET /api/v1/admin/guardrails/summary", admin(h.guardrailSummary))
 	return nil
 }
