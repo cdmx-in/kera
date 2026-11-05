@@ -10,7 +10,7 @@ import { attempt, Btn, Card, inputCls, Loading, ManagedBadge, managedWarning } f
 import { Select } from '@/ui/Select'
 import { ModelIcon } from '@/features/header/ModelPicker'
 
-export type Kind = 'bool' | 'int' | 'float' | 'text' | 'textarea' | 'json' | 'secret' | 'model' | 'connection' | { select: [string, string][] }
+export type Kind = 'bool' | 'int' | 'float' | 'text' | 'textarea' | 'json' | 'lines' | 'secret' | 'model' | 'connection' | { select: [string, string][] }
 
 export interface FieldSpec {
   key: string
@@ -58,6 +58,7 @@ export function useDraft(): Draft {
 
 /** Converts number fields typed as text; throws on invalid input. */
 export function coerce(kind: Kind, v: unknown, key: string): unknown {
+  if (kind === 'lines') return typeof v === 'string' ? v.split('\n').map((l) => l.trim()).filter(Boolean) : v
   if (kind === 'json') {
     if (typeof v !== 'string') return v
     try {
@@ -72,7 +73,7 @@ export function coerce(kind: Kind, v: unknown, key: string): unknown {
   return n
 }
 
-export function SettingsForm({ sections, children }: { sections: { title: string; hint?: string; fields: FieldSpec[] }[]; children?: (d: Draft) => ReactNode }) {
+export function SettingsForm({ sections, children, single }: { sections: { title: string; hint?: string; fields: FieldSpec[] }[]; children?: (d: Draft) => ReactNode; single?: boolean }) {
   const d = useDraft()
   const kinds = new Map(sections.flatMap((s) => s.fields.map((f) => [f.key, f.kind] as const)))
   if (d.isLoading || d.error) return <Loading q={d} />
@@ -80,7 +81,7 @@ export function SettingsForm({ sections, children }: { sections: { title: string
     <div className="space-y-4">
       {children?.(d)}
       {/* Two columns of cards on wide screens; a card holding a text area spans both. */}
-      <div className="grid items-start gap-4 xl:grid-cols-2">
+      <div className={cx('grid items-start gap-4', !single && 'xl:grid-cols-2')}>
         {sections.map((s) => (
           <Card key={s.title} title={s.title} hint={s.hint} className={cx(s.fields.some((f) => f.kind === 'textarea' || f.kind === 'json') && 'xl:col-span-2')}>
             <div className="divide-y divide-line">
@@ -152,7 +153,7 @@ function SettingField({ spec, d }: { spec: FieldSpec; d: Draft }) {
   const { key, kind } = spec
   const v = d.get(key)
   const s = d.settings?.get(key)
-  const wide = kind === 'textarea' || kind === 'json'
+  const wide = kind === 'textarea' || kind === 'json' || kind === 'lines'
   let control: ReactNode
   if (kind === 'bool') control = <Switch checked={!!v} onChange={(x) => d.set(key, x)} label={spec.label ?? key} />
   else if (kind === 'textarea')
@@ -164,6 +165,18 @@ function SettingField({ spec, d }: { spec: FieldSpec; d: Draft }) {
         onChange={(e) => d.set(key, e.target.value)}
         rows={10}
         spellCheck={false}
+        aria-label={spec.label ?? key}
+        className={cx(inputCls, 'font-mono text-xs')}
+      />
+    )
+  else if (kind === 'lines')
+    control = (
+      <textarea
+        value={typeof v === 'string' ? v : Array.isArray(v) ? v.join('\n') : ''}
+        onChange={(e) => d.set(key, e.target.value)}
+        rows={Math.min(8, Math.max(3, (Array.isArray(v) ? v.length : String(v ?? '').split('\n').length) + 1))}
+        spellCheck={false}
+        placeholder="One per line"
         aria-label={spec.label ?? key}
         className={cx(inputCls, 'font-mono text-xs')}
       />

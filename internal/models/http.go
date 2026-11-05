@@ -139,6 +139,7 @@ func enabledFeatures(f map[string]any) []string {
 			if x != "" && x != "false" && x != "off" {
 				out = append(out, k)
 			}
+		case map[string]any, []any: // settings such as features.guardrails, not a toggle
 		default:
 			out = append(out, k)
 		}

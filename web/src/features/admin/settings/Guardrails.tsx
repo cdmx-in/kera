@@ -78,12 +78,13 @@ export function GuardrailsTab() {
             fields: [
               f('guardrails.pii', { select: inputModes }, 'Email addresses, phone numbers, card numbers (Luhn-checked), PAN, Aadhaar, IBAN and SSN.', 'Personal data'),
               f('guardrails.injection', { select: blockModes }, 'Phrases that try to override the system prompt ("ignore previous instructions", "reveal your system prompt").', 'Prompt injection'),
-              f('guardrails.blocklist', 'json', 'JSON list of case-insensitive regular expressions; a match in a user message always blocks the call.', 'Blocklist'),
+              f('guardrails.blocklist', 'lines', 'Case-insensitive regular expressions, one per line. A match in a user message always blocks the call.', 'Blocklist'),
             ],
           },
           {
             title: 'Reply',
-            fields: [f('guardrails.output_pii', { select: outputModes }, 'Personal data in the model\'s reply. Redaction holds back a short tail of the stream so split values are still caught.', 'Personal data in replies')],
+            hint: 'Checked on the model\'s answer as it streams.',
+            fields: [f('guardrails.output_pii', { select: outputModes }, 'Redaction holds back a short tail of the stream so values split across chunks are still caught.', 'Personal data in replies')],
           },
           {
             title: 'Moderation',
@@ -92,9 +93,11 @@ export function GuardrailsTab() {
           },
           {
             title: 'Scope',
-            fields: [f('guardrails.local_exempt', 'bool', 'Skip every check for local (Ollama) models: nothing leaves the server. A model preset can override any of these with features.guardrails.', 'Exempt local models')],
+            hint: 'A model preset can override any of these with features.guardrails, e.g. {pii: off}.',
+            fields: [f('guardrails.local_exempt', 'bool', 'Skip every check for local (Ollama) models: nothing leaves the server.', 'Exempt local models')],
           },
         ]}
+        single
       />
       <Events />
     </div>
@@ -113,6 +116,7 @@ function Events() {
         <Select
           value={days}
           onChange={setDays}
+          className="w-40"
           aria-label="Period"
           options={[
             { value: '1', label: 'Last day' },
@@ -152,7 +156,7 @@ function Events() {
                 <tr key={e.id} data-testid="guardrail-event">
                   <td className={tdCls + ' whitespace-nowrap text-muted'}>{new Date(e.created_at * 1000).toLocaleString()}</td>
                   <td className={tdCls}>
-                    {e.user_name || e.user_email || <span className="text-muted">System</span>}
+                    {e.user_name || e.user_email || <span className="text-muted" title="A background task (title, tags, memory) or a call without a signed-in user">Background</span>}
                     {e.via_api_key && (
                       <span className="ml-1 text-xs text-muted" title="Called through an API key">
                         (API key)

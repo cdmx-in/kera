@@ -77,7 +77,7 @@ func TestToolIDsRoundTrip(t *testing.T) {
 	if tl.Servers[0] != "other" || tl.Builtins["execute_code"] || !tl.Builtins["search_web"] {
 		t.Fatalf("edit %+v", tl)
 	}
-	if got := enabledFeatures(map[string]any{"web_search": "native", "memory": false, "code_interpreter": true, "x": ""}); len(got) != 2 || got[0] != "code_interpreter" {
+	if got := enabledFeatures(map[string]any{"web_search": "native", "memory": false, "code_interpreter": true, "x": "", "guardrails": map[string]any{"pii": "redact"}}); len(got) != 2 || got[0] != "code_interpreter" {
 		t.Fatalf("features %v", got)
 	}
 }
