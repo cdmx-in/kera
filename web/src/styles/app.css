@@ -220,7 +220,7 @@ button:disabled {
 }
 .md ol {
   list-style: decimal;
-  padding-left: 1.4em;
+  padding-left: 2em; /* room for two-digit markers (was clipping "20.") */
 }
 .md li + li {
   margin-top: 0.2em;
@@ -358,6 +358,38 @@ code {
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* "Thinking..." with cycling dots */
+.whimsy-dots::after {
+  content: '';
+  animation: whimsy-dots 1.2s steps(1) infinite;
+}
+@keyframes whimsy-dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
+
+/* blinking caret at the end of the text being streamed */
+.md-live > p:last-child::after,
+.md-live > :is(ul, ol):last-child > li:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.55;
+  animation: caret-blink 1s steps(2, jump-none) infinite;
+}
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
   }
 }
 

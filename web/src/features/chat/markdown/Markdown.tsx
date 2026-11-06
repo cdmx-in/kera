@@ -1,4 +1,4 @@
-import { isValidElement, memo, type ReactNode } from 'react'
+import { isValidElement, memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Source } from '@/api/types'
@@ -103,10 +103,30 @@ function components(sources: Source[]): Components {
   }
 }
 
-export const Markdown = memo(function Markdown({ text, sources = [], breaks = false, className = 'md' }: { text: string; sources?: Source[]; breaks?: boolean; className?: string }) {
+// Streamed deltas arrive in bursts; reveal them a few characters per frame so
+// the text flows instead of jumping. Snaps to the full text once not live.
+function useDrip(text: string, live: boolean): string {
+  const [n, setN] = useState(0)
+  const len = useRef(0)
+  len.current = text.length
+  useEffect(() => {
+    if (!live || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    let raf = 0
+    const tick = () => {
+      setN((c) => c + Math.min(Math.max(len.current - c, 0), Math.max(2, Math.ceil((len.current - c) / 8))))
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [live])
+  return live && n < text.length && !matchMedia('(prefers-reduced-motion: reduce)').matches ? text.slice(0, n) : text
+}
+
+export const Markdown = memo(function Markdown({ text: full, sources = [], breaks = false, className = 'md', live = false }: { text: string; sources?: Source[]; breaks?: boolean; className?: string; live?: boolean }) {
+  const text = useDrip(full, live)
   const md = inlineHtmlToMarkdown(breaks ? keepLineBreaks(text) : text)
   return (
-    <div className={className}>
+    <div className={live ? `${className} md-live` : className}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components(sources)}>
         {linkCitations(md, sources.length)}
       </ReactMarkdown>

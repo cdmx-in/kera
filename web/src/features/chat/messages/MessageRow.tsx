@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, Pencil, RefreshCw } from 'lucide-react'
 import type { Message } from '@/api/types'
 import { useChat, useMessage, siblingsOf } from '@/stores/chat'
@@ -127,7 +127,7 @@ function AssistantMessage({ m, isLast, readOnly, modelName }: { m: Message; isLa
           case 'text':
             return (
               <div key={i} data-testid="message-content">
-                <Markdown text={p.text} sources={m.sources} />
+                <Markdown text={p.text} sources={m.sources} live={streaming && i === m.parts.length - 1} />
               </div>
             )
           case 'reasoning':
@@ -189,8 +189,31 @@ function AssistantMessage({ m, isLast, readOnly, modelName }: { m: Message; isLa
 function StatusRow({ text }: { text: string }) {
   return (
     <p className="my-2 flex items-center gap-2 text-sm text-muted">
-      <Spinner size={13} className="text-accent" />
-      <span className="truncate">{text}</span>
+      {text ? (
+        <>
+          <Spinner size={13} className="text-accent" />
+          <span className="truncate">{text}</span>
+        </>
+      ) : (
+        <Whimsy />
+      )}
     </p>
+  )
+}
+
+const whimsy = ['🤔 Thinking', '🏊 Swimming through docs', '🧠 Pondering', '🔍 Digging around', '🧩 Connecting dots', '☕ Brewing an answer', '🪄 Conjuring', '🐙 Wrangling tentacles', '🚀 Warming up thrusters', '🧪 Mixing ideas', '🦆 Paddling furiously', '📚 Skimming the shelves']
+
+// Shown before the first token: a random phrase that changes every couple of seconds.
+function Whimsy() {
+  const [i, setI] = useState(() => Math.floor(Math.random() * whimsy.length))
+  useEffect(() => {
+    const t = setInterval(() => setI((c) => (c + 1 + Math.floor(Math.random() * (whimsy.length - 1))) % whimsy.length), 2200)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <span key={i} className="animate-fade-up truncate" data-testid="whimsy">
+      {whimsy[i]}
+      <span className="whimsy-dots" />
+    </span>
   )
 }
