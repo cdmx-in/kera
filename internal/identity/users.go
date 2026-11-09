@@ -61,6 +61,28 @@ func scanUser(row pgx.Row) (userOut, error) {
 	return u, err
 }
 
+// userSorts maps ?sort= to an ORDER BY expression; a whitelist, since it is spliced into the SQL.
+var userSorts = map[string]string{
+	"name":        "lower(u.name)",
+	"email":       "lower(u.email)",
+	"role":        "u.role",
+	"last_active": "u.last_active_at",
+	"api_keys":    "(SELECT count(*) FROM api_key k WHERE k.user_id = u.id)",
+}
+
+// userOrder is the ORDER BY for ?sort=&order=; unknown or missing sort keeps signup order.
+func userOrder(r *http.Request) string {
+	expr, ok := userSorts[r.URL.Query().Get("sort")]
+	if !ok {
+		return "u.created_at, u.id"
+	}
+	dir := "ASC"
+	if r.URL.Query().Get("order") == "desc" {
+		dir = "DESC NULLS LAST"
+	}
+	return expr + " " + dir + ", u.id"
+}
+
 func (h *handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := strings.TrimSpace(r.URL.Query().Get("query"))
@@ -73,7 +95,7 @@ func (h *handler) listUsers(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, fmt.Errorf("count users: %w", err))
 		return
 	}
-	rows, err := h.a.DB.Query(ctx, userSelect+`WHERE `+match+` ORDER BY u.created_at, u.id LIMIT $2 OFFSET $3`,
+	rows, err := h.a.DB.Query(ctx, userSelect+`WHERE `+match+` ORDER BY `+userOrder(r)+` LIMIT $2 OFFSET $3`,
 		q, size, (page-1)*size)
 	if err != nil {
 		api.Fail(w, r, fmt.Errorf("list users: %w", err))

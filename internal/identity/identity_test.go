@@ -479,6 +479,14 @@ func TestUsersAdmin(t *testing.T) {
 	if page.Total != 2 || len(page.Users) != 0 {
 		t.Fatalf("page 2 %+v", page)
 	}
+	// Sorting: opposite orders reverse the list; an unknown key falls back to signup order, not an error.
+	var asc, desc, bogus struct{ Users []userOut }
+	e.ok("GET", "/api/v1/users/?sort=email&order=asc", admin, nil, &asc)
+	e.ok("GET", "/api/v1/users/?sort=email&order=desc", admin, nil, &desc)
+	e.ok("GET", "/api/v1/users/?sort=nope%3B+DROP", admin, nil, &bogus)
+	if len(asc.Users) != 2 || asc.Users[0].ID != desc.Users[1].ID || asc.Users[0].Email > asc.Users[1].Email || len(bogus.Users) != 2 {
+		t.Fatalf("sort asc %+v desc %+v bogus %+v", asc, desc, bogus)
+	}
 
 	// ?size= pages with a stable order (created_at, id) and a bounded size.
 	all := []string{adminID, uid}

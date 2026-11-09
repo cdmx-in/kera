@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pencil, Search, Trash2 } from 'lucide-react'
+import { ChevronDown, Pencil, Search, Trash2 } from 'lucide-react'
 import { api, type ApiError } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { useMe } from '@/api/queries'
 import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
 import { Tip } from '@/ui/misc'
 import { cx } from '@/lib/format'
-import { enc, useSettings, useSaveSettings, type AdminUser, type RoleName } from './api'
+import { enc, useGroups, useSettings, useSaveSettings, type AdminUser, type RoleName } from './api'
 import { ago, errorField, NAME_MAX, validateUser, type FieldErrors, type Perms } from './lib'
 import { PermSwitches } from './Perms'
 import { Pagination, useUrlPager } from './Pagination'
 import { attempt, Badge, Btn, Card, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, Page, scrollCls, tdCls, theadCls, thCls } from './ui'
 import { Select } from '@/ui/Select'
+import { Menu, MenuCheckItem, MenuContent, MenuLabel, MenuTrigger } from '@/ui/Menu'
 
 const roles: RoleName[] = ['admin', 'user', 'pending']
 const roleOptions = roles.map((r) => ({ value: r, label: r[0].toUpperCase() + r.slice(1) }))
@@ -35,11 +36,16 @@ export function useDebounced<T>(v: T, ms = 250): T {
   return d
 }
 
-/** One page of users matching query (server-side paging; size omitted = the server default). */
-export function useUserSearch(query: string, page = 1, size?: number) {
+export type UserSort = { key: string; desc: boolean }
+
+/** One page of users matching query (server-side paging and sorting; size omitted = the server default, sort omitted = signup order). */
+export function useUserSearch(query: string, page = 1, size?: number, sort?: UserSort) {
   return useQuery({
-    queryKey: ['admin', 'users', query, page, size],
-    queryFn: () => api<{ users: AdminUser[]; total: number }>(`/api/v1/users/?query=${enc(query)}&page=${page}${size ? `&size=${size}` : ''}`),
+    queryKey: ['admin', 'users', query, page, size, sort],
+    queryFn: () =>
+      api<{ users: AdminUser[]; total: number }>(
+        `/api/v1/users/?query=${enc(query)}&page=${page}${size ? `&size=${size}` : ''}${sort ? `&sort=${sort.key}&order=${sort.desc ? 'desc' : 'asc'}` : ''}`,
+      ),
     placeholderData: (prev) => prev,
   })
 }
@@ -48,7 +54,9 @@ export function UsersPage() {
   const [q, setQ] = useState('')
   const pager = useUrlPager()
   const query = useDebounced(q.trim())
-  const users = useUserSearch(query, pager.page, pager.size)
+  const [sort, setSort] = useState<UserSort | undefined>()
+  const users = useUserSearch(query, pager.page, pager.size, sort)
+  const groups = useGroups().data ?? []
   const me = useMe().data
   const qc = useQueryClient()
   const [editing, setEditing] = useState<AdminUser | null>(null)
@@ -60,6 +68,21 @@ export function UsersPage() {
       await api(`/api/v1/users/${enc(u.id)}/update`, { method: 'POST', json: { role } })
       await refresh()
     }, `${u.name || u.email} is now ${role}`)
+
+  const setMember = (u: AdminUser, g: { id: string; name: string }, on: boolean) =>
+    attempt(async () => {
+      await api(`/api/v1/groups/id/${enc(g.id)}/users/${on ? 'add' : 'remove'}`, { method: 'POST', json: { user_ids: [u.id] } })
+      await Promise.all([refresh(), qc.invalidateQueries({ queryKey: ['admin', 'groups'] })])
+    }, `${u.name || u.email} ${on ? 'added to' : 'removed from'} ${g.name}`)
+
+  const head = (key: string, label: string, right = false) => (
+    <th className={cx(thCls, right && 'text-right')} aria-sort={sort?.key === key ? (sort.desc ? 'descending' : 'ascending') : undefined}>
+      <button type="button" className="hover:text-fg" onClick={() => (setSort({ key, desc: sort?.key === key ? !sort.desc : key === 'last_active' || key === 'api_keys' }), pager.setPage(1, true))}>
+        {label}
+        {sort?.key === key ? (sort.desc ? ' ▾' : ' ▴') : ''}
+      </button>
+    </th>
+  )
 
   return (
     <Page
@@ -86,11 +109,11 @@ export function UsersPage() {
             <table className="w-full text-sm" data-testid="users-table">
               <thead className={theadCls}>
                 <tr>
-                  <th className={thCls}>User</th>
-                  <th className={thCls}>Role</th>
+                  {head('name', 'User')}
+                  {head('role', 'Role')}
                   <th className={thCls}>Groups</th>
-                  <th className={thCls}>Last active</th>
-                  <th className={cx(thCls, 'text-right')}>API keys</th>
+                  {head('last_active', 'Last active')}
+                  {head('api_keys', 'API keys', true)}
                   <th className={thCls}>
                     <span className="sr-only">Actions</span>
                   </th>
@@ -133,9 +156,24 @@ export function UsersPage() {
                         )}
                       </td>
                       <td className={tdCls}>
-                        <div className="flex max-w-64 flex-wrap gap-1">
-                          {u.groups.length ? u.groups.map((g) => <Badge key={g.id}>{g.name}</Badge>) : <span className="text-muted">–</span>}
-                        </div>
+                        <Menu>
+                          <MenuTrigger
+                            aria-label={`Groups of ${u.email}`}
+                            className="group flex max-w-64 cursor-pointer flex-wrap items-center gap-1 rounded-lg p-1 outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent"
+                          >
+                            {u.groups.length ? u.groups.map((g) => <Badge key={g.id}>{g.name}</Badge>) : <span className="text-muted">–</span>}
+                            <ChevronDown size={13} className="text-muted" />
+                          </MenuTrigger>
+                          <MenuContent>
+                            <MenuLabel>Groups</MenuLabel>
+                            {groups.map((g) => (
+                              <MenuCheckItem key={g.id} checked={u.groups.some((x) => x.id === g.id)} onChange={(on) => void setMember(u, g, on)}>
+                                {g.name}
+                              </MenuCheckItem>
+                            ))}
+                            {!groups.length && <p className="px-2.5 py-1.5 text-muted">No groups yet.</p>}
+                          </MenuContent>
+                        </Menu>
                       </td>
                       <td className={cx(tdCls, 'whitespace-nowrap text-muted')} title={new Date(u.last_active_at * 1000).toLocaleString()}>
                         {ago(u.last_active_at)}
