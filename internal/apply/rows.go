@@ -409,7 +409,7 @@ func (r *run) readToolServers() ([]row, error) {
 		return nil, err
 	}
 	rows, err := r.tx.Query(r.ctx, `SELECT id, kind, name, description, url, spec_path, auth, enabled, name_filter,
-		disabled_functions, max_result_chars, auto_enable_when_connected, display, managed, local_only FROM tool_server ORDER BY id`)
+		disabled_functions, max_result_chars, auto_enable_when_connected, display, managed, local_only, model_only FROM tool_server ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("read tool servers: %w", err)
 	}
@@ -420,7 +420,7 @@ func (r *run) readToolServers() ([]row, error) {
 		var auth, display []byte
 		var enabled, managed bool
 		if err := rows.Scan(&t.ID, &t.Kind, &t.Name, &t.Description, &t.URL, &t.Spec, &auth, &enabled, &t.Filter,
-			&t.Disable, &t.MaxResultChars, &t.AutoEnableWhenConnected, &display, &managed, &t.LocalOnly); err != nil {
+			&t.Disable, &t.MaxResultChars, &t.AutoEnableWhenConnected, &display, &managed, &t.LocalOnly, &t.ModelOnly); err != nil {
 			return nil, err
 		}
 		var a ToolAuthColumn
@@ -454,15 +454,15 @@ func (r *run) writeToolServer(t ToolServer) error {
 		spec = "openapi.json"
 	}
 	_, err := r.tx.Exec(r.ctx, `INSERT INTO tool_server (id, kind, name, description, url, spec_path, auth, enabled, name_filter,
-		disabled_functions, max_result_chars, auto_enable_when_connected, display, managed, local_only)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, $14)
+		disabled_functions, max_result_chars, auto_enable_when_connected, display, managed, local_only, model_only)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, $14, $15)
 		ON CONFLICT (id) DO UPDATE SET kind = EXCLUDED.kind, name = EXCLUDED.name, description = EXCLUDED.description,
 		url = EXCLUDED.url, spec_path = EXCLUDED.spec_path, auth = EXCLUDED.auth, enabled = EXCLUDED.enabled,
 		name_filter = EXCLUDED.name_filter, disabled_functions = EXCLUDED.disabled_functions,
 		max_result_chars = EXCLUDED.max_result_chars, auto_enable_when_connected = EXCLUDED.auto_enable_when_connected,
-		display = EXCLUDED.display, managed = true, local_only = EXCLUDED.local_only`,
+		display = EXCLUDED.display, managed = true, local_only = EXCLUDED.local_only, model_only = EXCLUDED.model_only`,
 		t.ID, t.Kind, t.Name, t.Description, t.URL, spec, jsonCol(a, "{}"), t.Enabled == nil || *t.Enabled, strs(t.Filter),
-		strs(t.Disable), t.MaxResultChars, t.AutoEnableWhenConnected, jsonCol(t.Display, "{}"), t.LocalOnly)
+		strs(t.Disable), t.MaxResultChars, t.AutoEnableWhenConnected, jsonCol(t.Display, "{}"), t.LocalOnly, t.ModelOnly)
 	if err != nil {
 		return wrap(err, "write tool server %s", t.ID)
 	}

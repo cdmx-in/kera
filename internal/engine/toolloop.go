@@ -115,6 +115,10 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 						slog.Debug("local-only tool server skipped for a hosted model", "server", id, "model", x.m.ID)
 						continue // its data (mail, documents) must never reach a hosted provider
 					}
+					if s, ok := p.(interface{ ModelOnly() bool }); ok && s.ModelOnly() && !containsStr(x.m.Tools.Servers, id) {
+						slog.Warn("model-only tool server refused: the model does not list it", "server", id, "model", x.m.ID)
+						continue // confidential tools stay inside the assistants built for them
+					}
 					order = append(order, p)
 				}
 			}

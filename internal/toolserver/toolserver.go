@@ -67,6 +67,7 @@ type Row struct {
 	MaxChars    int
 	AutoEnable  bool
 	LocalOnly   bool // joins only runs of local models
+	ModelOnly   bool // joins only through a model that lists it; never user-picked
 	Display     json.RawMessage
 }
 
@@ -160,7 +161,7 @@ func (m *Manager) Servers(ctx context.Context) ([]*Server, error) {
 
 func (m *Manager) load(ctx context.Context) ([]Row, error) {
 	q, err := m.db.Query(ctx, `SELECT id, kind, name, description, url, spec_path, auth, name_filter, disabled_functions,
-		max_result_chars, auto_enable_when_connected, display, local_only FROM tool_server WHERE enabled ORDER BY sort, id`)
+		max_result_chars, auto_enable_when_connected, display, local_only, model_only FROM tool_server WHERE enabled ORDER BY sort, id`)
 	if err != nil {
 		return nil, fmt.Errorf("load tool servers: %w", err)
 	}
@@ -170,7 +171,7 @@ func (m *Manager) load(ctx context.Context) ([]Row, error) {
 		var r Row
 		var authRaw []byte
 		if err := q.Scan(&r.ID, &r.Kind, &r.Name, &r.Description, &r.URL, &r.SpecPath, &authRaw, &r.NameFilter,
-			&r.Disabled, &r.MaxChars, &r.AutoEnable, &r.Display, &r.LocalOnly); err != nil {
+			&r.Disabled, &r.MaxChars, &r.AutoEnable, &r.Display, &r.LocalOnly, &r.ModelOnly); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(authRaw, &r.Auth)
@@ -250,6 +251,10 @@ func (s *Server) ID() string { return s.row.ID }
 
 // LocalOnly reports whether the server may join only runs of local models.
 func (s *Server) LocalOnly() bool { return s.row.LocalOnly }
+
+// ModelOnly reports whether the server may join only through a model that
+// lists it (never from a request's own tool_ids or the Tools picker).
+func (s *Server) ModelOnly() bool { return s.row.ModelOnly }
 
 // Row returns the server's configuration.
 func (s *Server) Row() Row { return s.row }

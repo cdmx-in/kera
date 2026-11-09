@@ -70,8 +70,8 @@ func (h *handler) entry(ctx context.Context, u *auth.User, p tools.Provider, con
 	defer cancel()
 	e := &toolEntry{ID: p.ID(), Name: p.ID(), Kind: "builtin", AuthType: "none", Authenticated: true, Functions: []string{}}
 	if s, ok := p.(*Server); ok {
-		if ok, err := s.CanRead(ctx, u); err != nil || !ok {
-			return nil
+		if ok, err := s.CanRead(ctx, u); err != nil || !ok || s.ModelOnly() {
+			return nil // model-only servers are reached through their assistants, not the picker
 		}
 		row := s.Row()
 		e.Name, e.Kind, e.Description, e.AuthType, e.AutoEnable = s.label(), row.Kind, row.Description, row.Auth.Type, row.AutoEnable

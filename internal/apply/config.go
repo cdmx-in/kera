@@ -338,6 +338,7 @@ type ToolServer struct {
 	MaxResultChars          int                `yaml:"max_result_chars,omitempty"`
 	AutoEnableWhenConnected bool               `yaml:"auto_enable_when_connected,omitempty"`
 	LocalOnly               bool               `yaml:"local_only,omitempty"`
+	ModelOnly               bool               `yaml:"model_only,omitempty"` // only through models that list it, never the Tools picker
 	Display                 *ToolServerDisplay `yaml:"display,omitempty"`
 	Enabled                 *bool              `yaml:"enabled,omitempty"`
 }

@@ -1081,3 +1081,36 @@ func TestLocalOnlyServerSkippedForHostedModel(t *testing.T) {
 		t.Fatalf("hosted model got a local-only tool: %s", got)
 	}
 }
+
+// modelOnlyTools is fakeTools marked model-only (confidential assistant tools).
+type modelOnlyTools struct{ fakeTools }
+
+func (*modelOnlyTools) ID() string      { return "fake-model-only" }
+func (*modelOnlyTools) ModelOnly() bool { return true }
+
+func TestModelOnlyServerOnlyThroughItsModel(t *testing.T) {
+	h := newHarness(t)
+	tools.Register(&modelOnlyTools{})
+	ctx := context.Background()
+	if _, err := h.pool.Exec(ctx, `INSERT INTO model (id, base_model_id, tools) VALUES ('conf', 'm1', '{"servers":["fake-model-only"]}')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		model string
+		ids   []string
+		want  bool
+	}{
+		{"m1", []string{"server:fake-model-only"}, false}, // picked by hand onto another model: refused
+		{"conf", nil, true},                              // the model's own server
+		{"conf", []string{"server:fake-model-only"}, true}, // the chat UI sends the model's servers as tool_ids
+	} {
+		run, err := h.e.Start(ctx, h.u, &Request{Model: c.model, StreamFormat: "events", Temporary: true, ToolIDs: c.ids,
+			Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"please use tool"`)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := types(wait(t, run)); strings.Contains(got, "tool_call") != c.want {
+			t.Fatalf("%s %v: tool_call=%v, events %s", c.model, c.ids, !c.want, got)
+		}
+	}
+}
