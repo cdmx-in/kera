@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -330,6 +331,9 @@ func TestExecuteHarvest(t *testing.T) {
 		if !names[want] {
 			t.Errorf("missing %s in %v", want, names)
 		}
+	}
+	if len(res.Images) != 1 || !slices.Contains(res.Files, res.Images[0]) {
+		t.Errorf("inline plot not returned as an image: images %v files %v", res.Images, res.Files)
 	}
 	for _, bad := range []string{"data.csv", "secret.csv", ".hidden", "hidden", "big.bin", "leak.txt"} {
 		if names[bad] {

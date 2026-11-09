@@ -297,6 +297,12 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	}
 	refs := e.fileRefs(ctx, res.Files)
 	x.run.files(refs)
+	// later tool calls in this turn can open them (e.g. execute_code edits a .pptx a Drive tool just fetched)
+	for _, r := range refs {
+		if !slices.Contains(x.fileIDs, r.ID) {
+			x.fileIDs = append(x.fileIDs, r.ID)
+		}
+	}
 	x.run.sources(toolSources(res.Sources))
 	for _, p := range res.Parts {
 		x.run.block(p)

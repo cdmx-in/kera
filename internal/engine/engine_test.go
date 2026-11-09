@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1101,7 +1102,7 @@ func TestModelOnlyServerOnlyThroughItsModel(t *testing.T) {
 		want  bool
 	}{
 		{"m1", []string{"server:fake-model-only"}, false}, // picked by hand onto another model: refused
-		{"conf", nil, true},                              // the model's own server
+		{"conf", nil, true}, // the model's own server
 		{"conf", []string{"server:fake-model-only"}, true}, // the chat UI sends the model's servers as tool_ids
 	} {
 		run, err := h.e.Start(ctx, h.u, &Request{Model: c.model, StreamFormat: "events", Temporary: true, ToolIDs: c.ids,
@@ -1112,5 +1113,80 @@ func TestModelOnlyServerOnlyThroughItsModel(t *testing.T) {
 		if got := types(wait(t, run)); strings.Contains(got, "tool_call") != c.want {
 			t.Fatalf("%s %v: tool_call=%v, events %s", c.model, c.ids, !c.want, got)
 		}
+	}
+}
+
+// fileTools returns a new file on its first call and records the FileIDs every call sees.
+type fileTools struct {
+	mu   sync.Mutex
+	file string
+	seen [][]string
+}
+
+func (*fileTools) ID() string { return "file-server" }
+func (*fileTools) Tools(context.Context, *auth.User) ([]tools.Spec, error) {
+	return []tools.Spec{{Name: "fetch", Parameters: json.RawMessage(`{"type":"object"}`)}}, nil
+}
+func (f *fileTools) Execute(_ context.Context, c tools.Call) (tools.Result, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seen = append(f.seen, append([]string{}, c.FileIDs...))
+	if len(f.seen) == 1 {
+		return tools.Result{Content: "fetched", Files: []string{f.file}}, nil
+	}
+	return tools.Result{Content: "used"}, nil
+}
+
+// A file a tool returns is in the FileIDs of later tool calls in the same run
+// (e.g. execute_code opening a .pptx a Drive tool just downloaded).
+func TestToolFilesReachLaterCalls(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			fmt.Fprint(w, `{"data":[{"id":"m1"}]}`)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		var body struct {
+			Messages []map[string]any
+			Tools    []any
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		calls := 0
+		for _, m := range body.Messages {
+			if m["tool_calls"] != nil {
+				calls++
+			}
+		}
+		delta := `{"content":"ok"}`
+		if len(body.Tools) > 0 && calls < 2 {
+			delta = fmt.Sprintf(`{"tool_calls":[{"index":0,"id":"c%d","function":{"name":"fetch","arguments":"{}"}}]}`, calls)
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":%s}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", delta)
+	}))
+	defer srv.Close()
+	if _, err := h.pool.Exec(ctx, `INSERT INTO connection (id, kind, base_url, prefix) VALUES ('files', 'openai', $1, 'f')`, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	f, err := h.e.Files.Create(ctx, h.u.ID, "deck.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", strings.NewReader("PK"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ft := &fileTools{file: f.ID}
+	tools.Register(ft)
+	run, err := h.e.Start(ctx, h.u, &Request{Model: "f.m1", StreamFormat: "events", Temporary: true, ToolIDs: []string{"file-server"},
+		Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"edit my deck"`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait(t, run)
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	if len(ft.seen) != 2 || len(ft.seen[0]) != 0 || !slices.Contains(ft.seen[1], f.ID) {
+		t.Fatalf("FileIDs per call: %v (want [] then [%s])", ft.seen, f.ID)
 	}
 }

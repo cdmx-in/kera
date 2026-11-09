@@ -171,12 +171,12 @@ func (p *Provider) Execute(ctx context.Context, c tools.Call) (tools.Result, err
 		command, ok = avail[lang]
 		if !ok {
 			return report{Error: fmt.Sprintf("%s is not installed in the sandbox; available: %s", lang,
-				strings.Join(sortedNames(avail), ", "))}.result(nil), nil
+				strings.Join(sortedNames(avail), ", "))}.result(nil, nil), nil
 		}
 	}
 	if !ok {
 		return report{Error: fmt.Sprintf("unknown language %q; available: %s", args.Language,
-			strings.Join(sortedNames(p.available(ctx, cfg)), ", "))}.result(nil), nil
+			strings.Join(sortedNames(p.available(ctx, cfg)), ", "))}.result(nil, nil), nil
 	}
 	c.Emit(status(false, "Running code"))
 	res := p.run(ctx, c, cfg, job{lang: lang, command: command, ext: cfg.languages[lang].Ext, code: args.Code})
@@ -209,9 +209,9 @@ type report struct {
 	Skipped  []string `json:"skipped_files,omitempty"`
 }
 
-func (r report) result(fileIDs []string) tools.Result {
+func (r report) result(fileIDs, imageIDs []string) tools.Result {
 	b, _ := json.Marshal(r)
-	return tools.Result{Content: string(b), Files: fileIDs, IsError: r.Error != ""}
+	return tools.Result{Content: string(b), Files: fileIDs, Images: imageIDs, IsError: r.Error != ""}
 }
 
 // run stages inputs, executes, harvests outputs and removes the run folder.
@@ -227,7 +227,7 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, jb job) to
 		if inputs, err = p.stage(ctx, c.User, c.FileIDs, hostDir); err != nil {
 			slog.Error("sandbox staging", "run", c.RunID, "err", err)
 			rep.Error = "could not prepare the sandbox folder"
-			return rep.result(nil)
+			return rep.result(nil, nil)
 		}
 		defer func() {
 			if err := os.RemoveAll(hostDir); err != nil {
@@ -244,7 +244,7 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, jb job) to
 	if err != nil {
 		slog.Warn("sandbox execute", "run", c.RunID, "err", err)
 		rep.Error = "sandbox unavailable: " + err.Error()
-		return rep.result(nil)
+		return rep.result(nil, nil)
 	}
 	rep.Stdout, rep.Stderr, rep.Result = clip(out.Stdout), clip(out.Stderr), clip(out.Result)
 	if out.Error != "" {
@@ -265,7 +265,7 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, jb job) to
 	if out.TimedOut {
 		rep.Error = strings.TrimSpace(rep.Error + fmt.Sprintf("\ntimed out after %s; the kernel was stopped", cfg.timeout))
 	}
-	var fileIDs []string
+	var fileIDs, imageIDs []string // inline images are attached and also shown to a vision model (it checks its own charts and slides)
 	for i, img := range out.Images {
 		name := fmt.Sprintf("output-%d.%s", i+1, strings.TrimPrefix(out.ImageTypes[i], "image/"))
 		f, err := p.Files.Create(ctx, c.User.ID, name, out.ImageTypes[i], bytes.NewReader(img), meta(c))
@@ -273,7 +273,7 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, jb job) to
 			slog.Warn("sandbox image", "err", err)
 			continue
 		}
-		fileIDs = append(fileIDs, f.ID)
+		fileIDs, imageIDs = append(fileIDs, f.ID), append(imageIDs, f.ID)
 		rep.Files = append(rep.Files, f.Filename)
 	}
 	if hostDir != "" {
@@ -287,7 +287,7 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, jb job) to
 		}
 		rep.Skipped = skipped
 	}
-	return rep.result(fileIDs)
+	return rep.result(fileIDs, imageIDs)
 }
 
 // execute runs the prelude and the code in one fresh kernel, then deletes it.

@@ -228,7 +228,7 @@ func TestPrune(t *testing.T) {
 	if err := os.WriteFile(other+"/other/SKILL.md", []byte("---\nname: other\n---\nBody"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f.Skills.Dir = other
+	f.Skills[0].Dir = other
 	f.HookServers = nil // not declared: kept even with --prune
 
 	// without --prune nothing is deleted
@@ -503,5 +503,25 @@ func TestBrandValidation(t *testing.T) {
 	ok := "brand:\n  accent: {base: \"oklch(0.55 0.1 210)\", bright: \"#3DAFC4\"}\n  default_theme: dark\n"
 	if _, err := Parse([]byte(ok), ".", lookup(nil)); err != nil {
 		t.Errorf("valid brand rejected: %v", err)
+	}
+}
+
+func TestSkillsMappingOrList(t *testing.T) {
+	one, err := Parse([]byte("skills: {dir: a, grants: [{principal: \"*\"}]}\n"), "/cfg", lookup(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(one.Skills) != 1 || one.Skills[0].Dir != "/cfg/a" || len(one.Skills[0].Grants) != 1 {
+		t.Fatalf("mapping form: %+v", one.Skills)
+	}
+	two, err := Parse([]byte("skills:\n  - {import_zip: s.zip}\n  - {dir: b, grants: [{principal: \"*\"}]}\n"), "/cfg", lookup(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(two.Skills) != 2 || two.Skills[0].ImportZip != "/cfg/s.zip" || len(two.Skills[0].Grants) != 0 || two.Skills[1].Dir != "/cfg/b" {
+		t.Fatalf("list form: %+v", two.Skills)
+	}
+	if _, err := Parse([]byte("skills: [{dirr: x}]\n"), "/cfg", lookup(nil)); err == nil || !strings.Contains(err.Error(), "dirr") {
+		t.Fatalf("unknown key not reported: %v", err)
 	}
 }

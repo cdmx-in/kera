@@ -7,7 +7,12 @@
 // removes managed rows of the kinds the file declares.
 package apply
 
-import "github.com/cdmx-in/kera/internal/access"
+import (
+	"fmt"
+
+	"github.com/cdmx-in/kera/internal/access"
+	"gopkg.in/yaml.v3"
+)
 
 // Config is the whole file. A nil section is "not declared": apply leaves the
 // matching rows alone and --prune never touches them.
@@ -35,7 +40,7 @@ type Config struct {
 	Spend           *Spend           `yaml:"spend,omitempty"`
 	Compat          *Compat          `yaml:"compat,omitempty"`
 	Guardrails      *Guardrails      `yaml:"guardrails,omitempty"`
-	Skills          *Skills          `yaml:"skills,omitempty"`
+	Skills          SkillSets        `yaml:"skills,omitempty"`
 }
 
 // Settings sections. Every leaf is a pointer, slice or map so "absent" differs
@@ -497,4 +502,32 @@ type Skills struct {
 	Dir       string         `yaml:"dir,omitempty"`
 	ImportZip string         `yaml:"import_zip,omitempty"`
 	Grants    []access.Grant `yaml:"grants,omitempty"`
+}
+
+// SkillSets is skills: as a list of Skills blocks, each with its own grants
+// (e.g. admin-only security skills next to a skill for everyone). A single
+// mapping is read as a list of one.
+type SkillSets []Skills
+
+func (s *SkillSets) UnmarshalYAML(n *yaml.Node) error {
+	items := n.Content
+	if n.Kind == yaml.MappingNode {
+		items = []*yaml.Node{n}
+	} else if n.Kind != yaml.SequenceNode {
+		return fmt.Errorf("line %d: skills: want a mapping or a list of mappings", n.Line)
+	}
+	for _, it := range items {
+		// ponytail: Node.Decode drops KnownFields, so unknown keys are checked here
+		for i := 0; it.Kind == yaml.MappingNode && i < len(it.Content); i += 2 {
+			if k := it.Content[i]; k.Value != "dir" && k.Value != "import_zip" && k.Value != "grants" {
+				return fmt.Errorf("line %d: skills: unknown key %q", k.Line, k.Value)
+			}
+		}
+		var b Skills
+		if err := it.Decode(&b); err != nil {
+			return err
+		}
+		*s = append(*s, b)
+	}
+	return nil
 }

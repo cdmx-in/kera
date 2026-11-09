@@ -191,7 +191,8 @@ func readFiles(f *File, dir string, errs *Errors) {
 		}
 		r.TemplateFile = ""
 	}
-	if s := f.Skills; s != nil {
+	for i := range f.Skills {
+		s := &f.Skills[i]
 		for _, p := range []*string{&s.Dir, &s.ImportZip} {
 			if *p != "" && !filepath.IsAbs(*p) {
 				*p = filepath.Join(dir, *p)

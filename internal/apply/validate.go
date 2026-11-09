@@ -150,11 +150,11 @@ func validate(f *File, errs *Errors) {
 		}
 		checkGrants(l, "knowledge["+k.Name+"]", k.Grants, errs)
 	}
-	if f.Skills != nil {
-		if f.Skills.Dir == "" && f.Skills.ImportZip == "" {
+	for _, s := range f.Skills {
+		if s.Dir == "" && s.ImportZip == "" {
 			errs.add(0, "skills: set dir or import_zip")
 		}
-		checkGrants(0, "skills", f.Skills.Grants, errs)
+		checkGrants(0, "skills", s.Grants, errs)
 	}
 	for i, it := range f.Integrations {
 		if it.ID == "" || it.Kind == "" {

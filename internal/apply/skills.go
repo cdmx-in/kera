@@ -15,37 +15,37 @@ type skillState struct {
 	Grants      []access.Grant `yaml:"grants,omitempty"`
 }
 
-// skills imports the skills of skills.dir and skills.import_zip by name.
+// skills imports the skills of every skills block (dir and import_zip) by
+// name; each skill gets the grants of the block it came from.
 func (r *run) skills() error {
-	sk := r.f.Skills
-	if sk == nil {
+	if len(r.f.Skills) == 0 {
 		return nil
 	}
-	var list []skills.Skill
-	for _, p := range []string{sk.Dir, sk.ImportZip} {
-		if p == "" {
-			continue
-		}
-		got, warns, err := skills.Load(p)
-		if err != nil {
-			r.errs.add(0, "skills: %v", err)
-			return nil
-		}
-		for _, w := range warns {
-			r.res.Warnings = append(r.res.Warnings, "skills: "+w)
-		}
-		list = append(list, got...)
-	}
-	grants := r.normGrants(0, "skills", sk.Grants)
 	byName := map[string]skills.Skill{}
 	var items []item
-	for _, s := range list {
-		if _, dup := byName[s.Name]; dup {
-			r.res.Warnings = append(r.res.Warnings, fmt.Sprintf("skills: %q is in both dir and import_zip; the first is used", s.Name))
-			continue
+	for _, sk := range r.f.Skills {
+		grants := r.normGrants(0, "skills", sk.Grants)
+		for _, p := range []string{sk.Dir, sk.ImportZip} {
+			if p == "" {
+				continue
+			}
+			got, warns, err := skills.Load(p)
+			if err != nil {
+				r.errs.add(0, "skills: %v", err)
+				return nil
+			}
+			for _, w := range warns {
+				r.res.Warnings = append(r.res.Warnings, "skills: "+w)
+			}
+			for _, s := range got {
+				if _, dup := byName[s.Name]; dup {
+					r.res.Warnings = append(r.res.Warnings, fmt.Sprintf("skills: %q is declared twice; the first is used", s.Name))
+					continue
+				}
+				byName[s.Name] = s
+				items = append(items, item{id: s.Name, v: skillState{Description: s.Description, Digest: s.Digest(), Grants: grants}})
+			}
 		}
-		byName[s.Name] = s
-		items = append(items, item{id: s.Name, v: skillState{Description: s.Description, Digest: s.Digest(), Grants: grants}})
 	}
 	return r.reconcile("skill", true, items, r.readSkills,
 		func(it item) error {
@@ -53,7 +53,7 @@ func (r *run) skills() error {
 			if err != nil {
 				return err
 			}
-			return r.setGrants(access.Skill, id, grants)
+			return r.setGrants(access.Skill, id, it.v.(skillState).Grants)
 		},
 		func(name string) error {
 			return r.exec(`WITH d AS (DELETE FROM skill WHERE name = $1 AND managed RETURNING id)
