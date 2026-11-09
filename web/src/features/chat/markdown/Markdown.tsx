@@ -5,6 +5,7 @@ import type { Source } from '@/api/types'
 import { prettyFileName } from '@/lib/format'
 import { Favicon, SourceLink } from '../messages/Sources'
 import { CodeBlock } from './CodeBlock'
+import { Mermaid } from './Mermaid'
 
 // "[3]" citation markers (outside code) become links to "#cite-3" so the
 // anchor renderer can turn them into superscript chips.
@@ -60,13 +61,16 @@ function textOf(node: ReactNode): string {
   return ''
 }
 
-function components(sources: Source[]): Components {
+function components(sources: Source[], live: boolean): Components {
   return {
     pre({ children }) {
       const child = Array.isArray(children) ? children[0] : children
       if (isValidElement<{ className?: string; children?: ReactNode }>(child)) {
         const lang = /language-([\w+-]+)/.exec(child.props.className ?? '')?.[1] ?? ''
-        return <CodeBlock code={textOf(child.props.children).replace(/\n$/, '')} lang={lang.toLowerCase()} />
+        const code = textOf(child.props.children).replace(/\n$/, '')
+        // While streaming a diagram stays code, so a half-written one never flickers.
+        if (lang.toLowerCase() === 'mermaid' && !live) return <Mermaid code={code} />
+        return <CodeBlock code={code} lang={lang.toLowerCase()} />
       }
       return <pre>{children}</pre>
     },
@@ -127,7 +131,7 @@ export const Markdown = memo(function Markdown({ text: full, sources = [], break
   const md = inlineHtmlToMarkdown(breaks ? keepLineBreaks(text) : text)
   return (
     <div className={live ? `${className} md-live` : className}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components(sources)}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components(sources, live)}>
         {linkCitations(md, sources.length)}
       </ReactMarkdown>
     </div>
