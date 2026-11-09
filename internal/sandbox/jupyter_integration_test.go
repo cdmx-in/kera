@@ -47,10 +47,13 @@ df.amount.sum() * 2`
 		}
 		got[f.Filename] = f.Size
 	}
-	for _, want := range []string{"summary.csv", "summary.xlsx", "output-1.png"} {
+	for _, want := range []string{"summary.csv", "summary.xlsx"} {
 		if got[want] == 0 {
 			t.Errorf("missing %s in %v", want, got)
 		}
+	}
+	if len(res.Images) != 1 || got["output-1.png"] != 0 { // the inline plot is for the model and the step, not attached
+		t.Errorf("images %v, files %v", res.Images, got)
 	}
 	if got["sales.csv"] != 0 {
 		t.Error("unchanged input returned")

@@ -265,7 +265,9 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, jb job) to
 	if out.TimedOut {
 		rep.Error = strings.TrimSpace(rep.Error + fmt.Sprintf("\ntimed out after %s; the kernel was stopped", cfg.timeout))
 	}
-	var fileIDs, imageIDs []string // inline images are attached and also shown to a vision model (it checks its own charts and slides)
+	// Inline images (display, plt.show) are for checking: shown to a vision model and on the step, not attached to
+	// the answer. Deliverables are files saved in the working directory (harvested below).
+	var fileIDs, imageIDs []string
 	for i, img := range out.Images {
 		name := fmt.Sprintf("output-%d.%s", i+1, strings.TrimPrefix(out.ImageTypes[i], "image/"))
 		f, err := p.Files.Create(ctx, c.User.ID, name, out.ImageTypes[i], bytes.NewReader(img), meta(c))
@@ -273,8 +275,7 @@ func (p *Provider) run(ctx context.Context, c tools.Call, cfg config, jb job) to
 			slog.Warn("sandbox image", "err", err)
 			continue
 		}
-		fileIDs, imageIDs = append(fileIDs, f.ID), append(imageIDs, f.ID)
-		rep.Files = append(rep.Files, f.Filename)
+		imageIDs = append(imageIDs, f.ID)
 	}
 	if hostDir != "" {
 		got, skipped, err := p.harvest(ctx, c, hostDir, inputs, cfg.maxFile)

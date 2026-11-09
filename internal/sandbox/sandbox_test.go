@@ -327,13 +327,13 @@ func TestExecuteHarvest(t *testing.T) {
 		}
 		names[f.Filename] = true
 	}
-	for _, want := range []string{"report.csv", "abs.txt", "deep.txt", "output-1.png"} {
+	for _, want := range []string{"report.csv", "abs.txt", "deep.txt"} {
 		if !names[want] {
 			t.Errorf("missing %s in %v", want, names)
 		}
 	}
-	if len(res.Images) != 1 || !slices.Contains(res.Files, res.Images[0]) {
-		t.Errorf("inline plot not returned as an image: images %v files %v", res.Images, res.Files)
+	if len(res.Images) != 1 || slices.Contains(res.Files, res.Images[0]) {
+		t.Errorf("inline plot must be an image for the model and step only, not an attachment: images %v files %v", res.Images, res.Files)
 	}
 	for _, bad := range []string{"data.csv", "secret.csv", ".hidden", "hidden", "big.bin", "leak.txt"} {
 		if names[bad] {

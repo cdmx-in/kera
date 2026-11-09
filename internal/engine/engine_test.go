@@ -1132,13 +1132,14 @@ func (f *fileTools) Execute(_ context.Context, c tools.Call) (tools.Result, erro
 	defer f.mu.Unlock()
 	f.seen = append(f.seen, append([]string{}, c.FileIDs...))
 	if len(f.seen) == 1 {
-		return tools.Result{Content: "fetched", Files: []string{f.file}}, nil
+		return tools.Result{Content: "fetched", Inputs: []string{f.file}}, nil
 	}
 	return tools.Result{Content: "used"}, nil
 }
 
-// A file a tool returns is in the FileIDs of later tool calls in the same run
-// (e.g. execute_code opening a .pptx a Drive tool just downloaded).
+// A file a tool returns as an input is in the FileIDs of later tool calls in
+// the same run (e.g. execute_code opening a .pptx copied from a linked deck),
+// shown on its step and not attached to the answer.
 func TestToolFilesReachLaterCalls(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
@@ -1188,6 +1189,15 @@ func TestToolFilesReachLaterCalls(t *testing.T) {
 	defer ft.mu.Unlock()
 	if len(ft.seen) != 2 || len(ft.seen[0]) != 0 || !slices.Contains(ft.seen[1], f.ID) {
 		t.Fatalf("FileIDs per call: %v (want [] then [%s])", ft.seen, f.ID)
+	}
+	// an input is on the step that fetched it, never attached to the answer
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if len(run.state.Files) != 0 {
+		t.Fatalf("input attached to the answer: %+v", run.state.Files)
+	}
+	if st := run.state.Parts[0].Steps[0]; len(st.Files) != 1 || st.Files[0].ID != f.ID {
+		t.Fatalf("first step files %+v", st.Files)
 	}
 }
 

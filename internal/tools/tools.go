@@ -76,8 +76,12 @@ type Result struct {
 	Parts   []json.RawMessage `json:"parts,omitempty"`
 	Files   []string          `json:"files,omitempty"`
 	Images  []string          `json:"images,omitempty"`
-	Sources []Source          `json:"sources,omitempty"`
-	IsError bool              `json:"is_error,omitempty"`
+	// Inputs are files later tool calls of this run may open (e.g. a copy of a
+	// deck the user linked, for execute_code to edit); shown on the step, never
+	// attached to the answer.
+	Inputs  []string `json:"inputs,omitempty"`
+	Sources []Source `json:"sources,omitempty"`
+	IsError bool     `json:"is_error,omitempty"`
 }
 
 // Provider offers a set of tools. ID is the tool server id from config

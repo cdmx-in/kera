@@ -300,8 +300,14 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	}
 	refs := e.fileRefs(ctx, res.Files)
 	x.run.files(refs)
+	var inputs []FileRef
+	for _, id := range res.Inputs {
+		if ok, err := e.Files.CanRead(ctx, x.u, id); err == nil && ok {
+			inputs = append(inputs, e.fileRefs(ctx, []string{id})...)
+		}
+	}
 	// later tool calls in this turn can open them (e.g. execute_code edits a .pptx a Drive tool just fetched)
-	for _, r := range refs {
+	for _, r := range append(slices.Clone(refs), inputs...) {
 		if !slices.Contains(x.fileIDs, r.ID) {
 			x.fileIDs = append(x.fileIDs, r.ID)
 		}
@@ -313,7 +319,7 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	// Tool images need vision set explicitly: a base model without a
 	// capabilities row may be text-only, and its provider would reject the run.
 	vision := x.m.Capabilities["vision"] == true
-	stepFiles := refs
+	stepFiles := append(slices.Clone(refs), inputs...) // inputs: on the step only, not attached to the answer
 	var imgs []provider.Image
 	var notes []string // why images were not shown
 	for _, id := range res.Images {
