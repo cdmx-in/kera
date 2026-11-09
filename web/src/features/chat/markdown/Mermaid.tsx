@@ -27,8 +27,12 @@ export function Mermaid({ code }: { code: string }) {
           theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default',
           suppressErrorRendering: true,
         })
-        const { svg } = await mermaid.render(`kera-mermaid-${++seq}`, code)
+        const html = (await mermaid.render(`kera-mermaid-${++seq}`, code)).svg
         if (!live) return
+        // HTML labels contain void tags like <br>; an <img> or .svg file parses
+        // the SVG as XML, so re-serialise it into well-formed XML first.
+        const el = new DOMParser().parseFromString(html, 'text/html').querySelector('svg')
+        const svg = el ? new XMLSerializer().serializeToString(el) : html
         made = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
         // An <img> of a width="100%" SVG has no natural size; use the viewBox width.
         setWidth(Number(/viewBox="[\d.-]+ [\d.-]+ ([\d.]+)/.exec(svg)?.[1]) || undefined)
