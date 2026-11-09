@@ -279,6 +279,9 @@ func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client,
 // and, for a vision model, the result's images.
 func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, c provider.ToolCall) (string, []provider.Image) {
 	entry, ok := table[c.Name]
+	if ok {
+		c.Arguments = dropUnsetArgs(entry.spec.Parameters, c.Arguments)
+	}
 	x.run.toolCall(c.ID, c.Name, entry.server, c.Arguments)
 	var res tools.Result
 	if !ok {
@@ -476,4 +479,41 @@ func refOf(f files.File) FileRef {
 		t = "image"
 	}
 	return FileRef{ID: f.ID, Name: f.Filename, Size: f.Size, ContentType: f.ContentType, Type: t}
+}
+
+// dropUnsetArgs removes placeholder values ("", 0, false, [], {}) the model put
+// in optional parameters whose schema default is null, i.e. "not set". Some
+// models fill every optional field; for a tool like format_sheet_range an empty
+// dropdown_values fails the call and merge_cells: false unmerges the range.
+// ponytail: an intentional false/0 on such a parameter is dropped too (e.g.
+// unmerge via merge_cells: false); give the schema a non-null default to keep it.
+func dropUnsetArgs(schema, args json.RawMessage) json.RawMessage {
+	var sc struct {
+		Properties map[string]map[string]json.RawMessage `json:"properties"`
+		Required   []string                              `json:"required"`
+	}
+	var a map[string]json.RawMessage
+	if json.Unmarshal(schema, &sc) != nil || json.Unmarshal(args, &a) != nil || len(a) == 0 {
+		return args
+	}
+	dropped := false
+	for k, v := range a {
+		d, ok := sc.Properties[k]["default"]
+		if !ok || string(d) != "null" || slices.Contains(sc.Required, k) {
+			continue
+		}
+		switch strings.TrimSpace(string(v)) {
+		case `""`, "0", "false", "[]", "{}", "null":
+			delete(a, k)
+			dropped = true
+		}
+	}
+	if !dropped {
+		return args
+	}
+	out, err := json.Marshal(a)
+	if err != nil {
+		return args
+	}
+	return out
 }

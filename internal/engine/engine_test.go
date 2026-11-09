@@ -1190,3 +1190,66 @@ func TestToolFilesReachLaterCalls(t *testing.T) {
 		t.Fatalf("FileIDs per call: %v (want [] then [%s])", ft.seen, f.ID)
 	}
 }
+
+// The links callback returns only URLs from the user's own messages.
+func TestCallbackLinks(t *testing.T) {
+	h := newHarness(t)
+	run := newRun("c1", "a1", "u1", "m1", false)
+	if err := h.e.runs.add(run); err != nil {
+		t.Fatal(err)
+	}
+	run.setUserLinks([]turn{
+		{msg: provider.Message{Role: "user", Content: "my deck (https://docs.google.com/presentation/d/AAA/edit?slide=id.p) and https://x.test/a"}},
+		{msg: provider.Message{Role: "assistant", Content: "see https://evil.test/b"}},
+		{msg: provider.Message{Role: "user", Content: "again https://x.test/a"}},
+	})
+	tok, _ := signRunToken(h.e.Keys, run.ID, run.UserID, time.Now().Add(time.Minute))
+	get := func(tok string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "/api/v1/runs/"+run.ID+"/links", nil)
+		r.SetPathValue("run", run.ID)
+		r.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		h.e.callbackLinks(w, r)
+		return w
+	}
+	var got struct{ Links []string }
+	if w := get(tok); w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil {
+		t.Fatalf("links %d %s", w.Code, w.Body)
+	}
+	want := []string{"https://docs.google.com/presentation/d/AAA/edit?slide=id.p", "https://x.test/a"}
+	if !slices.Equal(got.Links, want) {
+		t.Fatalf("links %v, want %v", got.Links, want)
+	}
+	if w := get(tok + "x"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("bad token: %d", w.Code)
+	}
+}
+
+// Placeholder values in optional, default-null parameters are dropped; real
+// values, required parameters and non-null defaults are kept.
+func TestDropUnsetArgs(t *testing.T) {
+	schema := json.RawMessage(`{"properties":{
+		"id":{"type":"string","default":null},
+		"bold":{"type":"boolean","default":null},
+		"merge_cells":{"type":"boolean","default":null},
+		"dropdown_values":{"type":"array","default":null},
+		"font_size":{"type":"integer","default":null},
+		"color":{"type":"string","default":null},
+		"wrap":{"type":"string","default":null},
+		"include_notes":{"type":"boolean","default":false}},
+		"required":["id"]}`)
+	got := dropUnsetArgs(schema, json.RawMessage(`{"id":"","bold":false,"merge_cells":false,"dropdown_values":[],
+		"font_size":0,"color":"","wrap":"WRAP","include_notes":false}`))
+	var m map[string]any
+	if err := json.Unmarshal(got, &m); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"id": "", "wrap": "WRAP", "include_notes": false}
+	if fmt.Sprint(m) != fmt.Sprint(want) {
+		t.Fatalf("got %v, want %v", m, want)
+	}
+	same := json.RawMessage(`{"wrap":"CLIP"}`)
+	if string(dropUnsetArgs(schema, same)) != string(same) {
+		t.Fatal("args without placeholders must pass through unchanged")
+	}
+}

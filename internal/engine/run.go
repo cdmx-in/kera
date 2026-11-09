@@ -231,6 +231,7 @@ func (e *Engine) process(ctx context.Context, x *exec) error {
 	if err := e.loadTurns(ctx, x); err != nil {
 		return err
 	}
+	x.run.setUserLinks(x.turns) // before inlet hooks: what the user typed, not what a hook added
 	if err := e.runHooks(ctx, x, "inlet"); err != nil {
 		return err
 	}

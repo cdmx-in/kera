@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +35,7 @@ func (e *Engine) routes(a *app.App) {
 	a.Server.HandleFunc("POST /api/v1/runs/{run}/events", e.callbackEvents)
 	a.Server.HandleFunc("POST /api/v1/runs/{run}/ask", e.callbackAsk)
 	a.Server.HandleFunc("POST /api/v1/runs/{run}/files", e.callbackFile)
+	a.Server.HandleFunc("GET /api/v1/runs/{run}/links", e.callbackLinks)
 }
 
 // completionError writes an error both OpenAI clients ({error:{message}})
@@ -262,6 +265,41 @@ func (e *Engine) callbackAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	api.JSON(w, http.StatusOK, map[string]any{"answer": v})
+}
+
+// userLink matches a URL in a user message (up to whitespace or a closing bracket/quote).
+var userLink = regexp.MustCompile(`https?://[^\s<>()\[\]"'` + "`" + `]+`)
+
+func (r *Run) setUserLinks(turns []turn) {
+	var links []string
+	for _, t := range turns {
+		if t.msg.Role != "user" {
+			continue
+		}
+		for _, l := range userLink.FindAllString(t.msg.Content, -1) {
+			if !slices.Contains(links, l) {
+				links = append(links, l)
+			}
+		}
+	}
+	r.mu.Lock()
+	r.userLinks = links
+	r.mu.Unlock()
+}
+
+// callbackLinks lists the URLs the user typed in this run's conversation -> {links}.
+// A tool uses it as consent: it may open a file only when the user pasted its
+// link (e.g. a hosted model copying the one Google deck the user linked). Only
+// links, never message text, leave Kera.
+func (e *Engine) callbackLinks(w http.ResponseWriter, r *http.Request) {
+	run := e.callbackRun(w, r)
+	if run == nil {
+		return
+	}
+	run.mu.Lock()
+	links := append([]string{}, run.userLinks...)
+	run.mu.Unlock()
+	api.JSON(w, http.StatusOK, map[string]any{"links": links})
 }
 
 // maxRunUploads caps the files one run may store through the callback.
