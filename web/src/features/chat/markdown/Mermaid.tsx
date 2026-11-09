@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Check, Code2, Copy, Download, Network } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Check, Code2, Copy, Download, Network, ZoomIn, ZoomOut } from 'lucide-react'
+import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
 import { CodeBlock } from './CodeBlock'
 
 let seq = 0
@@ -10,10 +11,14 @@ let seq = 0
 // ponytail: theme is read at render time; a theme toggle applies on next mount.
 export function Mermaid({ code }: { code: string }) {
   const [url, setUrl] = useState<string | null>(null)
-  const [width, setWidth] = useState<number>()
+  const [size, setSize] = useState<[number, number]>()
+  const width = size?.[0]
   const [failed, setFailed] = useState(false)
   const [showCode, setShowCode] = useState(false)
   const [copied, setCopied] = useState(false)
+  // Viewer: null = closed, 0 = fit to window, else zoom factor of the natural size.
+  const [view, setView] = useState<number | null>(null)
+  const big = useRef<HTMLImageElement>(null)
 
   useEffect(() => {
     let live = true
@@ -34,8 +39,9 @@ export function Mermaid({ code }: { code: string }) {
         const el = new DOMParser().parseFromString(html, 'text/html').querySelector('svg')
         const svg = el ? new XMLSerializer().serializeToString(el) : html
         made = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
-        // An <img> of a width="100%" SVG has no natural size; use the viewBox width.
-        setWidth(Number(/viewBox="[\d.-]+ [\d.-]+ ([\d.]+)/.exec(svg)?.[1]) || undefined)
+        // An <img> of a width="100%" SVG has no natural size; use the viewBox.
+        const vb = /viewBox="[\d.-]+ [\d.-]+ ([\d.]+) ([\d.]+)/.exec(svg)
+        setSize(vb ? [Number(vb[1]), Number(vb[2])] : undefined)
         setUrl(made)
       })
       .catch(() => live && setFailed(true))
@@ -58,6 +64,9 @@ export function Mermaid({ code }: { code: string }) {
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
+  // From "fit", the first step starts at the scale object-contain is showing.
+  const fit = () => (size && big.current ? Math.min(big.current.clientWidth / size[0], big.current.clientHeight / size[1]) : 1)
+  const zoom = (f: number) => setView((v) => Math.min(8, Math.max(0.1, (v || fit()) * f)))
   const btn = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-surface-2 hover:text-fg'
   return (
     <div className="my-3 overflow-hidden rounded-xl border border-line bg-bg-soft">
@@ -85,11 +94,38 @@ export function Mermaid({ code }: { code: string }) {
           <code>{code}</code>
         </pre>
       ) : url ? (
-        <a href={url} target="_blank" rel="noreferrer" title="Open full size" className="block overflow-x-auto p-3">
+        <button type="button" onClick={() => setView(0)} title="Open larger" className="block w-full cursor-zoom-in overflow-x-auto p-3">
           <img src={url} alt="Diagram" width={width} className="mx-auto h-auto max-w-full" />
-        </a>
+        </button>
       ) : (
         <div className="p-3 text-xs text-muted">Drawing diagram…</div>
+      )}
+      {url && (
+        <Dialog open={view !== null} onClose={() => setView(null)} label="Diagram" className="h-[calc(100dvh-2rem)] w-[min(90rem,calc(100vw-2rem))]">
+          <div className="flex h-full flex-col">
+            <DialogHeader title="Diagram" onClose={() => setView(null)}>
+              <IconButton label="Zoom out" onClick={() => zoom(1 / 1.25)}>
+                <ZoomOut size={18} />
+              </IconButton>
+              <button type="button" onClick={() => setView(0)} title="Fit to window" className="w-14 rounded-lg py-1 text-sm text-muted tabular-nums hover:bg-surface-2 hover:text-fg">
+                {view ? `${Math.round(view * 100)}%` : 'Fit'}
+              </button>
+              <IconButton label="Zoom in" onClick={() => zoom(1.25)}>
+                <ZoomIn size={18} />
+              </IconButton>
+              <a href={url} download="diagram.svg" className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-sm hover:bg-surface-2">
+                <Download size={14} /> SVG
+              </a>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-auto bg-bg-soft p-4">
+              {view ? (
+                <img ref={big} src={url} alt="Diagram" width={(width ?? 800) * view} className="mx-auto h-auto max-w-none" />
+              ) : (
+                <img ref={big} src={url} alt="Diagram" className="mx-auto h-full w-full object-contain" />
+              )}
+            </div>
+          </div>
+        </Dialog>
       )}
     </div>
   )
