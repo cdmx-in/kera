@@ -16,7 +16,7 @@ import { GuardrailsTab } from './settings/Guardrails'
 import { ChatTab, CodeTab, InterfaceTab, RetrievalTab, TasksTab, WebTab } from './settings/tabs'
 import { IntegrationsTab } from './settings/Integrations'
 
-const settingsTabs: [string, string, () => React.ReactNode][] = [
+const settingsTabs: [string, string, (item?: string) => React.ReactNode][] = [
   ['connections', 'Connections', () => <ConnectionsTab />],
   ['models', 'Models', () => <ModelsTab />],
   ['tools', 'Tool servers', () => <ToolServersTab />],
@@ -30,7 +30,7 @@ const settingsTabs: [string, string, () => React.ReactNode][] = [
   ['web', 'Web search', () => <WebTab />],
   ['code', 'Code interpreter', () => <CodeTab />],
   ['retrieval', 'Retrieval', () => <RetrievalTab />],
-  ['integrations', 'Integrations', () => <IntegrationsTab />],
+  ['integrations', 'Integrations', (item) => <IntegrationsTab name={item} />],
 ]
 
 function sections(): [string, string][] {
@@ -46,7 +46,7 @@ function sections(): [string, string][] {
 
 export default function AdminPage() {
   const { data: me } = useMe()
-  const [section = 'users', sub] = (useParams()['*'] ?? '').split('/').filter(Boolean)
+  const [section = 'users', sub, item] = (useParams()['*'] ?? '').split('/').filter(Boolean)
   if (me && me.role !== 'admin') return <Navigate to="/" replace />
   let body: React.ReactNode
   if (section === 'users') body = <UsersPage />
@@ -66,7 +66,7 @@ export default function AdminPage() {
             </NavLink>
           ))}
         </nav>
-        <div className="mx-auto w-full max-w-[100rem] p-4 sm:p-6 lg:px-8">{tab[2]()}</div>
+        <div className="mx-auto w-full max-w-[100rem] p-4 sm:p-6 lg:px-8">{tab[2](item)}</div>
       </>
     )
   } else return <Navigate to="/admin/users" replace />
