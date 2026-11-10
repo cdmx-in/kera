@@ -17,11 +17,13 @@ import (
 	"github.com/cdmx-in/kera/internal/app"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/config"
+	"github.com/cdmx-in/kera/internal/connectors"
+	_ "github.com/cdmx-in/kera/internal/connectors/gworkspace"
 	"github.com/cdmx-in/kera/internal/db"
 	"github.com/cdmx-in/kera/internal/identity"
-	"github.com/cdmx-in/kera/internal/importowui"
 	"github.com/cdmx-in/kera/internal/knowledge"
 	"github.com/cdmx-in/kera/internal/secret"
+	"github.com/cdmx-in/kera/internal/settings"
 	"github.com/cdmx-in/kera/internal/skills"
 	"github.com/cdmx-in/kera/internal/version"
 )
@@ -35,12 +37,10 @@ Usage:
   kera apply -f FILE [--dry-run] [--prune]
                           make the database match a declarative YAML config
   kera export [-o FILE]   print the managed config as YAML (secrets as ${...})
-  kera migrate from-openwebui|verify  import an Open WebUI database (kera migrate help)
   kera version            print the version
-` + knowledge.CLIUsage + skills.CLIUsage + identity.CLIUsage + `
+` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + identity.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
-KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL),
-KERA_OWUI_SYNC_DSN/_AT/_UPLOADS (nightly Open WebUI import).
+KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL).
 `
 
 func main() {
@@ -72,8 +72,8 @@ func run(args []string) error {
 		return applyCmd(ctx, args[1:])
 	case "export":
 		return exportCmd(ctx, args[1:])
-	case "migrate":
-		return importowui.Command(ctx, args[1:], os.Stdout)
+	case "connectors":
+		return connectorsCmd(ctx, args[1:])
 	case "reindex":
 		return knowledge.Command(ctx, args[1:], os.Stdout)
 	case "skills":
@@ -96,6 +96,24 @@ func serve(ctx context.Context) error {
 	}
 	defer a.Close()
 	return a.Server.ListenAndServe(ctx)
+}
+
+// connectorsCmd runs "kera connectors" against the database without starting the server.
+func connectorsCmd(ctx context.Context, args []string) error {
+	env, err := config.Load(true)
+	if err != nil {
+		return err
+	}
+	pool, err := db.Open(ctx, env.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	keys, err := secret.Derive(env.SecretKey)
+	if err != nil {
+		return err
+	}
+	return connectors.Command(ctx, &app.App{Env: env, DB: pool, Keys: keys, Settings: settings.New(pool)}, args, os.Stdout)
 }
 
 func dbCmd(ctx context.Context, args []string) error {

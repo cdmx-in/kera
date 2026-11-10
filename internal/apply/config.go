@@ -30,6 +30,7 @@ type Config struct {
 	CodeInterpreter *CodeInterpreter `yaml:"code_interpreter,omitempty"`
 	Cowork          *Cowork          `yaml:"cowork,omitempty"`
 	Desktop         *Desktop         `yaml:"desktop,omitempty"`
+	Connectors      *Connectors      `yaml:"connectors,omitempty"`
 	OAuthProviders  []OAuthProvider  `yaml:"oauth_providers,omitempty"`
 	ToolServers     []ToolServer     `yaml:"tool_servers,omitempty"`
 	HookServers     []HookServer     `yaml:"hook_servers,omitempty"`
@@ -299,6 +300,23 @@ type Desktop struct {
 	URL     *string `yaml:"url,omitempty"`
 	ViewURL *string `yaml:"view_url,omitempty"`
 	Key     *string `yaml:"key,omitempty" secret:"true"`
+}
+
+// Connectors are the scheduled directory integrations (Admin > Settings > Integrations).
+type Connectors struct {
+	GoogleWorkspace *GoogleWorkspace `yaml:"google_workspace,omitempty"`
+}
+
+// GoogleWorkspace syncs users and departments from the Admin SDK Directory API
+// through a service account with domain-wide delegation.
+type GoogleWorkspace struct {
+	Enabled         *bool    `yaml:"enabled,omitempty"`
+	IntervalMinutes *int     `yaml:"interval_minutes,omitempty"`
+	Credentials     *string  `yaml:"credentials,omitempty" secret:"true"` // service-account JSON key
+	AdminEmail      *string  `yaml:"admin_email,omitempty"`
+	OAuthProvider   *string  `yaml:"oauth_provider,omitempty"`
+	Exclude         []string `yaml:"exclude,omitempty"`
+	DeleteAfterDays *int     `yaml:"delete_after_days,omitempty"`
 }
 
 // CodeLanguage is one language execute_code can run. An empty Command means

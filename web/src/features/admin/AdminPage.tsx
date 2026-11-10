@@ -14,7 +14,7 @@ import { ModelsTab } from './settings/Models'
 import { HookServersTab, OAuthTab, ToolServersTab } from './settings/Servers'
 import { GuardrailsTab } from './settings/Guardrails'
 import { ChatTab, CodeTab, InterfaceTab, RetrievalTab, TasksTab, WebTab } from './settings/tabs'
-import { SyncTab } from './settings/Sync'
+import { IntegrationsTab } from './settings/Integrations'
 
 const settingsTabs: [string, string, () => React.ReactNode][] = [
   ['connections', 'Connections', () => <ConnectionsTab />],
@@ -30,7 +30,7 @@ const settingsTabs: [string, string, () => React.ReactNode][] = [
   ['web', 'Web search', () => <WebTab />],
   ['code', 'Code interpreter', () => <CodeTab />],
   ['retrieval', 'Retrieval', () => <RetrievalTab />],
-  ['sync', 'Open WebUI sync', () => <SyncTab />],
+  ['integrations', 'Integrations', () => <IntegrationsTab />],
 ]
 
 function sections(): [string, string][] {

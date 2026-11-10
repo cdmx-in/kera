@@ -130,6 +130,11 @@ export function UsersPage() {
                           <div className="min-w-0">
                             <div className="truncate font-medium">
                               {u.name || '(no name)'} {self && <Badge>you</Badge>}
+                              {u.disabled_at && (
+                                <Badge tone="red" title={`Disabled ${new Date(u.disabled_at * 1000).toLocaleString()}${u.origin === 'gworkspace' ? ' by the Google Workspace sync' : ''}`}>
+                                  disabled
+                                </Badge>
+                              )}
                             </div>
                             <div className="truncate text-xs text-muted">{u.email}</div>
                           </div>

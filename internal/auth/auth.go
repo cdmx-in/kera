@@ -98,15 +98,16 @@ func (a *Authenticator) Resolve(r *http.Request) (*User, error) {
 // LoadUser reads a user, their groups and merged permissions.
 func (a *Authenticator) LoadUser(ctx context.Context, id string) (*User, error) {
 	u := &User{}
-	err := a.DB.QueryRow(ctx, `SELECT id, name, email, role, profile_image_url FROM "user" WHERE id = $1`, id).
-		Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ProfileImageURL)
+	var disabled bool
+	err := a.DB.QueryRow(ctx, `SELECT id, name, email, role, profile_image_url, disabled_at IS NOT NULL FROM "user" WHERE id = $1`, id).
+		Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ProfileImageURL, &disabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUnauthenticated
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load user: %w", err)
 	}
-	if u.Role == "pending" {
+	if u.Role == "pending" || disabled {
 		return nil, ErrUnauthenticated
 	}
 	rows, err := a.DB.Query(ctx, `SELECT g.id, g.permissions FROM "group" g JOIN group_member m ON m.group_id = g.id WHERE m.user_id = $1`, id)
