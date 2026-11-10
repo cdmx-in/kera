@@ -61,6 +61,15 @@ var Defaults = map[string]json.RawMessage{
 	"desktop.url":      raw(`""`),
 	"desktop.view_url": raw(`""`),
 
+	// Integrations (internal/connectors): each runs every interval_minutes while enabled.
+	// connectors.google_workspace.credentials (service-account JSON) is a secret without default.
+	"connectors.google_workspace.enabled":           raw(`false`),
+	"connectors.google_workspace.interval_minutes":  raw(`60`),
+	"connectors.google_workspace.admin_email":       raw(`""`),
+	"connectors.google_workspace.oauth_provider":    raw(`"google"`),
+	"connectors.google_workspace.exclude":           raw(`[]`),
+	"connectors.google_workspace.delete_after_days": raw(`30`),
+
 	"rag.chunk_size":             raw(`1000`),
 	"rag.chunk_overlap":          raw(`100`),
 	"rag.markdown_headers":       raw(`true`),

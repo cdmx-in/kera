@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/auth"
@@ -46,18 +47,21 @@ type userOut struct {
 	CreatedAt       int64           `json:"created_at"`
 	Groups          json.RawMessage `json:"groups"` // [{id, name}]
 	APIKeyCount     int             `json:"api_key_count"`
+	DisabledAt      *int64          `json:"disabled_at"`
+	Origin          string          `json:"origin"`
 }
 
 const userSelect = `SELECT u.id, u.name, u.email, u.role, u.profile_image_url,
 	extract(epoch FROM u.last_active_at)::bigint, extract(epoch FROM u.created_at)::bigint,
 	COALESCE((SELECT json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.name)
 		FROM group_member m JOIN "group" g ON g.id = m.group_id WHERE m.user_id = u.id), '[]'),
-	(SELECT count(*) FROM api_key k WHERE k.user_id = u.id)
+	(SELECT count(*) FROM api_key k WHERE k.user_id = u.id),
+	extract(epoch FROM u.disabled_at)::bigint, u.origin
 	FROM "user" u `
 
 func scanUser(row pgx.Row) (userOut, error) {
 	var u userOut
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ProfileImageURL, &u.LastActiveAt, &u.CreatedAt, &u.Groups, &u.APIKeyCount)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ProfileImageURL, &u.LastActiveAt, &u.CreatedAt, &u.Groups, &u.APIKeyCount, &u.DisabledAt, &u.Origin)
 	return u, err
 }
 
@@ -222,19 +226,30 @@ func (h *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The caller is an admin and not the target, so an admin always remains.
-	// One statement, so the user and the grants naming them go together
-	// (grants point at principals without a foreign key).
-	tag, err := h.a.DB.Exec(r.Context(), `WITH g AS (DELETE FROM access_grant WHERE principal_type = 'user' AND principal_id = $1)
-		DELETE FROM "user" WHERE id = $1`, id)
+	found, err := DeleteUser(r.Context(), h.a.DB, id)
 	if err != nil {
-		api.Fail(w, r, fmt.Errorf("delete user: %w", err))
+		api.Fail(w, r, err)
 		return
 	}
-	if tag.RowsAffected() == 0 {
+	if !found {
 		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "User not found"))
 		return
 	}
 	api.JSON(w, http.StatusOK, true)
+}
+
+// DeleteUser removes a user; their chats, files, keys and memberships cascade.
+// One statement, so the user and the grants naming them go together (grants
+// point at principals without a foreign key). It reports whether the user existed.
+func DeleteUser(ctx context.Context, db interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, id string) (bool, error) {
+	tag, err := db.Exec(ctx, `WITH g AS (DELETE FROM access_grant WHERE principal_type = 'user' AND principal_id = $1)
+		DELETE FROM "user" WHERE id = $1`, id)
+	if err != nil {
+		return false, fmt.Errorf("delete user: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (h *handler) getDefaultPerms(w http.ResponseWriter, r *http.Request) {

@@ -14,7 +14,7 @@ A self-hosted team chat for Ollama and OpenAI-compatible models, shipped as one 
 - **Knowledge.** Hybrid search (vectors plus full text) with optional reranking.
 - **Code interpreter.** Runs code in a Jupyter sandbox and returns the files it creates.
 - **Plugins in any language.** Hooks and tools are HTTP services, not code loaded into the server.
-- **Migration from Open WebUI.** `kera migrate from-openwebui` imports users, chats, files and knowledge.
+- **Integrations.** Scheduled directory sync from Google Workspace: users, departments as groups, suspended and deleted users disabled (see `docs/integrations.md`).
 - **Guardrails.** Personal data redaction or blocking, prompt-injection and blocklist checks and optional moderation on every model call, with an audit trail (see below).
 
 ## Quick start (development)

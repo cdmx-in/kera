@@ -15,6 +15,8 @@ export interface AdminUser {
   created_at: number
   groups: { id: string; name: string }[]
   api_key_count: number
+  disabled_at: number | null
+  origin: string
 }
 
 export interface Group {

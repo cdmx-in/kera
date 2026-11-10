@@ -169,6 +169,15 @@ func (h *handler) callback(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, "account_pending", nil)
 		return
 	}
+	var disabled bool
+	if err := h.a.DB.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM "user" WHERE id = $1`, userID).Scan(&disabled); err != nil {
+		h.fail(w, r, "server_error", err)
+		return
+	}
+	if disabled {
+		h.fail(w, r, "account_disabled", nil)
+		return
+	}
 	ttl := h.a.Auth.SessionTTL(ctx)
 	session, err := auth.IssueToken(h.a.Keys, userID, ttl)
 	if err != nil {
