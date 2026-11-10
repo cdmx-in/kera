@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/jwt"
 
 	"github.com/cdmx-in/kera/internal/app"
@@ -101,7 +102,10 @@ func run(ctx context.Context, a *app.App, dryRun bool) (*connectors.Report, erro
 	var admin string
 	_ = a.Settings.Get(ctx, "connectors."+Name+".admin_email", &admin)
 	if creds == "" || admin == "" {
-		return nil, errors.New("set the service-account key and the admin email first")
+		return nil, errors.New("Set the service-account key and the admin email first.")
+	}
+	if strings.HasSuffix(strings.ToLower(admin), ".gserviceaccount.com") {
+		return nil, errors.New("Admin to act as must be a Workspace admin user (for example admin@yourdomain), not the service account's own address.")
 	}
 	client, err := httpClient(ctx, creds, admin)
 	if err != nil {
@@ -171,6 +175,10 @@ func List(ctx context.Context, c *http.Client) ([]User, error) {
 			return nil, err
 		}
 		resp, err := c.Do(req)
+		if re := (*oauth2.RetrieveError)(nil); errors.As(err, &re) {
+			return nil, fmt.Errorf("Google refused the service-account sign-in (%s). Check that the key is current and that "+
+				"Domain-wide delegation lists its client id with the scope %s.", cmp.Or(re.ErrorCode, re.Response.Status), scope)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("directory: %w", err)
 		}
@@ -180,7 +188,7 @@ func List(ctx context.Context, c *http.Client) ([]User, error) {
 			return nil, fmt.Errorf("directory: %w", err)
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("directory: status %d: %.300s", resp.StatusCode, body)
+			return nil, directoryError(resp.StatusCode, body)
 		}
 		var page struct {
 			Users         []User `json:"users"`
@@ -194,6 +202,25 @@ func List(ctx context.Context, c *http.Client) ([]User, error) {
 			return all, nil
 		}
 	}
+}
+
+// directoryError turns a Directory API error into an admin-readable hint.
+func directoryError(status int, body []byte) error {
+	var e struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &e)
+	msg := cmp.Or(e.Error.Message, http.StatusText(status))
+	hint := ""
+	switch status {
+	case http.StatusBadRequest:
+		hint = " Admin to act as must be an existing Workspace admin user of this domain."
+	case http.StatusUnauthorized, http.StatusForbidden:
+		hint = " Admin to act as needs the Users > Read admin privilege."
+	}
+	return fmt.Errorf("Google Workspace answered %d %s.%s", status, msg, hint)
 }
 
 type keraUser struct {
@@ -234,8 +261,11 @@ func Sync(ctx context.Context, tx pgx.Tx, users []User, opt Options, rep *connec
 	}
 	bySub, byEmail := map[string]*keraUser{}, map[string]*keraUser{}
 	for _, k := range kera {
-		if k.sub != "" {
+		switch {
+		case strings.Contains(k.sub, "@"):
 			bySub[k.sub] = k
+		case k.sub != "": // a bare sub from the Open WebUI import; the next sign-in would add the prefix
+			bySub[opt.Provider+"@"+k.sub] = k
 		}
 		byEmail[k.email] = k
 	}
@@ -280,6 +310,13 @@ func match(ctx context.Context, tx pgx.Tx, u User, email string, opt Options,
 	bySub, byEmail map[string]*keraUser, rep *connectors.Report) (*keraUser, error) {
 	sub := opt.Provider + "@" + u.ID
 	if k := bySub[sub]; k != nil {
+		if k.sub != sub {
+			if _, err := tx.Exec(ctx, `UPDATE "user" SET oauth_sub = $2, updated_at = now() WHERE id = $1`, k.id, sub); err != nil {
+				return nil, fmt.Errorf("link %s: %w", email, err)
+			}
+			k.sub = sub
+			rep.Add("link", email, "imported login id")
+		}
 		return k, nil
 	}
 	if k := byEmail[email]; k != nil {

@@ -134,6 +134,7 @@ func TestSyncLifecycle(t *testing.T) {
 	f.mkUser("bot@ex.com", "user", "")
 	f.mkUser("old@ex.com", "user", "google@old")
 	f.mkUser("guest@other.com", "user", "")
+	f.mkUser("imp@ex.com", "user", "imp") // bare sub, as the Open WebUI import stored it
 	f.exec(`INSERT INTO "group" (id, name) VALUES ('sales', 'Sales')`)
 	f.exec(`INSERT INTO group_member (group_id, user_id) VALUES ('sales', $1)`, f.ids["boss@ex.com"])
 
@@ -141,9 +142,13 @@ func TestSyncLifecycle(t *testing.T) {
 	ann := wsUser("ann", "ann@ex.com", "Ann", "", false)
 	amy := wsUser("a", "amy@ex.com", "Amy Adams", "Engineering", false)
 	sue := wsUser("s", "sue@ex.com", "Sue", "Engineering", true)
+	imp := wsUser("imp", "imp@ex.com", "imp@ex.com", "Engineering", false)
 
 	// Run 1: link by email, create, skip suspended newcomers, departments, missing user disabled.
-	rep := f.mustSync(boss, ann, amy, sue)
+	rep := f.mustSync(boss, ann, amy, sue, imp)
+	if !has(rep, "link", "imp@ex.com") || f.scalar(`SELECT oauth_sub FROM "user" WHERE email = 'imp@ex.com'`) != "google@imp" || f.groups("imp@ex.com") != "Engineering:gworkspace" {
+		t.Errorf("bare imported sub not linked: %+v %v", rep.Changes, rep.Warnings)
+	}
 	for _, want := range [][2]string{{"link", "boss@ex.com"}, {"create", "amy@ex.com"}, {"group", "Engineering"},
 		{"join", "boss@ex.com"}, {"join", "amy@ex.com"}, {"disable", "old@ex.com"}, {"update", "boss@ex.com"}} {
 		if !has(rep, want[0], want[1]) {
@@ -167,7 +172,7 @@ func TestSyncLifecycle(t *testing.T) {
 	}
 
 	// Run 2: same input changes nothing.
-	if rep := f.mustSync(boss, ann, amy, sue); len(rep.Changes) != 0 {
+	if rep := f.mustSync(boss, ann, amy, sue, imp); len(rep.Changes) != 0 {
 		t.Errorf("run 2 not idempotent: %+v", rep.Changes)
 	}
 
@@ -295,6 +300,16 @@ func TestRun(t *testing.T) {
 		}
 	}
 
+	// The service account's own address is the classic mistake (Google answers 400 Invalid Input).
+	_ = st.Set(ctx, "connectors.google_workspace.admin_email", "sa@proj.iam.gserviceaccount.com", false)
+	if _, err := connectors.Run(ctx, a, c, "cli", true); err == nil || !strings.Contains(err.Error(), "not the service account") {
+		t.Errorf("service-account admin email: %v", err)
+	}
+	_ = st.Set(ctx, "connectors.google_workspace.admin_email", "admin@ex.com", false)
+	if err := directoryError(400, []byte(`{"error":{"code":400,"message":"Invalid Input"}}`)); !strings.Contains(err.Error(), "400 Invalid Input. Admin to act as") {
+		t.Errorf("directoryError = %v", err)
+	}
+
 	rep, err := connectors.Run(ctx, a, c, "cli", true)
 	if err != nil {
 		t.Fatal(err)
@@ -320,7 +335,7 @@ func TestRun(t *testing.T) {
 	}
 	var runs, failed int
 	_ = pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE error <> '') FROM connector_run WHERE finished_at IS NOT NULL`).Scan(&runs, &failed)
-	if runs != 3 || failed != 1 {
+	if runs != 4 || failed != 2 {
 		t.Errorf("connector_run rows: %d finished, %d failed", runs, failed)
 	}
 }

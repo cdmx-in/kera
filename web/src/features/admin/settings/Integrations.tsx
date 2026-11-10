@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
 import { api } from '@/api/client'
+import { cx } from '@/lib/format'
 import { attempt, Badge, Btn, Card, Loading, tdCls, thCls } from '../ui'
 import { SettingsForm, type FieldSpec } from './form'
 
@@ -32,7 +33,33 @@ interface Connector {
   next_run: string | null
 }
 
-const when = (s: string) => new Date(s).toLocaleString()
+const when = (s: string) => new Date(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+/** "in 12 min", "in 2 h", or "now" for a time in the past. */
+function fromNow(s: string): string {
+  const min = Math.round((new Date(s).getTime() - Date.now()) / 60000)
+  if (min <= 0) return 'now'
+  return min < 90 ? `in ${min} min` : `in ${Math.round(min / 60)} h`
+}
+
+const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+const triggers: Record<string, string> = { admin: 'Admin', schedule: 'Schedule', cli: 'Command line' }
+
+// Past-tense labels for report actions; unknown actions are shown as they come.
+const actions: Record<string, string> = {
+  create: 'Created',
+  link: 'Linked',
+  update: 'Updated',
+  disable: 'Disabled',
+  enable: 'Enabled',
+  missing: 'Missing',
+  delete: 'Deleted',
+  group: 'New group',
+  join: 'Joined group',
+  leave: 'Left group',
+}
+const actionLabel = (a: string) => actions[a] ?? sentence(a)
 
 const f = (key: string, kind: FieldSpec['kind'], label: string, hint?: string): FieldSpec => ({ key, kind, label, hint })
 const gw = 'connectors.google_workspace.'
@@ -43,6 +70,15 @@ export function IntegrationsTab() {
       <Runs />
       <SettingsForm
         single
+        children={(d) =>
+          String(d.get(gw + 'admin_email') ?? '')
+            .toLowerCase()
+            .endsWith('.gserviceaccount.com') && (
+            <p role="alert" className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+              Admin to act as is the service account&apos;s own address. Use a Workspace admin user&apos;s email instead; the service account acts on their behalf.
+            </p>
+          )
+        }
         sections={[
           {
             title: 'Google Workspace',
@@ -51,7 +87,7 @@ export function IntegrationsTab() {
               f(gw + 'enabled', 'bool', 'Enabled', 'Run on a schedule.'),
               f(gw + 'interval_minutes', 'int', 'Every (minutes)', 'At least 5.'),
               f(gw + 'credentials', 'secret', 'Service-account key', 'The JSON key of a service account with domain-wide delegation for the scope admin.directory.user.readonly.'),
-              f(gw + 'admin_email', 'text', 'Admin to act as', 'A Workspace admin who can read users.'),
+              f(gw + 'admin_email', 'text', 'Admin to act as', "Email of a Workspace admin user who can read users. Not the service account's own address."),
               f(gw + 'oauth_provider', 'text', 'Login provider id', 'The Google sign-in provider, so synced users are linked to their Google login.'),
               f(gw + 'exclude', 'lines', 'Leave alone', 'Emails the sync never creates, changes, disables or deletes (bots, break-glass admins).'),
               f(gw + 'delete_after_days', 'int', 'Delete after (days)', 'How long a user deleted from Workspace stays disabled here before being deleted.'),
@@ -65,7 +101,53 @@ export function IntegrationsTab() {
 
 function summary(r: Run): string {
   const c = Object.entries(r.report.counts ?? {})
-  return c.length ? c.map(([k, n]) => `${k} ${n}`).join(' · ') : 'no changes'
+  return c.length ? c.map(([k, n]) => `${actionLabel(k)} ${n}`).join(' · ') : 'No changes'
+}
+
+function Status({ r }: { r: Run }) {
+  const warnings = r.report.warnings?.length ?? 0
+  return (
+    <div className="flex flex-wrap gap-1">
+      {r.error ? <Badge tone="red">Failed</Badge> : r.finished_at ? <Badge tone="green">Succeeded</Badge> : <Badge tone="amber">Running</Badge>}
+      {r.dry_run && <Badge tone="accent">Dry run</Badge>}
+      {warnings > 0 && <Badge tone="amber">{warnings === 1 ? '1 warning' : `${warnings} warnings`}</Badge>}
+    </div>
+  )
+}
+
+function Details({ r }: { r: Run }) {
+  const changes = r.report.changes ?? []
+  const warnings = r.report.warnings ?? []
+  return (
+    <div className="min-w-64 space-y-1">
+      {r.error && (
+        <p className="line-clamp-3 break-words text-red-600 dark:text-red-400" title={r.error}>
+          {sentence(r.error)}
+        </p>
+      )}
+      {changes.length || warnings.length ? (
+        <details className="group">
+          <summary className="cursor-pointer select-none text-fg marker:text-muted">{summary(r)}</summary>
+          <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto rounded-lg bg-surface-2/50 p-3 text-xs">
+            {warnings.map((w, i) => (
+              <li key={`w${i}`} className="text-amber-700 dark:text-amber-400">
+                {sentence(w)}
+              </li>
+            ))}
+            {changes.map((c, i) => (
+              <li key={i} className="flex flex-wrap gap-x-1.5">
+                <span className="font-medium">{actionLabel(c.action)}</span>
+                <span>{c.target}</span>
+                {c.detail && <span className="text-muted">· {sentence(c.detail)}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : (
+        !r.error && <span className="text-muted">No changes</span>
+      )}
+    </div>
+  )
 }
 
 function Runs() {
@@ -81,11 +163,12 @@ function Runs() {
       await qc.invalidateQueries({ queryKey: ['admin', 'connectors'] })
     }, dry ? 'Dry run started' : 'Sync started')
   const titles = new Map(q.data?.connectors.map((c) => [c.name, c.title]))
+  const many = (q.data?.connectors.length ?? 0) > 1
 
   return (
     <Card
       title="Integrations"
-      hint="Each enabled integration runs on its interval. A dry run shows what would change without changing anything."
+      hint="Enabled integrations run on their interval. A dry run shows what would change without changing anything."
       actions={
         <Btn variant="ghost" onClick={() => void q.refetch()} aria-label="Refresh">
           <RefreshCw size={14} />
@@ -99,9 +182,11 @@ function Runs() {
             <div key={c.name} className="flex flex-wrap items-center gap-3 px-5 py-4" data-testid={`connector-${c.name}`}>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-sm font-medium">
-                  {c.title} {c.enabled ? <Badge tone="green">every {c.interval_minutes} min</Badge> : <Badge>off</Badge>}
+                  {c.title} {c.enabled ? <Badge tone="green">Every {c.interval_minutes} min</Badge> : <Badge>Off</Badge>}
                 </div>
-                {c.next_run && <p className="text-[13px] text-muted">Next run {when(c.next_run)}</p>}
+                <p className="mt-0.5 text-[13px] text-muted">
+                  {c.running ? 'Running now…' : c.next_run ? `Next run ${fromNow(c.next_run)} (${when(c.next_run)})` : 'Not scheduled. Switch it on below.'}
+                </p>
               </div>
               <Btn disabled={c.running} onClick={() => void start(c, true)} data-testid="connector-dry-run">
                 Dry run
@@ -113,53 +198,30 @@ function Runs() {
           ))}
         </div>
       )}
+      {q.data && q.data.runs.length === 0 && <p className="border-t border-line px-5 py-4 text-sm text-muted">No runs yet.</p>}
       {q.data && q.data.runs.length > 0 && (
         <div className="overflow-x-auto border-t border-line">
           <table className="w-full text-sm" data-testid="connector-runs">
             <thead>
               <tr>
                 <th className={thCls}>Started</th>
-                <th className={thCls}>Integration</th>
-                <th className={thCls}>By</th>
+                {many && <th className={thCls}>Integration</th>}
+                <th className={thCls}>Started by</th>
                 <th className={thCls}>Status</th>
-                <th className={thCls}>Changes</th>
+                <th className={thCls}>Result</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {q.data.runs.map((r) => (
                 <tr key={r.id} className="align-top">
-                  <td className={tdCls}>{when(r.started_at)}</td>
-                  <td className={tdCls}>{titles.get(r.connector) ?? r.connector}</td>
-                  <td className={tdCls}>{r.trigger}</td>
+                  <td className={cx(tdCls, 'whitespace-nowrap')}>{when(r.started_at)}</td>
+                  {many && <td className={tdCls}>{titles.get(r.connector) ?? r.connector}</td>}
+                  <td className={cx(tdCls, 'whitespace-nowrap')}>{triggers[r.trigger] ?? sentence(r.trigger)}</td>
                   <td className={tdCls}>
-                    <div className="flex flex-wrap gap-1">
-                      {r.dry_run && <Badge tone="accent">dry run</Badge>}
-                      {r.error ? <Badge tone="red">failed</Badge> : r.finished_at ? <Badge tone="green">ok</Badge> : <Badge tone="amber">running or stopped</Badge>}
-                      {!!r.report.warnings?.length && <Badge tone="amber">{r.report.warnings.length} warnings</Badge>}
-                    </div>
+                    <Status r={r} />
                   </td>
-                  <td className={tdCls}>
-                    {r.error && <p className="mb-1 text-red-600">{r.error}</p>}
-                    {r.report.changes?.length || r.report.warnings?.length ? (
-                      <details>
-                        <summary className="cursor-pointer">{summary(r)}</summary>
-                        <ul className="mt-2 space-y-0.5 text-xs">
-                          {r.report.warnings?.map((w, i) => (
-                            <li key={`w${i}`} className="text-amber-700 dark:text-amber-400">
-                              {w}
-                            </li>
-                          ))}
-                          {r.report.changes?.map((c, i) => (
-                            <li key={i}>
-                              <span className="font-medium">{c.action}</span> {c.target}
-                              {c.detail && <span className="text-muted"> ({c.detail})</span>}
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    ) : (
-                      <span className="text-muted">{summary(r)}</span>
-                    )}
+                  <td className={cx(tdCls, 'w-full')}>
+                    <Details r={r} />
                   </td>
                 </tr>
               ))}
