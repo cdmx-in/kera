@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -563,6 +564,14 @@ func normModel(m Model) Model {
 	return m
 }
 
+// refreshStamp is the trailing "Updated YYYY-MM-DD." a knowledge refresh job writes onto a model's
+// description at runtime (e.g. astra-kb kera_stamp.py). It is not config: apply ignores it when diffing
+// and keeps it when rewriting the row, so an unrelated apply does not wipe the landing-page date.
+var refreshStamp = regexp.MustCompile(`\s*Updated \d{4}-\d{2}-\d{2}\.$`)
+
+// refreshStampSQL is refreshStamp for Postgres.
+const refreshStampSQL = `\s*Updated \d{4}-\d{2}-\d{2}\.$`
+
 func (r *run) readModels() ([]row, error) {
 	grants, err := r.readGrants(access.Model)
 	if err != nil {
@@ -593,6 +602,7 @@ func (r *run) readModels() ([]row, error) {
 			}
 		}
 		m.Active, m.Grants = &active, grants[m.ID]
+		m.Description = refreshStamp.ReplaceAllString(m.Description, "")
 		out = append(out, row{id: m.ID, v: normModel(m), managed: managed})
 	}
 	return out, rows.Err()
@@ -607,14 +617,15 @@ func (r *run) writeModel(m Model) error {
 		capabilities, features, default_features, file_context, tools, knowledge, hooks, suggestions, hidden, active, image_url, managed)
 		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, true)
 		ON CONFLICT (id) DO UPDATE SET connection_id = EXCLUDED.connection_id, base_model_id = EXCLUDED.base_model_id,
-		name = EXCLUDED.name, description = EXCLUDED.description, system_prompt = EXCLUDED.system_prompt, params = EXCLUDED.params,
+		name = EXCLUDED.name, description = EXCLUDED.description || CASE WHEN EXCLUDED.description ~ $19 THEN ''
+			ELSE coalesce(substring(model.description from $19), '') END, system_prompt = EXCLUDED.system_prompt, params = EXCLUDED.params,
 		capabilities = EXCLUDED.capabilities, features = EXCLUDED.features, default_features = EXCLUDED.default_features,
 		file_context = EXCLUDED.file_context, tools = EXCLUDED.tools, knowledge = EXCLUDED.knowledge, hooks = EXCLUDED.hooks,
 		suggestions = EXCLUDED.suggestions, hidden = EXCLUDED.hidden, active = EXCLUDED.active, image_url = EXCLUDED.image_url,
 		managed = true, updated_at = now()`,
 		m.ID, m.Connection, m.Base, m.Name, m.Description, m.Prompt, jsonCol(m.Params, "{}"), jsonCol(m.Capabilities, "{}"),
 		jsonCol(m.Features, "{}"), strs(m.DefaultFeatures), fc, jsonCol(m.Tools, "{}"), jsonCol(m.Knowledge, "[]"),
-		strs(m.Hooks), jsonCol(m.Suggestions, "[]"), m.Hidden, m.Active == nil || *m.Active, m.Image)
+		strs(m.Hooks), jsonCol(m.Suggestions, "[]"), m.Hidden, m.Active == nil || *m.Active, m.Image, refreshStampSQL)
 	if err != nil {
 		return wrap(err, "write model %s", m.ID)
 	}

@@ -274,6 +274,30 @@ func TestPrune(t *testing.T) {
 	}
 }
 
+// A refresh job's "Updated <date>." stamp on a description is runtime state: apply neither reports it
+// as drift nor drops it when the model is rewritten.
+func TestDescriptionRefreshStampSurvives(t *testing.T) {
+	fx := setup(t)
+	ctx := context.Background()
+	f, err := Parse([]byte("models:\n  - {id: kb, name: KB, base: x, description: Answers from the KB.}\n"), ".", lookup(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustApply(t, fx, f, Options{})
+	mustExec(t, fx.db, `UPDATE model SET description = description || ' Updated 2026-11-09.' WHERE id = 'kb'`)
+	assertNoChanges(t, mustApply(t, fx, f, Options{}))
+
+	f.Models[0].Description = "Answers from the knowledge base."
+	mustApply(t, fx, f, Options{})
+	var desc string
+	if err := fx.db.QueryRow(ctx, `SELECT description FROM model WHERE id = 'kb'`).Scan(&desc); err != nil {
+		t.Fatal(err)
+	}
+	if desc != "Answers from the knowledge base. Updated 2026-11-09." {
+		t.Errorf("description = %q", desc)
+	}
+}
+
 func TestAdoptUnmanagedRow(t *testing.T) {
 	fx := setup(t)
 	mustExec(t, fx.db, `INSERT INTO "group" (id, name) VALUES ('g-ops', 'Ops')`)
