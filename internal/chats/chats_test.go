@@ -282,6 +282,32 @@ func TestFeedback(t *testing.T) {
 	if code := do(t, srv, "u2", "POST", "/api/v1/evaluations/feedback", `not json`, nil); code != 400 {
 		t.Fatalf("bad json: %d", code)
 	}
+
+	// web votes: a re-vote on the same message replaces the earlier one
+	vote := func(rating string) int {
+		return do(t, srv, "u1", "POST", "/api/v1/evaluations/feedback",
+			`{"data":{"rating":`+rating+`,"model_id":"m"},"meta":{"chat_id":"c9","message_id":"a1"}}`, nil)
+	}
+	if vote("1") != 200 || vote("-1") != 200 {
+		t.Fatal("web vote refused")
+	}
+	if code := vote("5"); code != 400 {
+		t.Fatalf("rating 5 accepted: %d", code)
+	}
+	var votes map[string]int
+	if code := do(t, srv, "u1", "GET", "/api/v1/evaluations/feedback/chat/c9", "", &votes); code != 200 || len(votes) != 1 || votes["a1"] != -1 {
+		t.Fatalf("chat votes %d %v", code, votes)
+	}
+	var others map[string]int
+	if code := do(t, srv, "u2", "GET", "/api/v1/evaluations/feedback/chat/c9", "", &others); code != 200 || len(others) != 0 {
+		t.Fatalf("another user's votes leaked: %v", others)
+	}
+	rec := httptest.NewRecorder()
+	(&handler{s: s}).allFeedback(rec, httptest.NewRequest("GET", "/", nil))
+	var all []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &all); err != nil || len(all) != 2 || all[0]["rating"] != -1.0 || all[0]["user_email"] != "a@x" {
+		t.Fatalf("admin list (bridge vote + one web vote): %v %v", err, all)
+	}
 }
 
 // Cowork tasks are chats with mode cowork: created behind features.cowork,

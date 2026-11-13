@@ -149,7 +149,70 @@ export function AnalyticsPage() {
         </div>
         {!!users.data?.length && <Pagination pager={userPager} total={users.data.length} label="Users pages" />}
       </Card>
+      <FeedbackCard />
     </Page>
+  )
+}
+
+interface FeedbackRow {
+  id: string
+  user_name: string
+  user_email: string
+  model_id: string
+  rating: number
+  comment: string
+  source: string
+  voter: string
+  created_at: number
+}
+
+/** The newest 200 thumbs votes (web and Google Chat), not tied to the date range. */
+function FeedbackCard() {
+  const q = useAdmin<FeedbackRow[]>(['feedback'], '/api/v1/evaluations/feedbacks/all')
+  const pager = useUrlPager('feedback')
+  const rows = q.data ?? []
+  const down = rows.filter((r) => r.rating < 0).length
+  return (
+    <Card title={`Recent feedback${rows.length ? ` · ${rows.length - down} up, ${down} down` : ''}`}>
+      <Loading q={q} />
+      <div className={scrollCls}>
+        <table className="w-full text-sm" data-testid="analytics-feedback">
+          <thead className={theadCls}>
+            <tr>
+              <th className={thCls}>Vote</th>
+              <th className={thCls}>Model</th>
+              <th className={thCls}>Comment</th>
+              <th className={thCls}>By</th>
+              <th className={thCls}>When</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {pageSlice(rows, pager.page, pager.size).map((r) => (
+              <tr key={r.id}>
+                <td className={tdCls} aria-label={r.rating > 0 ? 'Good' : 'Bad'}>
+                  {r.rating > 0 ? '👍' : '👎'}
+                </td>
+                <td className={cx(tdCls, 'font-medium')}>{r.model_id || '(none)'}</td>
+                <td className={cx(tdCls, 'max-w-md')}>{r.comment || <span className="text-muted">-</span>}</td>
+                <td className={cx(tdCls, 'whitespace-nowrap')}>
+                  {r.voter || r.user_email || r.user_name}
+                  {r.source !== 'web' && <span className="ml-1 text-xs text-muted">({r.source})</span>}
+                </td>
+                <td className={cx(tdCls, 'whitespace-nowrap text-muted')}>{new Date(r.created_at * 1000).toLocaleString()}</td>
+              </tr>
+            ))}
+            {q.data && !rows.length && (
+              <tr>
+                <td colSpan={5} className="p-6 text-center text-muted">
+                  No votes yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {!!rows.length && <Pagination pager={pager} total={rows.length} label="Feedback pages" />}
+    </Card>
   )
 }
 

@@ -279,6 +279,7 @@ async function body(init?: RequestInit): Promise<Json> {
 }
 
 const desktopsEnded = new Set<string>()
+const votes = new Map<string, { rating: number; comment: string; model: string; chat: string }>()
 
 const summary = (c: ReturnType<typeof chats.get> & object) => ({ id: c.id, title: c.title, updated_at: c.updated_at, created_at: c.created_at, pinned: c.pinned, folder_id: c.folder_id })
 
@@ -289,6 +290,16 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
   if (p === '/api/v1/auths/signout') return json({ ok: true })
   if (p === '/api/models') return json({ data: models })
   if (p === '/api/v1/tools/') return json(tools)
+  if (p === '/api/v1/evaluations/feedback' && method === 'POST') {
+    const b = await body(init)
+    const meta = b.meta as Json
+    votes.set(String(meta.message_id), { rating: (b.data as Json).rating as number, comment: String((b.data as Json).comment ?? ''), model: String((b.data as Json).model_id ?? ''), chat: String(meta.chat_id) })
+    return json({ id: uid() })
+  }
+  if ((m = p.match(/^\/api\/v1\/evaluations\/feedback\/chat\/([^/]+)$/)))
+    return json(Object.fromEntries([...votes].filter(([, v]) => v.chat === decodeURIComponent(m![1])).map(([k, v]) => [k, v.rating])))
+  if (p === '/api/v1/evaluations/feedbacks/all')
+    return json([...votes].map(([k, v]) => ({ id: k, user_name: me.name, user_email: me.email, model_id: v.model, rating: v.rating, comment: v.comment, source: 'web', voter: '', chat_id: v.chat, created_at: now() })))
   if (p === '/api/v1/prompts/')
     return json([
       { id: 'pr1', user_id: 'u1', command: 'summary', title: 'Summarise for a manager', content: 'Summarise the following in 5 bullet points for a busy manager:\n\n', write_access: true, updated_at: now() },

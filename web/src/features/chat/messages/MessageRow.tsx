@@ -14,6 +14,7 @@ import { Reasoning } from './Reasoning'
 import { Steps } from './Steps'
 import { Sources } from './Sources'
 import { FileChip } from './FileChip'
+import { Feedback } from './Feedback'
 
 export const MessageRow = memo(function MessageRow({ id, isLast, readOnly, modelName }: { id: string; isLast: boolean; readOnly?: boolean; modelName?: (id?: string) => string }) {
   const m = useMessage(id)
@@ -171,6 +172,7 @@ function AssistantMessage({ m, isLast, readOnly, modelName }: { m: Message; isLa
           <IconButton label="Regenerate" data-testid="regenerate" className="size-7" disabled={busy} onClick={() => regenerate(m.id)}>
             <RefreshCw size={14} />
           </IconButton>
+          {m.status === 'done' && text && <Feedback m={m} />}
         </div>
       )}
       {!readOnly && isLast && m.status === 'done' && m.followUps && m.followUps.length > 0 && (

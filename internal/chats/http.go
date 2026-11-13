@@ -51,6 +51,7 @@ func Mount(a *app.App) error {
 	for p, fn := range h.routes(user, perm) {
 		a.Server.Handle(p, fn)
 	}
+	a.Server.Handle("GET /api/v1/evaluations/feedbacks/all", a.Auth.Admin(http.HandlerFunc(h.allFeedback)))
 	return nil
 }
 
@@ -59,36 +60,37 @@ type wrap = func(http.HandlerFunc) http.Handler
 // routes is the route table; user and perm add authentication.
 func (h *handler) routes(user wrap, perm func(string, http.HandlerFunc) http.Handler) map[string]http.Handler {
 	return map[string]http.Handler{
-		"GET /api/v1/chats/{$}":                     user(h.list),
-		"GET /api/v1/chats/list":                    user(h.list),
-		"GET /api/v1/chats/pinned":                  user(h.pinned),
-		"GET /api/v1/chats/archived":                user(h.archived),
-		"GET /api/v1/chats/search":                  user(h.search),
-		"GET /api/v1/chats/all/tags":                user(h.userTags),
-		"POST /api/v1/chats/tags":                   user(h.byTag),
-		"POST /api/v1/chats/new":                    user(h.create),
-		"GET /api/v1/chats/{a}/{b}":                 user(h.pair),
-		"GET /api/v1/chats/{id}":                    user(h.get),
-		"POST /api/v1/chats/{id}":                   user(h.update),
-		"DELETE /api/v1/chats/{id}":                 perm("chat.delete", h.delete),
-		"POST /api/v1/chats/{id}/pin":               user(h.pin),
-		"POST /api/v1/chats/{id}/archive":           user(h.archive),
-		"POST /api/v1/chats/{id}/folder":            user(h.move),
-		"POST /api/v1/chats/{id}/share":             perm("chat.share", h.share),
-		"DELETE /api/v1/chats/{id}/share":           user(h.unshare),
-		"POST /api/v1/chats/{id}/tags":              user(h.addTag),
-		"DELETE /api/v1/chats/{id}/tags":            user(h.removeTag),
-		"DELETE /api/v1/chats/{id}/tags/all":        user(h.clearTags),
-		"POST /api/v1/chats/{id}/messages/{mid}":    user(h.editMessage),
-		"DELETE /api/v1/chats/{id}/messages/{mid}":  user(h.deleteMessage),
-		"GET /api/v1/folders/{$}":                   user(h.folders),
-		"POST /api/v1/folders/{$}":                  user(h.createFolder),
-		"GET /api/v1/folders/{id}":                  user(h.folder),
-		"POST /api/v1/folders/{id}/update":          user(h.renameFolder),
-		"POST /api/v1/folders/{id}/update/parent":   user(h.moveFolder),
-		"POST /api/v1/folders/{id}/update/expanded": user(h.expandFolder),
-		"DELETE /api/v1/folders/{id}":               user(h.deleteFolder),
-		"POST /api/v1/evaluations/feedback":         user(h.createFeedback),
+		"GET /api/v1/chats/{$}":                      user(h.list),
+		"GET /api/v1/chats/list":                     user(h.list),
+		"GET /api/v1/chats/pinned":                   user(h.pinned),
+		"GET /api/v1/chats/archived":                 user(h.archived),
+		"GET /api/v1/chats/search":                   user(h.search),
+		"GET /api/v1/chats/all/tags":                 user(h.userTags),
+		"POST /api/v1/chats/tags":                    user(h.byTag),
+		"POST /api/v1/chats/new":                     user(h.create),
+		"GET /api/v1/chats/{a}/{b}":                  user(h.pair),
+		"GET /api/v1/chats/{id}":                     user(h.get),
+		"POST /api/v1/chats/{id}":                    user(h.update),
+		"DELETE /api/v1/chats/{id}":                  perm("chat.delete", h.delete),
+		"POST /api/v1/chats/{id}/pin":                user(h.pin),
+		"POST /api/v1/chats/{id}/archive":            user(h.archive),
+		"POST /api/v1/chats/{id}/folder":             user(h.move),
+		"POST /api/v1/chats/{id}/share":              perm("chat.share", h.share),
+		"DELETE /api/v1/chats/{id}/share":            user(h.unshare),
+		"POST /api/v1/chats/{id}/tags":               user(h.addTag),
+		"DELETE /api/v1/chats/{id}/tags":             user(h.removeTag),
+		"DELETE /api/v1/chats/{id}/tags/all":         user(h.clearTags),
+		"POST /api/v1/chats/{id}/messages/{mid}":     user(h.editMessage),
+		"DELETE /api/v1/chats/{id}/messages/{mid}":   user(h.deleteMessage),
+		"GET /api/v1/folders/{$}":                    user(h.folders),
+		"POST /api/v1/folders/{$}":                   user(h.createFolder),
+		"GET /api/v1/folders/{id}":                   user(h.folder),
+		"POST /api/v1/folders/{id}/update":           user(h.renameFolder),
+		"POST /api/v1/folders/{id}/update/parent":    user(h.moveFolder),
+		"POST /api/v1/folders/{id}/update/expanded":  user(h.expandFolder),
+		"DELETE /api/v1/folders/{id}":                user(h.deleteFolder),
+		"POST /api/v1/evaluations/feedback":          user(h.createFeedback),
+		"GET /api/v1/evaluations/feedback/chat/{id}": user(h.chatVotes),
 	}
 }
 
