@@ -41,10 +41,8 @@ type Config struct {
 type Features struct {
 	Spend           bool `json:"spend"`
 	Memory          bool `json:"memory"`
-	TemporaryChat   bool `json:"temporaryChat"`
 	CodeInterpreter bool `json:"codeInterpreter"`
 	WebSearch       bool `json:"webSearch"`
-	APIKeys         bool `json:"apiKeys"`
 }
 
 // cacheFor bounds how stale the shell may be after an admin change.
@@ -173,10 +171,9 @@ func load(ctx context.Context, st *settings.Store) (*Config, error) {
 	if cfg.Brand.Name == "" {
 		cfg.Brand.Name = "Kera"
 	}
-	// ponytail: temporary chats and API keys have no deployment-wide switch,
-	// only per-user permissions; add settings keys if a deployment needs one.
-	cfg.Features = Features{Spend: spend != "", Memory: memory, TemporaryChat: true,
-		CodeInterpreter: interpreter != "", WebSearch: search != "", APIKeys: true}
+	// temporary chats and API keys are per-user permissions (features.temporary_chat,
+	// features.api_keys), read from /api/v1/auths/, not deployment switches
+	cfg.Features = Features{Spend: spend != "", Memory: memory, CodeInterpreter: interpreter != "", WebSearch: search != ""}
 	return cfg, nil
 }
 

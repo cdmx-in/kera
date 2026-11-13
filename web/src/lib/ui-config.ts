@@ -56,10 +56,8 @@ export interface UIConfig {
   features: {
     spend?: boolean
     memory?: boolean
-    temporaryChat?: boolean
     codeInterpreter?: boolean
     webSearch?: boolean
-    apiKeys?: boolean
   }
   defaultModels: string[]
   modelOrder: string[]
@@ -76,7 +74,7 @@ declare global {
 
 const defaults: UIConfig = {
   brand: { name: 'Kera', defaultTheme: 'system', background: 'none' },
-  features: { memory: true, temporaryChat: true, apiKeys: true },
+  features: { memory: true },
   defaultModels: [],
   modelOrder: [],
   promptSuggestions: [],

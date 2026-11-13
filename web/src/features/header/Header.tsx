@@ -1,10 +1,9 @@
 import { Link, useNavigate } from 'react-router'
 import { EyeOff, LogOut, PanelLeft, Settings, ShieldCheck, SquarePen, LayoutGrid, ListChecks } from 'lucide-react'
 import { api, setToken } from '@/api/client'
-import { useMe } from '@/api/queries'
+import { can, useMe } from '@/api/queries'
 import { useChat } from '@/stores/chat'
 import { useUI } from '@/stores/ui'
-import { uiConfig } from '@/lib/ui-config'
 import { cx } from '@/lib/format'
 import { Tip } from '@/ui/misc'
 import { IconButton } from '@/ui/Dialog'
@@ -92,7 +91,8 @@ export function Header() {
   const temporary = useChat((s) => s.temporary)
   const hasMessages = useChat((s) => s.currentId !== null)
   const navigate = useNavigate()
-  const allowTemporary = uiConfig().features.temporaryChat !== false
+  const { data: me } = useMe()
+  const allowTemporary = can(me, 'features', 'temporary_chat')
   const toggleTemporary = () => {
     const next = !temporary
     useChat.getState().reset(null, next)

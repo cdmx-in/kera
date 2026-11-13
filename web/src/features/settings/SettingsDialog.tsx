@@ -3,7 +3,7 @@ import { Tabs } from 'radix-ui'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Trash2 } from 'lucide-react'
 import { api } from '@/api/client'
-import { useApiKeys, useMe, useUserSettings, type UserSettings } from '@/api/queries'
+import { can, useApiKeys, useMe, useUserSettings, type UserSettings } from '@/api/queries'
 import type { ApiKey } from '@/api/types'
 import { useUI } from '@/stores/ui'
 import { toast } from '@/stores/toast'
@@ -209,7 +209,7 @@ function Memories() {
 
 function Account() {
   const { data: me } = useMe()
-  const allowKeys = uiConfig().features.apiKeys !== false && (me?.role === 'admin' || !!me?.permissions?.features?.api_keys)
+  const allowKeys = can(me, 'features', 'api_keys')
   if (!me) return null
   return (
     <div className="space-y-6">

@@ -23,8 +23,8 @@ var Defaults = map[string]json.RawMessage{
 	// Default permissions for every non-admin user; groups can only add.
 	"user.permissions": raw(`{
 		"features": {"api_keys": false, "web_search": true, "code_interpreter": true, "memory": true, "temporary_chat": true, "cowork": true},
-		"chat": {"file_upload": true, "share": true, "export": true, "delete": true, "edit": true, "temporary": true},
-		"workspace": {"models": false, "knowledge": false, "prompts": false, "tools": false}
+		"chat": {"file_upload": true, "share": true, "export": true, "delete": true},
+		"workspace": {"models": false, "knowledge": false, "prompts": false}
 	}`),
 
 	"tasks.model_external": raw(`""`),
@@ -95,7 +95,6 @@ var Defaults = map[string]json.RawMessage{
 	"ui.brand":                     raw(`{}`),
 	"ui.tool_display":              raw(`{}`),
 	"ui.integrations":              raw(`[]`),
-	"tasks.autocomplete":           raw(`false`),
 	"rag.embedding.connection":     raw(`""`),
 	"rag.embedding.model":          raw(`""`),
 	"rag.embedding.dim":            raw(`0`),
@@ -105,7 +104,8 @@ var Defaults = map[string]json.RawMessage{
 	"rag.reranker.local_runs":      raw(`"skip"`), // skip | allow: local-model runs and an external reranker (rag.reranker.api_key is a secret without default)
 	"rag.reranker.local_url":       raw(`""`),
 	"rag.extractor.url":            raw(`""`),
-	"rag.extractor.model":          raw(`""`),
+	"files.max_mb":                 raw(`100`), // upload limit per file
+	"files.workers":                raw(`2`),   // extraction workers; a change needs a restart
 	"rag.template":                 raw(`""`),
 	"code_interpreter.engine":      raw(`""`),
 	"code_interpreter.url":         raw(`""`),

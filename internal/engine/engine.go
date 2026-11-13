@@ -51,6 +51,7 @@ var (
 	errBusy            = api.Errf(http.StatusConflict, "busy", "this message is already being generated")
 	errLocalLock       = api.Errf(http.StatusConflict, "local_lock", "This chat used a local model, so it stays on local models.")
 	errCoworkForbidden = api.Errf(http.StatusForbidden, "forbidden", "Permission required: features.cowork")
+	errTempForbidden   = api.Errf(http.StatusForbidden, "forbidden", "Permission required: features.temporary_chat")
 	errCancelled       = errors.New("cancelled by the user")
 	errShutdown        = errors.New("the server is restarting")
 )

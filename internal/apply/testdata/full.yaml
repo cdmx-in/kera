@@ -35,7 +35,7 @@ auth:
 
 permissions:
   features: {api_keys: true, code_interpreter: true}
-  workspace: {tools: false}
+  workspace: {prompts: false}
 
 groups:
   - name: Finance
@@ -61,7 +61,7 @@ connections:
     web_search: {country: DE, timezone: Europe/Berlin, context_size: medium}
     headers: {X-Team: chat}
 
-tasks: {model_external: big-model, model_local: "", title: true, tags: true, follow_ups: true, query: true, autocomplete: false}
+tasks: {model_external: big-model, model_local: "", title: true, tags: true, follow_ups: true, query: true}
 
 chat:
   compaction: {enable: true, threshold: 120000, retention: 30}

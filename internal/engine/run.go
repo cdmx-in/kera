@@ -70,6 +70,9 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 	x := &exec{u: u, m: m, req: req, interactive: req.StreamFormat == "events", started: time.Now(),
 		disabledNames: map[string]bool{}}
 	isTemp := req.Temporary || strings.HasPrefix(req.ChatID, "temp:")
+	if isTemp && !u.Can("features.temporary_chat") {
+		return nil, errTempForbidden
+	}
 	if req.ChatID != "" && !isTemp {
 		c, err := e.Chats.Get(ctx, u.ID, req.ChatID)
 		if err != nil {

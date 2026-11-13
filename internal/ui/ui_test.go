@@ -126,7 +126,7 @@ func TestConfigMapping(t *testing.T) {
 		t.Errorf("login/accent = %v", brand)
 	}
 	f := c["features"].(map[string]any)
-	if f["memory"] != true || f["spend"] != false || f["temporaryChat"] != true {
+	if f["memory"] != true || f["spend"] != false {
 		t.Errorf("features = %v", f)
 	}
 	if got := c["defaultModels"].([]any); len(got) != 1 || got[0] != "assistant" {

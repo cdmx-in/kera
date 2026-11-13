@@ -188,7 +188,6 @@ type Tasks struct {
 	Tags          *bool   `yaml:"tags,omitempty"`
 	FollowUps     *bool   `yaml:"follow_ups,omitempty"`
 	Query         *bool   `yaml:"query,omitempty"`
-	Autocomplete  *bool   `yaml:"autocomplete,omitempty"`
 }
 
 type Chat struct {
@@ -238,8 +237,7 @@ type Hybrid struct {
 }
 
 type Endpoint struct {
-	URL   *string `yaml:"url,omitempty"`
-	Model *string `yaml:"model,omitempty"`
+	URL *string `yaml:"url,omitempty"`
 }
 
 // Reranker is a Cohere-style POST /rerank endpoint (sidecar, TEI, LiteLLM).

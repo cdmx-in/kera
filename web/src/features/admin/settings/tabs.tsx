@@ -27,7 +27,6 @@ export function TasksTab() {
             f('tasks.tags', 'bool', undefined, 'Generate tags'),
             f('tasks.follow_ups', 'bool', 'Suggest follow-up questions after a reply.', 'Follow-up suggestions'),
             f('tasks.query', 'bool', 'Rewrite the question into search queries for web and knowledge search.', 'Search query generation'),
-            f('tasks.autocomplete', 'bool', undefined, 'Composer autocomplete'),
           ],
         },
       ]}
@@ -153,7 +152,6 @@ export function RetrievalTab() {
             f('rag.reranker.local_runs', { select: [['skip', 'Skip (fused order or local URL)'], ['allow', 'Allow']] }, 'Whether chats on local models may send passages to this reranker.', 'Local-model chats'),
             f('rag.reranker.local_url', 'text', 'Reranker used for local-model chats instead (empty = none).', 'Local reranker URL'),
             f('rag.extractor.url', 'text', 'Document extraction sidecar URL.', 'Extractor URL'),
-            f('rag.extractor.model', 'text', undefined, 'Extractor model'),
           ],
         },
       ]}

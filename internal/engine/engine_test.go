@@ -877,6 +877,10 @@ func TestCoworkPromptAndPermission(t *testing.T) {
 	if _, err := system(u2, "cowork"); err != errCoworkForbidden {
 		t.Fatalf("task without features.cowork: %v", err)
 	}
+	if _, err := h.e.Start(ctx, u2, &Request{Model: "p1", StreamFormat: "events", Temporary: true,
+		UserMessage: &UserMessage{Content: "hi"}}); err != errTempForbidden {
+		t.Fatalf("temporary chat without features.temporary_chat: %v", err)
+	}
 	if _, err := system(u2, "chat"); err != nil {
 		t.Fatalf("plain chat for the same user: %v", err)
 	}
@@ -966,7 +970,8 @@ func TestToolImages(t *testing.T) {
 	}
 	tools.Register(shotTools{ids: []string{ids[0], "f-ada", ids[1], ids[2]}})
 	jpeg := base64.StdEncoding.EncodeToString([]byte("JPEGDATA"))
-	bob := &auth.User{ID: "u2", Name: "Bob", Email: "bob@example.com", Role: "user"}
+	bob := &auth.User{ID: "u2", Name: "Bob", Email: "bob@example.com", Role: "user",
+		Permissions: auth.Permissions{"features": map[string]any{"temporary_chat": true}}} // the default every user gets
 	start := func(u *auth.User, model string) *Run {
 		mu.Lock()
 		reqs = nil
