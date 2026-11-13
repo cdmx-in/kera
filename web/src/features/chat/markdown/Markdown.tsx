@@ -1,4 +1,4 @@
-import { isValidElement, memo, useEffect, useRef, useState, type ReactNode } from 'react'
+import { isValidElement, lazy, memo, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Source } from '@/api/types'
@@ -6,6 +6,16 @@ import { prettyFileName } from '@/lib/format'
 import { Favicon, SourceLink } from '../messages/Sources'
 import { CodeBlock } from './CodeBlock'
 import { Mermaid } from './Mermaid'
+import { mathPlugin, texDelimiters } from './math'
+
+const MathView = lazy(() => import('./MathView'))
+
+// remark-math hands formulas over as code with class language-math (a block one inside a <pre>)
+const Formula = ({ tex, display }: { tex: string; display: boolean }) => (
+  <Suspense fallback={<code>{tex}</code>}>
+    <MathView tex={tex} display={display} />
+  </Suspense>
+)
 
 // "[3]" citation markers (outside code) become links to "#cite-3" so the
 // anchor renderer can turn them into superscript chips.
@@ -70,12 +80,14 @@ function components(sources: Source[], live: boolean): Components {
         const code = textOf(child.props.children).replace(/\n$/, '')
         // While streaming a diagram stays code, so a half-written one never flickers.
         if (lang.toLowerCase() === 'mermaid' && !live) return <Mermaid code={code} />
+        if (lang === 'math') return <Formula tex={code} display />
         return <CodeBlock code={code} lang={lang.toLowerCase()} />
       }
       return <pre>{children}</pre>
     },
     // Inline code naming a cited file ("Sources: `x.md`") becomes a source chip.
     code({ className, children }) {
+      if (className?.includes('language-math')) return <Formula tex={textOf(children)} display={false} />
       const name = textOf(children)
       const s = !className && sources.find((x) => x.name === name)
       if (!s) return <code className={className}>{children}</code>
@@ -131,8 +143,8 @@ export const Markdown = memo(function Markdown({ text: full, sources = [], break
   const md = inlineHtmlToMarkdown(breaks ? keepLineBreaks(text) : text)
   return (
     <div className={live ? `${className} md-live` : className}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components(sources, live)}>
-        {linkCitations(md, sources.length)}
+      <ReactMarkdown remarkPlugins={[remarkGfm, mathPlugin]} components={components(sources, live)}>
+        {linkCitations(texDelimiters(md), sources.length)}
       </ReactMarkdown>
     </div>
   )

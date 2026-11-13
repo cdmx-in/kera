@@ -78,7 +78,7 @@ function seed() {
     currentId: a,
     messages: {
       [u]: { id: u, parentId: null, childrenIds: [a], role: 'user', content: 'What were the totals last quarter?', timestamp: now() - 3600 },
-      [a]: { id: a, parentId: u, childrenIds: [], role: 'assistant', model: 'assistant', content: 'Totals were **4,210** orders, up 12% on the previous quarter.', timestamp: now() - 3590, status: 'done' },
+      [a]: { id: a, parentId: u, childrenIds: [], role: 'assistant', model: 'assistant', content: 'Totals were **4,210** orders, up 12% on the previous quarter. Growth is \\(g = \\frac{4210 - 3759}{3759}\\), and a $5 fee on $10 orders is not maths.\n\n\\[ \\text{Revenue} = \\sum_{i=1}^{n} p_i q_i \\]', timestamp: now() - 3590, status: 'done' },
     },
   })
   chats.set('seed-2', { id: 'seed-2', title: '✈️ Lisbon trip ideas', updated_at: now() - 3 * 86400, created_at: now() - 3 * 86400, pinned: true, folder_id: null, currentId: null, messages: {} })
