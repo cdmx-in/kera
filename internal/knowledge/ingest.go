@@ -108,7 +108,7 @@ func (s *Service) step(ctx context.Context) (*stepResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 	r := &stepResult{KnowledgeID: kid, FileID: fid}
-	r.Chunks, r.Err = s.index(ctx, kid, fid)
+	r.Chunks, r.Err = s.indexNoPanic(ctx, kid, fid)
 	// The error is recorded before the status flips to failed, so a reader
 	// never sees "failed" without its reason.
 	if err := s.setFileError(ctx, kid, fid, r.Err); err != nil {
@@ -123,6 +123,17 @@ func (s *Service) step(ctx context.Context) (*stepResult, error) {
 		slog.Debug("knowledge: indexed", "knowledge", kid, "file", fid, "chunks", r.Chunks)
 	}
 	return r, s.finishReindex(ctx, kid)
+}
+
+// indexNoPanic is index with a panic turned into an indexing error, so the
+// row is marked failed; otherwise Start re-queues it and every start crashes.
+func (s *Service) indexNoPanic(ctx context.Context, kid, fid string) (n int, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			n, err = 0, fmt.Errorf("indexing crashed: %v", v)
+		}
+	}()
+	return s.index(ctx, kid, fid)
 }
 
 // setFileError records (or clears) the last indexing error of a file.

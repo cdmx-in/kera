@@ -95,7 +95,7 @@ func (s *Service) process(id string) {
 		slog.Error("files: claim", "file", id, "err", err)
 		return
 	}
-	text, meta, xerr := s.extract(ctx, f)
+	text, meta, xerr := noPanic(func() (string, map[string]any, error) { return s.extract(ctx, f) })
 	if xerr != nil {
 		slog.Warn("files: extraction failed", "file", id, "err", xerr)
 		_, err = s.db.Exec(ctx, `UPDATE file SET status = 'failed', error = $2, updated_at = now() WHERE id = $1`, id, xerr.Error())
@@ -117,6 +117,18 @@ func (s *Service) process(id string) {
 	for _, h := range hooks {
 		runHook(ctx, h, f)
 	}
+}
+
+// noPanic turns a panic in fn (a parser choking on a malformed file) into an
+// error. Without it the process dies, Start re-queues the file and the next
+// start dies again.
+func noPanic(fn func() (string, map[string]any, error)) (text string, meta map[string]any, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			text, meta, err = "", nil, fmt.Errorf("extraction crashed: %v", v)
+		}
+	}()
+	return fn()
 }
 
 func runHook(ctx context.Context, h func(context.Context, File), f File) {

@@ -576,6 +576,17 @@ func TestTraversalUpload(t *testing.T) {
 	}
 }
 
+func TestNoPanic(t *testing.T) {
+	_, _, err := noPanic(func() (string, map[string]any, error) { panic("bad xlsx") })
+	if err == nil || !strings.Contains(err.Error(), "extraction crashed: bad xlsx") {
+		t.Fatalf("panic not turned into an error: %v", err)
+	}
+	text, _, err := noPanic(func() (string, map[string]any, error) { return "ok", nil, nil })
+	if text != "ok" || err != nil {
+		t.Fatalf("normal result changed: %q %v", text, err)
+	}
+}
+
 func TestRestartRecovery(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()

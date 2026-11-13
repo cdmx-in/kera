@@ -121,6 +121,12 @@ func Mount(a *app.App) error {
 func schedule(a *app.App) {
 	for range time.Tick(time.Minute) {
 		ctx := context.Background()
+		// A run is capped at 30 minutes (start); one still open after 35 belongs
+		// to a process that died, and would otherwise show as running forever.
+		if _, err := a.DB.Exec(ctx, `UPDATE connector_run SET finished_at = now(), error = 'interrupted: the server stopped during the run'
+			WHERE finished_at IS NULL AND started_at < now() - interval '35 minutes'`); err != nil {
+			slog.Error("connector schedule: close orphaned runs", "err", err)
+		}
 		for _, c := range registry {
 			next, err := nextRun(ctx, a, c.Name)
 			if err != nil {
@@ -211,7 +217,7 @@ func run(ctx context.Context, a *app.App, c Connector, trigger string, dryRun bo
 		c.Name, trigger, dryRun).Scan(&id); err != nil {
 		return nil, fmt.Errorf("record run: %w", err)
 	}
-	rep, runErr := c.Run(ctx, a, dryRun)
+	rep, runErr := runNoPanic(ctx, a, c, dryRun)
 	if rep == nil {
 		rep = NewReport()
 	}
@@ -228,6 +234,17 @@ func run(ctx context.Context, a *app.App, c Connector, trigger string, dryRun bo
 	}
 	slog.Info("connector run", "connector", c.Name, "trigger", trigger, "dry_run", dryRun, "counts", rep.Counts, "err", msg)
 	return rep, runErr
+}
+
+// runNoPanic is c.Run with a panic turned into the run's error, so the run row
+// is still finished and the process (the whole server) survives.
+func runNoPanic(ctx context.Context, a *app.App, c Connector, dryRun bool) (rep *Report, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = fmt.Errorf("connector crashed: %v", v)
+		}
+	}()
+	return c.Run(ctx, a, dryRun)
 }
 
 type connectorOut struct {
