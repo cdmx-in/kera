@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, ArchiveRestore, ChevronRight, Folder as FolderIcon, FolderPlus, LayoutGrid, ListChecks, MoreHorizontal, PanelLeftClose, Pencil, Pin, PinOff, Search, Share2, ShieldCheck, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, ChevronRight, Download, Folder as FolderIcon, FolderPlus, LayoutGrid, ListChecks, MoreHorizontal, PanelLeftClose, Pencil, Pin, PinOff, Search, Share2, ShieldCheck, SquarePen, Trash2 } from 'lucide-react'
 import { api } from '@/api/client'
-import { useArchivedChats, useChats, useFolders, useMe, usePinnedChats } from '@/api/queries'
+import { can, useArchivedChats, useChats, useFolders, useMe, usePinnedChats } from '@/api/queries'
 import type { ChatSummary, Folder } from '@/api/types'
 import { useChat } from '@/stores/chat'
 import { useUI } from '@/stores/ui'
@@ -16,6 +16,8 @@ import { SearchDialog } from './SearchDialog'
 import { brandMark } from '@/features/brand/Splash'
 import { canCowork } from '@/features/cowork/lib'
 import { Confirm } from '@/features/admin/ui'
+import { normalizeHistory } from '@/stores/chat'
+import { chatToMarkdown, download, exportName } from '@/features/chat/export'
 
 const DAY = 86_400_000
 
@@ -50,6 +52,16 @@ function useChatMutations() {
     archive: (c: ChatSummary) => wrap(() => api(`/api/v1/chats/${c.id}/archive`, { method: 'POST' }).then(() => !c.archived && c.id === chatId && navigate('/')), c.archived ? 'Chat restored' : 'Chat archived')(),
     remove: (c: ChatSummary) => wrap(() => api(`/api/v1/chats/${c.id}`, { method: 'DELETE' }).then(() => c.id === chatId && navigate('/')), 'Chat deleted')(),
     move: (id: string, folderId: string | null) => wrap(() => api(`/api/v1/chats/${id}/folder`, { method: 'POST', json: { folder_id: folderId } }))(),
+    export: async (c: ChatSummary) => {
+      try {
+        const r = await api<{ title?: string; chat?: { title?: string; history?: { currentId?: string; messages?: Record<string, Record<string, unknown>> } } }>(`/api/v1/chats/${encodeURIComponent(c.id)}`)
+        const title = r.title ?? r.chat?.title ?? c.title
+        const h = r.chat?.history ?? {}
+        download(exportName(title), chatToMarkdown(title, normalizeHistory(h.messages ?? {}), h.currentId ?? null))
+      } catch (e) {
+        toast((e as Error).message, 'error')
+      }
+    },
     share: async (c: ChatSummary) => {
       try {
         const r = await api<{ share_id?: string; id?: string }>(`/api/v1/chats/${c.id}/share`, { method: 'POST' })
@@ -366,6 +378,7 @@ function ChatRow({ chat, mut, onOpen }: { chat: ChatSummary; mut: Mut; onOpen: (
   const liveTitle = useChat((s) => (s.chatId === chat.id ? s.title : ''))
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const { data: me } = useMe()
   const active = chatId === chat.id
   const title = liveTitle || chat.title || 'New Chat'
   if (editing)
@@ -409,9 +422,16 @@ function ChatRow({ chat, mut, onOpen }: { chat: ChatSummary; mut: Mut; onOpen: (
           <MenuItem onSelect={() => void mut.pin(chat)}>
             {chat.pinned ? <PinOff size={14} /> : <Pin size={14} />} {chat.pinned ? 'Unpin' : 'Pin'}
           </MenuItem>
-          <MenuItem onSelect={() => void mut.share(chat)}>
-            <Share2 size={14} /> Share
-          </MenuItem>
+          {can(me, 'chat', 'share') && (
+            <MenuItem onSelect={() => void mut.share(chat)}>
+              <Share2 size={14} /> Share
+            </MenuItem>
+          )}
+          {can(me, 'chat', 'export') && (
+            <MenuItem onSelect={() => void mut.export(chat)}>
+              <Download size={14} /> Export as Markdown
+            </MenuItem>
+          )}
           {chat.folder_id && (
             <MenuItem onSelect={() => void mut.move(chat.id, null)}>
               <FolderIcon size={14} /> Remove from folder
@@ -420,10 +440,14 @@ function ChatRow({ chat, mut, onOpen }: { chat: ChatSummary; mut: Mut; onOpen: (
           <MenuItem onSelect={() => void mut.archive(chat)}>
             {chat.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />} {chat.archived ? 'Unarchive' : 'Archive'}
           </MenuItem>
-          <MenuSeparator />
-          <MenuItem danger onSelect={() => setDeleting(true)}>
-            <Trash2 size={14} /> Delete
-          </MenuItem>
+          {can(me, 'chat', 'delete') && (
+            <>
+              <MenuSeparator />
+              <MenuItem danger onSelect={() => setDeleting(true)}>
+                <Trash2 size={14} /> Delete
+              </MenuItem>
+            </>
+          )}
         </MenuContent>
       </Menu>
       <Confirm open={deleting} title="Delete chat?" body={<p className="line-clamp-3 break-words text-muted">{title}</p>} onConfirm={() => mut.remove(chat)} onClose={() => setDeleting(false)} />

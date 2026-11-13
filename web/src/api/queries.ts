@@ -7,6 +7,9 @@ import type { ApiKey, ChatSummary, Folder, Me, Model, ModelFeature, ToolServer }
 import { humanizeTool } from '@/features/tools/display'
 import { uiConfig } from '@/lib/ui-config'
 
+/** Whether the user holds a permission (admins hold all); the server enforces the same rule. */
+export const can = (me: Me | undefined, category: string, key: string) => !!me && (me.role === 'admin' || !!me.permissions?.[category]?.[key])
+
 export function useMe() {
   return useQuery({
     queryKey: ['me'],
