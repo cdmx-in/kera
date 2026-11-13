@@ -13,6 +13,7 @@ import { uiConfig, type Integration } from '@/lib/ui-config'
 import { ExtBadge } from '../messages/FileChip'
 import { useCollections, usePrompts, type Prompt } from '@/features/workspace/api'
 import { stopStream } from '../stream'
+import { MicButton } from './MicButton'
 import { filterPrompts, slashQuery } from './slash'
 import { useUploads } from './uploads'
 
@@ -38,7 +39,10 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
     setText(initialText || (storageGet('session', draftKey) ?? ''))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey])
+  const textRef = useRef(text) // the latest draft, for dictation results that arrive between renders
+  textRef.current = text
   const edit = (v: string) => {
+    textRef.current = v
     setText(v)
     storageSet('session', draftKey, v)
     setSlashClosed(false)
@@ -203,6 +207,7 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => (uploads.add([...(e.target.files ?? [])]), (e.target.value = ''))} />
         <FeaturePills />
         <div className="flex-1" />
+        <MicButton onText={(t) => edit(textRef.current ? `${textRef.current.trimEnd()} ${t}` : t)} />
         {streaming ? (
           <button type="button" data-testid="stop" aria-label="Stop" onClick={() => void stopStream()} className="grid size-9 place-items-center rounded-full bg-fg text-bg">
             <Square size={14} fill="currentColor" />
