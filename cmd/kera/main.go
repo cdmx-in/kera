@@ -38,6 +38,7 @@ Usage:
                           make the database match a declarative YAML config
   kera export [-o FILE]   print the managed config as YAML (secrets as ${...})
   kera version            print the version
+  kera health             exit 0 when the local server is ready (container healthcheck)
 ` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + identity.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
 KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL).
@@ -62,6 +63,12 @@ func run(args []string) error {
 	case "version", "--version", "-v":
 		fmt.Println(version.Version)
 		return nil
+	case "health":
+		listen := os.Getenv("KERA_LISTEN")
+		if listen == "" {
+			listen = ":8080" // config.Load's default; Load also wants the database settings
+		}
+		return health(listen)
 	case "serve":
 		return serve(ctx)
 	case "db":
