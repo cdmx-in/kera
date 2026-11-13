@@ -52,7 +52,30 @@ var (
 	errLocalLock       = api.Errf(http.StatusConflict, "local_lock", "This chat used a local model, so it stays on local models.")
 	errCoworkForbidden = api.Errf(http.StatusForbidden, "forbidden", "Permission required: features.cowork")
 	errCancelled       = errors.New("cancelled by the user")
+	errShutdown        = errors.New("the server is restarting")
 )
+
+// interruptedMsg is the error a run stopped by a restart is saved with.
+const interruptedMsg = "The server restarted while this answer was being written; the text above is what was written until then."
+
+// Shutdown stops every live run, so each saves what it has written with
+// interruptedMsg, and waits up to d for those saves. Without it a deploy
+// killed the runs and the start-up sweep failed their messages, losing the
+// text since the last tool round.
+func (e *Engine) Shutdown(d time.Duration) {
+	for _, r := range e.runs.live() {
+		if r.cancel != nil {
+			r.cancel(errShutdown)
+		}
+	}
+	done := make(chan struct{})
+	go func() { e.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(d):
+		slog.Warn("shutdown: runs still saving, giving up", "after", d)
+	}
+}
 
 // New builds an engine; Mount uses the app's shared services.
 func New(db *pgxpool.Pool, keys *secret.Keys, st *settings.Store, reg *models.Registry, fs *files.Service, cs *chats.Store, publicURL string) *Engine {
@@ -77,6 +100,7 @@ func Mount(a *app.App) error {
 	}
 	tools.Register(&filesTools{e: e})
 	tools.Register(&coreTools{e: e})
+	a.Server.OnShutdown(func() { e.Shutdown(20 * time.Second) })
 	go e.janitor()
 	e.routes(a)
 	return nil

@@ -550,6 +550,19 @@ func (g *registry) run(id string) *Run {
 	return g.byID[id]
 }
 
+// live lists the runs that have not finished.
+func (g *registry) live() []*Run {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var out []*Run
+	for _, r := range g.byID {
+		if !r.Finished() {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // forChat lists the runs of a chat (for reattaching).
 func (g *registry) forChat(chatID string) []*Run {
 	g.mu.Lock()

@@ -21,7 +21,14 @@ type Server struct {
 	DB  *pgxpool.Pool
 	mux *http.ServeMux
 	spa *spa
+
+	onShutdown []func()
 }
+
+// OnShutdown registers f to run when the server stops, before open
+// connections are drained, while the database is still open (features that
+// must finish or save work in flight).
+func (s *Server) OnShutdown(f func()) { s.onShutdown = append(s.onShutdown, f) }
 
 // New builds the server with core routes; feature packages add theirs via Handle.
 func New(env config.Env, pool *pgxpool.Pool) (*Server, error) {
@@ -95,6 +102,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
+		for _, f := range s.onShutdown {
+			f()
+		}
 		shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdown)

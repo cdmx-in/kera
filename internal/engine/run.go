@@ -209,6 +209,8 @@ func (e *Engine) execute(ctx context.Context, x *exec) {
 	case err == nil:
 	case errors.Is(context.Cause(ctx), errCancelled):
 		status = "stopped"
+	case errors.Is(context.Cause(ctx), errShutdown):
+		x.run.fail("interrupted", interruptedMsg)
 	default:
 		code, msg := classify(err)
 		slog.Warn("run failed", "run", x.run.ID, "model", x.m.ID, "code", code, "err", err)

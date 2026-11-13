@@ -324,6 +324,28 @@ func TestAskAnswerAndCancel(t *testing.T) {
 	}
 }
 
+func TestShutdownSavesPartialAnswer(t *testing.T) {
+	h := newHarness(t)
+	cid := h.chat(t)
+	run, err := h.e.Start(context.Background(), h.u, &Request{Model: "m1", StreamFormat: "events", ChatID: cid, ID: "a1",
+		UserMessage: &UserMessage{ID: "q1", Content: "slow please"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond) // a few deltas, no tool round, so no checkpoint yet
+	h.e.Shutdown(5 * time.Second)
+	if !run.Finished() {
+		t.Fatal("Shutdown returned with the run still live")
+	}
+	m, err := h.e.Chats.Message(context.Background(), cid, "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Status != "error" || m.Content == "" || !strings.Contains(m.Error, "restarted") {
+		t.Fatalf("interrupted message: status %q content %q error %v", m.Status, m.Content, m.Error)
+	}
+}
+
 // A question that times out is cleared from the stored state too, so the
 // Cowork list stops reporting needs_input while the run goes on.
 func TestAskTimeoutCheckpoints(t *testing.T) {
