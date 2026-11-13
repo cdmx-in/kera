@@ -17,14 +17,17 @@ jobs:
       KERA_TEST_DATABASE_URL: postgres://kera:kera-test@localhost:5432/kera?sslmode=disable
     steps:
       - uses: actions/checkout@v4
+      # latest 1.26 patch, as the Dockerfile's golang:1.26-alpine (go.mod's "go 1.26.0" would pin an old stdlib)
       - uses: actions/setup-go@v5
-        with: {go-version-file: go.mod}
+        with: {go-version: 1.26.x}
       - uses: pnpm/action-setup@v4
         with: {version: 11}
       - uses: actions/setup-node@v4
         with: {node-version: 24, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml}
       - run: make build
       - run: make test
+      - name: known vulnerabilities reachable from our code
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: no tenant strings in core
         run: |
           hits=$(git grep -n -I -i -E 'cdmx|kera\.cdmx\.io|alfboard|192\.168\.|172\.63\.' -- ':!examples/kera' ':!testdata' ':!.github' \
@@ -32,6 +35,24 @@ jobs:
           if [ -n "$hits" ]; then echo "$hits"; exit 1; fi
       - name: no Open WebUI identifiers in core
         run: "! git grep -n -I 'open_webui' -- internal web/src cmd"
+  sidecars:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: extract
+        working-directory: sidecars/extract
+        run: pip install -r requirements.txt -r requirements-dev.txt && python -m pytest -q
+      # the tests use a fake model, so only the web stack is installed (not torch)
+      - name: rerank
+        working-directory: sidecars/rerank
+        run: pip install $(grep -E '^(fastapi|uvicorn)==' requirements.txt) -r requirements-dev.txt && python -m pytest -q
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --build-arg VERSION=ci -t kera:ci .
   gitleaks:
     runs-on: ubuntu-latest
     steps:
