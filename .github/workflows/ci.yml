@@ -43,7 +43,10 @@ jobs:
         with: {python-version: '3.12'}
       - name: extract
         working-directory: sidecars/extract
-        run: pip install -r requirements.txt -r requirements-dev.txt && python -m pytest -q
+        # tesseract and poppler: the OCR test reads a real scanned page (it skips without them)
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr poppler-utils
+          pip install -r requirements.txt -r requirements-dev.txt && python -m pytest -q
       # the tests use a fake model, so only the web stack is installed (not torch)
       - name: rerank
         working-directory: sidecars/rerank

@@ -650,7 +650,7 @@ func TestExtractorStub(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"pages": []map[string]any{{"n": 1, "text": "page one " + string(b)}, {"n": 2, "text": "two"}},
-			"meta":  map[string]any{"pages": 2, "title": "Doc"},
+			"meta":  map[string]any{"pages": 2, "title": "Doc", "ocr_pages": 1, "ocr_skipped": 3},
 		})
 	}))
 	defer stub.Close()
@@ -659,7 +659,7 @@ func TestExtractorStub(t *testing.T) {
 	}
 	f := e.upload("alice", "doc.pdf", []byte("PDF"), "")
 	got := e.wait(f.ID)
-	if got.Status != Completed || e.text(f.ID) != "page one PDF\n\ntwo" || got.Meta["title"] != "Doc" ||
+	if got.Status != Completed || e.text(f.ID) != "page one PDF\n\ntwo" || got.Meta["title"] != "Doc" || fmt.Sprint(got.Meta["ocr_pages"]) != "1" || fmt.Sprint(got.Meta["ocr_skipped"]) != "3" ||
 		fmt.Sprint(got.Meta["pages"]) != "[map[chars:12 n:1] map[chars:3 n:2]]" {
 		t.Fatalf("%+v text=%q", got, e.text(f.ID))
 	}

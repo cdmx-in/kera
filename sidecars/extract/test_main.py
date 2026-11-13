@@ -104,3 +104,59 @@ def test_unsupported_and_corrupt():
 def test_size_cap(monkeypatch):
     monkeypatch.setattr(main, "MAX_BYTES", 10)
     assert post("a.pdf", b"x" * 11).status_code == 413
+
+
+def test_ocr_only_blank_pages_capped_and_counted(monkeypatch):
+    asked = []
+    monkeypatch.setattr(main, "ocr_available", lambda: True)
+    monkeypatch.setattr(main, "ocr_page", lambda path, n: asked.append(n) or f"scanned {n}")
+    monkeypatch.setattr(main, "OCR_MAX_PAGES", 2)
+    # page 1 has a text layer; pages 2-4 are blank, only two of them are read
+    body = post("scan.pdf", make_pdf(["A text layer long enough to keep", "", "", ""])).json()
+    assert asked == [2, 3]
+    assert [p["text"] for p in body["pages"]][1:] == ["scanned 2", "scanned 3", ""]
+    assert body["pages"][0]["text"].startswith("A text layer") and "ocr" not in body["pages"][0]
+    assert body["meta"]["ocr_pages"] == 2 and body["meta"]["ocr_skipped"] == 1  # the third blank page
+
+
+def test_ocr_time_budget_returns_partial_text(monkeypatch):
+    monkeypatch.setattr(main, "ocr_available", lambda: True)
+    monkeypatch.setattr(main, "ocr_page", lambda path, n: "never read")
+    monkeypatch.setattr(main, "OCR_BUDGET", -1)  # already over budget
+    body = post("scan.pdf", make_pdf(["", ""])).json()
+    assert body["meta"]["ocr_skipped"] == 2 and "ocr_pages" not in body["meta"] and body["pages"][0]["text"] == ""
+
+
+def test_ocr_stops_after_three_failures_and_without_tools(monkeypatch):
+    calls = []
+
+    def boom(path, n):
+        calls.append(n)
+        raise main.subprocess.SubprocessError("no language data")
+
+    monkeypatch.setattr(main, "ocr_available", lambda: True)
+    monkeypatch.setattr(main, "ocr_page", boom)
+    body = post("scan.pdf", make_pdf([""] * 6)).json()
+    assert len(calls) == 3 and "ocr_pages" not in body["meta"]  # still a valid, empty extraction
+    assert body["meta"]["ocr_skipped"] == 3
+
+    calls.clear()
+    monkeypatch.setattr(main, "ocr_available", lambda: False)
+    assert post("scan.pdf", make_pdf([""])).status_code == 200 and not calls
+
+
+def test_ocr_reads_a_real_scan():
+    import pytest
+
+    if not main.ocr_available():
+        pytest.skip("tesseract and pdftoppm are not installed")
+    Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageDraw, ImageFont
+
+    img = Image.new("RGB", (1400, 300), "white")
+    ImageDraw.Draw(img).text((40, 80), "INVOICE TOTAL 4210", fill="black", font=ImageFont.load_default(size=90))
+    buf = io.BytesIO()
+    img.save(buf, "PDF")  # an image-only PDF: no text layer
+    body = post("scan.pdf", buf.getvalue()).json()
+    assert body["meta"]["ocr_pages"] == 1
+    assert "INVOICE" in body["pages"][0]["text"].upper() and "4210" in body["pages"][0]["text"]

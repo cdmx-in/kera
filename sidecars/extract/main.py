@@ -1,18 +1,80 @@
 """Kera document extractor.
 
 POST /extract (multipart field "file") -> {"pages": [{"n", "text"}], "meta": {"pages", "title"?}}
-PDF: one page per PDF page. DOCX/ODT: one page. PPTX: one page per slide.
+PDF: one page per PDF page; a page with no text layer (a scan) is read by OCR when
+tesseract and poppler are installed, and meta.ocr_pages counts those pages.
+DOCX/ODT: one page. PPTX: one page per slide.
 Plain text and spreadsheets are handled by Kera itself.
 """
 
 import io
+import logging
 import os
+import shutil
+import subprocess
+import tempfile
+import time
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
 MAX_BYTES = int(os.environ.get("EXTRACT_MAX_MB", "100")) * 1024 * 1024
+OCR_MIN_CHARS = 20  # a PDF page with less text than this is treated as an image
+OCR_MAX_PAGES = int(os.environ.get("OCR_MAX_PAGES", "100"))  # per file; the rest stay empty
+# Kera's client gives up on a request after 10 minutes (about 9 s per dense A4 page on this CPU path):
+# stop reading pages before that, so a long scan returns partial text instead of failing.
+OCR_BUDGET = int(os.environ.get("OCR_BUDGET_SECONDS", "480"))
+OCR_LANGS = os.environ.get("OCR_LANGS", "eng")  # "eng+hin" after installing tesseract-ocr-hin
+OCR_DPI = 200
+OCR_TIMEOUT = 60  # seconds per page, each of render and recognise
+log = logging.getLogger("kera-extract")
 
 app = FastAPI(title="kera-extract", docs_url=None, redoc_url=None)
+
+
+def ocr_available():
+    return bool(shutil.which("tesseract") and shutil.which("pdftoppm"))
+
+
+def ocr_page(path, n):
+    """Text of page n (1-based) of the PDF at path: render it, then recognise it."""
+    with tempfile.TemporaryDirectory() as d:
+        stem = os.path.join(d, "page")
+        subprocess.run(
+            ["pdftoppm", "-r", str(OCR_DPI), "-f", str(n), "-l", str(n), "-png", "-singlefile", path, stem],
+            check=True, timeout=OCR_TIMEOUT, capture_output=True,
+        )
+        out = subprocess.run(
+            ["tesseract", stem + ".png", "stdout", "-l", OCR_LANGS],
+            check=True, timeout=OCR_TIMEOUT, capture_output=True, text=True,
+        )
+        return out.stdout.strip()
+
+
+def ocr_blank_pages(data, pages):
+    """Fills in pages that have no text layer by OCR. Stops at OCR_MAX_PAGES, after OCR_BUDGET
+    seconds or after 3 failures; blank pages not attempted are flagged ocr_skipped."""
+    blank = [p for p in pages if len(p["text"]) < OCR_MIN_CHARS]
+    if not blank or not ocr_available():
+        return
+    deadline = time.monotonic() + OCR_BUDGET
+    failures = 0
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
+        f.write(data)
+        f.flush()
+        for i, p in enumerate(blank):
+            if i >= OCR_MAX_PAGES or failures >= 3 or time.monotonic() > deadline:
+                log.warning("OCR stopped with %d of %d blank pages unread", len(blank) - i, len(blank))
+                for q in blank[i:]:
+                    q["ocr_skipped"] = True
+                return
+            try:
+                text = ocr_page(f.name, p["n"])
+            except (subprocess.SubprocessError, OSError) as e:
+                failures += 1
+                log.warning("OCR failed on page %s: %s", p["n"], e)
+                continue
+            if text:
+                p["text"], p["ocr"] = text, True
 
 
 def pdf_pages(data):
@@ -22,6 +84,7 @@ def pdf_pages(data):
     if reader.is_encrypted:
         reader.decrypt("")  # many "protected" PDFs only restrict editing
     pages = [{"n": i, "text": (p.extract_text() or "").strip()} for i, p in enumerate(reader.pages, 1)]
+    ocr_blank_pages(data, pages)
     title = reader.metadata.title if reader.metadata else None
     return pages, title
 
@@ -123,6 +186,10 @@ def extract(file: UploadFile = File(...)):
     except Exception as e:  # corrupt or password-protected files
         raise HTTPException(422, f"could not read {ext} file: {e}") from e
     meta = {"pages": len(pages)}
+    if ocr := sum(1 for p in pages if p.get("ocr")):
+        meta["ocr_pages"] = ocr
+    if skipped := sum(1 for p in pages if p.get("ocr_skipped")):
+        meta["ocr_skipped"] = skipped  # blank pages left unread (page cap, time budget or failures)
     if title:
         meta["title"] = title
     return {"pages": pages, "meta": meta}

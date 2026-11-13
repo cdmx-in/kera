@@ -258,5 +258,11 @@ func (s *Service) sidecar(ctx context.Context, f File, e string) (string, map[st
 	if t, ok := out.Meta["title"].(string); ok && t != "" {
 		meta["title"] = t
 	}
+	for _, k := range []string{"ocr_pages", "ocr_skipped"} {
+		// pages read by OCR (their text can contain recognition errors) and blank pages left unread
+		if n, ok := out.Meta[k].(float64); ok && n > 0 {
+			meta[k] = int(n)
+		}
+	}
 	return strings.Join(texts, "\n\n"), meta, nil
 }

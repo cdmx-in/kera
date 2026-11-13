@@ -17,7 +17,11 @@ Point Kera at it with the runtime setting `rag.extractor.url`
 - `GET /health` -> `{"status": "ok", "types": [".docx", ".odt", ".pdf", ".pptx"]}`
 - `POST /extract`, multipart field `file` ->
   `{"pages": [{"n": 1, "text": "..."}], "meta": {"pages": 1, "title": "..."}}`
-  - PDF: one page per PDF page (pypdf text extraction; scanned PDFs have no text).
+  - PDF: one page per PDF page (pypdf text extraction). A page with no text layer (a scan) is read by
+    OCR (tesseract, CPU, English; `OCR_LANGS=eng+hin` after installing `tesseract-ocr-hin`). `meta.ocr_pages`
+    counts pages read that way (OCR text can contain errors) and `meta.ocr_skipped` blank pages left unread
+    after `OCR_MAX_PAGES` (100), `OCR_BUDGET_SECONDS` (480; Kera's client gives up after 10 minutes) or three
+    failures. Without tesseract and `pdftoppm` in the image, scans stay empty.
   - DOCX: one page with paragraphs and tables (`cell | cell`) in document order.
   - PPTX: one page per slide: title, text frames, tables, then `Notes: ...`.
   - ODT: one page (needs `odfpy`, installed by default).
