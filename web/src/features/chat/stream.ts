@@ -4,10 +4,11 @@
 
 import { ApiError, apiFetch, api } from '@/api/client'
 import { readSSE } from '@/api/sse'
-import type { FileRef, Message, StreamEvent } from '@/api/types'
+import type { Message, StreamEvent } from '@/api/types'
 import { useChat } from '@/stores/chat'
 import { toast } from '@/stores/toast'
 import { queryClient } from '@/app/query'
+import { fileAttach } from './attach'
 import { applyEvent, messageText } from './reduce'
 
 export function decodeEvent(event: string, data: string): StreamEvent | null {
@@ -184,7 +185,7 @@ export function startCompletion(i: SendInput) {
     parent_id: i.user.id,
     user_message: { id: i.user.id, parentId: i.user.parentId, content: messageText(i.user), files: i.user.files },
     messages: history,
-    files: i.user.files.map((f: FileRef) => ({ type: f.type === 'collection' ? 'collection' : 'file', id: f.id })),
+    files: i.user.files.map(fileAttach),
     features: i.features,
     tool_ids: i.toolIds,
     temporary: i.temporary || undefined,
@@ -229,7 +230,7 @@ function historyFor(leaf: string) {
   const out: { role: string; content: string; files?: { type: string; id: string }[] }[] = []
   for (let id: string | null = leaf; id && messages[id]; id = messages[id].parentId) {
     const m: Message = messages[id]
-    out.push({ role: m.role, content: messageText(m), ...(m.files.length ? { files: m.files.map((f) => ({ type: 'file', id: f.id })) } : {}) })
+    out.push({ role: m.role, content: messageText(m), ...(m.files.length ? { files: m.files.map(fileAttach) } : {}) })
   }
   return out.reverse()
 }

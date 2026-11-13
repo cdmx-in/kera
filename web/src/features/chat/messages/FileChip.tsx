@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from 'react'
-import { Download } from 'lucide-react'
+import { Download, Library } from 'lucide-react'
 import type { FileRef } from '@/api/types'
 import { cx, fileExt, formatBytes } from '@/lib/format'
 
@@ -32,6 +32,17 @@ export function ExtBadge({ name }: { name: string }) {
 export function FileChip({ file }: { file: FileRef }) {
   const [open, setOpen] = useState(false)
   const ext = fileExt(file.name).toUpperCase()
+  if (file.type === 'collection') {
+    // a knowledge collection picked for this message: nothing to preview or download
+    return (
+      <div data-testid="file-chip" data-name={file.name} data-kind="collection" title="Knowledge collection" className="flex max-w-72 items-center gap-2 rounded-xl border border-line bg-surface p-1.5 pr-3">
+        <span className="flex h-8 w-9 shrink-0 items-center justify-center rounded-md bg-accent text-white">
+          <Library size={16} />
+        </span>
+        <span className="min-w-0 truncate text-sm font-medium">{file.name}</span>
+      </div>
+    )
+  }
   if (file.type === 'image') {
     return (
       <a href={fileUrl(file.id)} target="_blank" rel="noreferrer" data-testid="file-chip" data-name={file.name} className="block overflow-hidden rounded-xl border border-line">

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUp, FileUp, Loader2, Plus, Square, Wrench, X } from 'lucide-react'
+import { ArrowUp, FileUp, Library, Loader2, Plus, Square, Wrench, X } from 'lucide-react'
 import { useModels, useTools } from '@/api/queries'
 import type { FileRef } from '@/api/types'
 import { useComposer } from '@/stores/composer'
@@ -11,7 +11,7 @@ import { IntegrationSlots, hasSlot } from '@/features/integrations/registry'
 import { toolKey } from '@/features/tools/ids'
 import { uiConfig, type Integration } from '@/lib/ui-config'
 import { ExtBadge } from '../messages/FileChip'
-import { usePrompts, type Prompt } from '@/features/workspace/api'
+import { useCollections, usePrompts, type Prompt } from '@/features/workspace/api'
 import { stopStream } from '../stream'
 import { filterPrompts, slashQuery } from './slash'
 import { useUploads } from './uploads'
@@ -28,6 +28,7 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
   const ta = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const uploads = useUploads()
+  const [collections, setCollections] = useState<FileRef[]>([]) // knowledge collections picked for the next message
   const [dragging, setDragging] = useState(false)
   const [slashClosed, setSlashClosed] = useState(false) // Escape hides the prompt list until the next edit
   const [active, setActive] = useState(0)
@@ -66,15 +67,16 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
     if (!disabled && window.matchMedia?.('(pointer: fine)').matches) ta.current?.focus()
   }, [chatId, disabled])
 
-  const canSend = !disabled && !streaming && !uploads.busy && (text.trim() !== '' || uploads.ready.length > 0)
+  const canSend = !disabled && !streaming && !uploads.busy && (text.trim() !== '' || uploads.ready.length > 0 || collections.length > 0)
 
   const send = async () => {
     if (!canSend) return
     const body = text.trim()
-    const files = uploads.ready
+    const files = [...uploads.ready, ...collections]
     setText('')
     storageSet('session', draftKey, null)
     uploads.clear()
+    setCollections([])
     const ok = await onSend(body, files)
     if (!ok) edit(body)
   }
@@ -97,8 +99,22 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
         }
       }}
     >
-      {uploads.items.length > 0 && (
+      {uploads.items.length + collections.length > 0 && (
         <ul className="flex flex-wrap gap-2 px-1 pb-2" aria-label="Attachments">
+          {collections.map((c) => (
+            <li key={c.id} data-testid="collection-chip" data-name={c.name} className="flex max-w-56 items-center gap-2 rounded-xl border border-line p-1.5 pr-1">
+              <span className="flex h-8 w-9 shrink-0 items-center justify-center rounded-md bg-accent text-white">
+                <Library size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm">{c.name}</span>
+                <span className="block text-xs text-muted">Knowledge</span>
+              </span>
+              <button type="button" aria-label={`Remove ${c.name}`} onClick={() => setCollections((xs) => xs.filter((x) => x.id !== c.id))} className="grid size-6 place-items-center rounded-md text-muted hover:bg-surface-2">
+                <X size={13} />
+              </button>
+            </li>
+          ))}
           {uploads.items.map((a) => (
             <li key={a.key} data-testid="attachment" data-status={a.status} data-name={a.name} title={a.error} className={cx('flex max-w-56 items-center gap-2 rounded-xl border p-1.5 pr-1', a.status === 'failed' ? 'border-red-500/50' : 'border-line')}>
               {a.preview ? <img src={a.preview} alt="" className="size-8 rounded-md object-cover" /> : <ExtBadge name={a.name} />}
@@ -183,7 +199,7 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
         className="block max-h-[40vh] w-full resize-none bg-transparent px-3 py-2 focus-visible:outline-none text-[15px] leading-relaxed outline-none placeholder:text-muted"
       />
       <div className="flex items-center gap-1.5 px-1">
-        <PlusMenu onFiles={() => fileInput.current?.click()} />
+        <PlusMenu onFiles={() => fileInput.current?.click()} picked={collections} onPick={(c, on) => setCollections((xs) => (on ? [...xs.filter((x) => x.id !== c.id), c] : xs.filter((x) => x.id !== c.id)))} />
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => (uploads.add([...(e.target.files ?? [])]), (e.target.value = ''))} />
         <FeaturePills />
         <div className="flex-1" />
@@ -201,8 +217,11 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
   )
 }
 
-function PlusMenu({ onFiles }: { onFiles: () => void }) {
+function PlusMenu({ onFiles, picked, onPick }: { onFiles: () => void; picked: FileRef[]; onPick: (c: FileRef, on: boolean) => void }) {
   const { data: models } = useModels()
+  const { data: collections } = useCollections()
+  // only collections that finished indexing something can answer
+  const searchable = (collections ?? []).filter((c) => c.status.completed > 0)
   const { data: servers } = useTools()
   const model = useComposer((s) => s.model)
   const toolIds = useComposer((s) => s.toolIds)
@@ -225,6 +244,15 @@ function PlusMenu({ onFiles }: { onFiles: () => void }) {
         <MenuItem onSelect={onFiles} testId="upload-files">
           <FileUp size={15} /> Upload files
         </MenuItem>
+        {searchable.length > 0 && (
+          <MenuSub label="Knowledge" icon={<Library size={15} />}>
+            {searchable.map((c) => (
+              <MenuCheckItem key={c.id} checked={picked.some((p) => p.id === c.id)} onChange={(v) => onPick({ id: c.id, name: c.name, type: 'collection' }, v)} testId={`knowledge-${c.id}`}>
+                {c.name}
+              </MenuCheckItem>
+            ))}
+          </MenuSub>
+        )}
         {hasSlot('PlusMenuItem', plusIntegration) && (
           <>
             <MenuSeparator />
