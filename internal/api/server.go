@@ -62,8 +62,22 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"ready": true})
 }
 
-// Handler returns the root handler with logging and panic recovery.
-func (s *Server) Handler() http.Handler { return recoverer(logRequests(s.mux)) }
+// Handler returns the root handler with logging, panic recovery and the
+// default security headers.
+func (s *Server) Handler() http.Handler { return recoverer(logRequests(securityHeaders(s.mux))) }
+
+// securityHeaders sets defaults before the route runs; a handler that needs a
+// stricter policy (file downloads: CSP sandbox) replaces it with Header().Set.
+// frame-ancestors only, not a full CSP: the index page has inline scripts.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", "frame-ancestors 'self'") // no clickjacking; the PDF preview is same-origin
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
 
 // ListenAndServe serves until ctx is cancelled, then drains for up to 30 s.
 func (s *Server) ListenAndServe(ctx context.Context) error {
