@@ -1,10 +1,37 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+func TestRequestLog(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	h := logRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		LogUser(r.Context(), "u1") // as the auth middleware does
+	}))
+	req := httptest.NewRequest("GET", "/api/v1/chats", nil)
+	req.Header.Set("CF-Connecting-IP", "203.0.113.7")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	var line map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+		t.Fatalf("log line: %v %q", err, buf.String())
+	}
+	rid := rec.Header().Get("X-Request-Id")
+	if rid == "" || line["request_id"] != rid || line["user"] != "u1" || line["ip"] != "203.0.113.7" {
+		t.Fatalf("log line %v, X-Request-Id %q", line, rid)
+	}
+}
 
 func TestSecurityHeaders(t *testing.T) {
 	mux := http.NewServeMux()

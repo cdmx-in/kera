@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+
+	"github.com/cdmx-in/kera/internal/api"
 )
 
 func deny(w http.ResponseWriter, status int, code, msg string) {
@@ -17,6 +19,7 @@ func deny(w http.ResponseWriter, status int, code, msg string) {
 func (a *Authenticator) Optional(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if u, err := a.Resolve(r); err == nil {
+			api.LogUser(r.Context(), u.ID)
 			r = r.WithContext(WithUser(r.Context(), u))
 		}
 		next.ServeHTTP(w, r)
@@ -34,6 +37,7 @@ func (a *Authenticator) Required(next http.Handler) http.Handler {
 			deny(w, http.StatusUnauthorized, "unauthenticated", "Not authenticated")
 			return
 		}
+		api.LogUser(r.Context(), u.ID)
 		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), u)))
 	})
 }
