@@ -21,6 +21,7 @@ import (
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/chats"
 	"github.com/cdmx-in/kera/internal/files"
+	"github.com/cdmx-in/kera/internal/memory"
 	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/provider"
 	"github.com/cdmx-in/kera/internal/retrieval"
@@ -29,6 +30,13 @@ import (
 	"github.com/cdmx-in/kera/internal/settings"
 	"github.com/cdmx-in/kera/internal/testdb"
 	"github.com/cdmx-in/kera/internal/tools"
+)
+
+// What the fake model answers to the memory review prompt, and the inputs it was shown.
+var (
+	memReview      sync.Mutex
+	memFacts       = `{"facts":[]}`
+	memReviewInput []string
 )
 
 // fakeModel is an OpenAI-compatible server with scripted answers:
@@ -69,6 +77,12 @@ func fakeModel(t *testing.T) *httptest.Server {
 			hasTool = hasTool || tl.Function.Name == "fake_tool"
 		}
 		switch {
+		case strings.Contains(sys, "lasting facts"):
+			memReview.Lock()
+			memReviewInput = append(memReviewInput, lastText)
+			reply := memFacts
+			memReview.Unlock()
+			text(reply)
 		case strings.Contains(sys, "Reply with JSON"):
 			text(`{"title":"🧪 Test chat","tags":["testing"],"follow_ups":["more?"],"queries":["q"]}`)
 		case strings.Contains(sys, "Summarise the conversation"):
@@ -341,6 +355,106 @@ func TestModelCanSwitchMemoryOff(t *testing.T) {
 	x := &exec{u: h.u, m: &models.Resolved{}, req: &Request{}}
 	if !h.e.features(context.Background(), x)["memory"] {
 		t.Error("a model that says nothing about memory must leave it on")
+	}
+}
+
+func TestNewFacts(t *testing.T) {
+	known := []memory.Memory{{Content: "Works in the finance team."}}
+	got := newFacts([]string{" works in the FINANCE team ", "Prefers short answers.", "prefers short answers", "", strings.Repeat("x", maxFactChars+1), "Uses Tally.", "Speaks Hindi."}, known)
+	if want := []string{"Prefers short answers.", "Uses Tally."}; !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q (known and repeated dropped, long dropped, capped at %d)", got, want, maxAutoFacts)
+	}
+}
+
+// Automatic memory: every review_every-th user message of a saved chat of an opted-in user stores the
+// new facts, from the user's own words only; temporary chats and users who did not opt in store nothing.
+func TestAutomaticMemory(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.e.Memory = &memory.Store{DB: h.pool, Settings: h.e.Settings}
+	for k, v := range map[string]any{"chat.memory.enable": true, "chat.memory.local_only": false, "chat.memory.review_every": 2} {
+		if err := h.e.Settings.Set(ctx, k, v, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	optIn := func(on bool) {
+		t.Helper()
+		if _, err := h.pool.Exec(ctx, `UPDATE "user" SET settings = jsonb_build_object('ui', jsonb_build_object('memory', $1::boolean)) WHERE id = 'u1'`, on); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stored := func() []string {
+		t.Helper()
+		ms, err := h.e.Memory.List(ctx, "u1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, m := range ms {
+			out = append(out, m.Content)
+		}
+		slices.Sort(out)
+		return out
+	}
+	cid, n, prev := h.chat(t), 0, ""
+	ask := func(text string, temporary bool) {
+		t.Helper()
+		n++
+		um := &UserMessage{ID: fmt.Sprintf("q%d", n), Content: text}
+		req := &Request{Model: "m1", StreamFormat: "events", ChatID: cid, ID: fmt.Sprintf("a%d", n), UserMessage: um}
+		if temporary {
+			req = &Request{Model: "m1", StreamFormat: "events", Temporary: true, UserMessage: um}
+		} else if prev != "" {
+			um.ParentID = ptr(prev)
+		}
+		run, err := h.e.Start(ctx, h.u, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wait(t, run)
+		h.e.Wait() // includes the background review
+		if !temporary {
+			prev = req.ID
+		}
+	}
+	memReview.Lock()
+	memFacts = `{"facts":["Works in the finance team.","works in the finance team","Prefers short answers."," "]}`
+	memReview.Unlock()
+
+	optIn(false)
+	ask("I work in the finance team", false)
+	ask("and I prefer short answers", false) // an interval, but the user did not opt in
+	if got := stored(); len(got) != 0 {
+		t.Fatalf("stored without opt-in: %q", got)
+	}
+
+	optIn(true)
+	ask("please use tables", false) // 3rd user message: not an interval
+	if got := stored(); len(got) != 0 {
+		t.Fatalf("stored off-interval: %q", got)
+	}
+	ask("and bullet points", false) // 4th: review
+	if got, want := stored(), []string{"Prefers short answers.", "Works in the finance team."}; !slices.Equal(got, want) {
+		t.Fatalf("stored %q, want %q", got, want)
+	}
+	memReview.Lock()
+	in := memReviewInput[len(memReviewInput)-1]
+	memReview.Unlock()
+	if !strings.Contains(in, "and bullet points") || !strings.Contains(in, "I work in the finance team") || strings.Contains(in, "hello world") ||
+		!strings.Contains(in, "Already known:\n(nothing)") {
+		t.Fatalf("review input: %q", in)
+	}
+
+	ask("one more", false)
+	ask("and another", false) // 6th: the same facts again are known, nothing new
+	if got := stored(); len(got) != 2 {
+		t.Fatalf("duplicates stored: %q", got)
+	}
+
+	ask("temporary one", true)
+	ask("temporary two", true) // temporary chats are never reviewed
+	if got := stored(); len(got) != 2 {
+		t.Fatalf("temporary chat stored: %q", got)
 	}
 }
 

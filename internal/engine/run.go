@@ -270,6 +270,9 @@ func (e *Engine) finish(x *exec, status string, ok bool) {
 	}
 	run.done(status)
 	e.save(x)
+	if ok && status == "done" {
+		e.maybeReviewMemory(x)
+	}
 	run.mu.Lock()
 	u := run.usage
 	run.mu.Unlock()

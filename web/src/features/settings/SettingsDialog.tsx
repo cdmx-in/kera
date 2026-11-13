@@ -119,7 +119,7 @@ function Personalization() {
   }
   return (
     <div className="space-y-4">
-      <Row title="Memory" hint="Let the assistant remember useful details across chats.">
+      <Row title="Memory" hint="Let the assistant remember useful details across chats. It may also note lasting facts you mention, such as your role; review or delete them below.">
         <Switch checked={on} onChange={toggle} label="Memory" testId="memory-toggle" />
       </Row>
       {on && <Memories />}

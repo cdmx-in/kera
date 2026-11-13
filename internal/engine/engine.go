@@ -20,6 +20,7 @@ import (
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/chats"
 	"github.com/cdmx-in/kera/internal/files"
+	"github.com/cdmx-in/kera/internal/memory"
 	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/settings"
@@ -42,8 +43,12 @@ type Engine struct {
 	CallbackURL string
 	HTTP        *http.Client // hook servers
 
-	runs *registry
-	wg   sync.WaitGroup
+	// Memory stores what automatic memory review learns; nil switches the review off.
+	Memory *memory.Store
+
+	runs     *registry
+	wg       sync.WaitGroup
+	reviewMu sync.Mutex // held while a memory review runs
 }
 
 // Errors returned before a run starts.
@@ -88,6 +93,7 @@ func New(db *pgxpool.Pool, keys *secret.Keys, st *settings.Store, reg *models.Re
 func Mount(a *app.App) error {
 	e := New(a.DB, a.Keys, a.Settings, models.For(a), files.For(a), chats.For(a), a.Env.PublicURL)
 	e.CallbackURL = a.Env.CallbackURL
+	e.Memory = memory.For(a)
 	e.Chats.SetLive(func(id string) (chats.Live, bool) {
 		if r := e.runs.byMessage(id); r != nil {
 			return r.Live(), true

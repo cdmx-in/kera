@@ -59,7 +59,7 @@ export function ChatTab() {
           title: 'Memory',
           fields: [
             f('chat.memory.enable', 'bool', 'Let the assistant remember details across chats (users opt in).', 'Enable memory'),
-            f('chat.memory.review_every', 'int', 'Review the conversation for memories every N user messages.', 'Review every'),
+            f('chat.memory.review_every', 'int', 'Note lasting facts about the user every N user messages of a chat (0 turns this off). Only for users who switched memory on.', 'Review every'),
             f('chat.memory.local_only', 'bool', 'Extract memories with the local task model only.', 'Local models only'),
           ],
         },
