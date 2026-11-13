@@ -173,6 +173,11 @@ function AssistantMessage({ m, isLast, readOnly, modelName }: { m: Message; isLa
             <RefreshCw size={14} />
           </IconButton>
           {m.status === 'done' && text && <Feedback m={m} />}
+          {m.usage && (m.usage.prompt_tokens || m.usage.completion_tokens) ? (
+            <span data-testid="usage" title="Tokens read / written for this answer" className="ml-2 text-xs text-muted tabular-nums">
+              {(m.usage.prompt_tokens ?? 0).toLocaleString()} in · {(m.usage.completion_tokens ?? 0).toLocaleString()} out
+            </span>
+          ) : null}
         </div>
       )}
       {!readOnly && isLast && m.status === 'done' && m.followUps && m.followUps.length > 0 && (
