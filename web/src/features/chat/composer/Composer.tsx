@@ -11,7 +11,9 @@ import { IntegrationSlots, hasSlot } from '@/features/integrations/registry'
 import { toolKey } from '@/features/tools/ids'
 import { uiConfig, type Integration } from '@/lib/ui-config'
 import { ExtBadge } from '../messages/FileChip'
+import { usePrompts, type Prompt } from '@/features/workspace/api'
 import { stopStream } from '../stream'
+import { filterPrompts, slashQuery } from './slash'
 import { useUploads } from './uploads'
 
 const plusIntegration = (i: Integration) => i.kind === 'oauthToolServer' && i.showInPlusMenu !== false
@@ -27,6 +29,8 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
   const fileInput = useRef<HTMLInputElement>(null)
   const uploads = useUploads()
   const [dragging, setDragging] = useState(false)
+  const [slashClosed, setSlashClosed] = useState(false) // Escape hides the prompt list until the next edit
+  const [active, setActive] = useState(0)
 
   // Switching chats loads that chat's draft; typing saves it (sessionStorage draft:<chatId|new>).
   useEffect(() => {
@@ -36,6 +40,19 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
   const edit = (v: string) => {
     setText(v)
     storageSet('session', draftKey, v)
+    setSlashClosed(false)
+  }
+
+  // "/command" alone in the box lists saved prompts; picking one replaces the draft.
+  const slash = slashQuery(text)
+  const { data: prompts } = usePrompts(slash !== null)
+  const matches = slash !== null && !slashClosed ? filterPrompts(prompts ?? [], slash) : []
+  const open = matches.length > 0
+  const sel = Math.min(active, matches.length - 1)
+  const pick = (p: Prompt) => {
+    edit(p.content)
+    setActive(0)
+    ta.current?.focus()
   }
 
   useLayoutEffect(() => {
@@ -99,9 +116,32 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
           ))}
         </ul>
       )}
+      {open && (
+        <ul id="slash-list" role="listbox" aria-label="Saved prompts" data-testid="slash-menu" className="mb-1 max-h-64 overflow-auto rounded-2xl border border-line bg-surface p-1">
+          {matches.map((p, i) => (
+            <li
+              key={p.id}
+              id={`slash-${p.id}`}
+              role="option"
+              aria-selected={i === sel}
+              data-testid="slash-item"
+              onMouseDown={(e) => (e.preventDefault(), pick(p))}
+              onMouseEnter={() => setActive(i)}
+              className={cx('flex cursor-pointer items-baseline gap-2 rounded-xl px-3 py-1.5 text-sm', i === sel && 'bg-surface-2')}
+            >
+              <span className="font-mono text-accent">/{p.command}</span>
+              <span className="truncate text-muted">{p.title}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       <textarea
         ref={ta}
         id="chat-input"
+        aria-autocomplete="list"
+        aria-expanded={open}
+        aria-controls={open ? 'slash-list' : undefined}
+        aria-activedescendant={open ? `slash-${matches[sel].id}` : undefined}
         data-testid={task ? 'task-goal' : 'composer-input'}
         aria-label={task ? 'Goal' : 'Message'}
         rows={1}
@@ -117,6 +157,21 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
           }
         }}
         onKeyDown={(e) => {
+          if (open && !e.nativeEvent.isComposing) {
+            const n = matches.length
+            const keys: Record<string, () => void> = {
+              ArrowDown: () => setActive((sel + 1) % n),
+              ArrowUp: () => setActive((sel - 1 + n) % n),
+              Enter: () => pick(matches[sel]),
+              Tab: () => pick(matches[sel]),
+              Escape: () => setSlashClosed(true),
+            }
+            if (keys[e.key] && !e.shiftKey) {
+              e.preventDefault()
+              keys[e.key]()
+              return
+            }
+          }
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
             void send()

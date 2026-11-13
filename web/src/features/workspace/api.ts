@@ -77,7 +77,7 @@ export const useCollection = (id: string | undefined) =>
     refetchInterval: (q) => (q.state.data && q.state.data.status.pending + q.state.data.status.processing > 0 ? 2000 : false),
   })
 
-export const usePrompts = () => useQuery({ queryKey: ['ws', 'prompts'], queryFn: () => api<Prompt[]>('/api/v1/prompts/') })
+export const usePrompts = (enabled = true) => useQuery({ enabled, queryKey: ['ws', 'prompts'], queryFn: () => api<Prompt[]>('/api/v1/prompts/')})
 
 /** Groups for the access editor; only admins may list them (others get []). */
 export const useGroups = (enabled: boolean) =>

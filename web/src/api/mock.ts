@@ -289,6 +289,11 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
   if (p === '/api/v1/auths/signout') return json({ ok: true })
   if (p === '/api/models') return json({ data: models })
   if (p === '/api/v1/tools/') return json(tools)
+  if (p === '/api/v1/prompts/')
+    return json([
+      { id: 'pr1', user_id: 'u1', command: 'summary', title: 'Summarise for a manager', content: 'Summarise the following in 5 bullet points for a busy manager:\n\n', write_access: true, updated_at: now() },
+      { id: 'pr2', user_id: 'u1', command: 'translate', title: 'Translate to Hindi', content: 'Translate the following into Hindi:\n\n', write_access: true, updated_at: now() },
+    ])
   if (p === '/api/v1/folders/') {
     if (method === 'POST') folders.push({ id: uid(), name: String((await body(init)).name ?? 'Folder') })
     return json(folders)
