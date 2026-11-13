@@ -55,7 +55,7 @@ const ui = {
   ],
 }
 
-const chats = new Map<string, { id: string; title: string; updated_at: number; created_at: number; pinned: boolean; folder_id: string | null; messages: Record<string, RawMsg>; currentId: string | null; mode?: 'cowork'; model?: string }>()
+const chats = new Map<string, { id: string; title: string; updated_at: number; created_at: number; pinned: boolean; folder_id: string | null; messages: Record<string, RawMsg>; currentId: string | null; mode?: 'cowork'; model?: string; archived?: boolean }>()
 const folders: { id: string; name: string }[] = [{ id: 'fold1', name: 'Research' }]
 const files = new Map<string, { id: string; name: string; size: number; type: string; polls: number }>()
 const keys: Json[] = [{ id: 'k1', name: 'Laptop script', prefix: 'sk-4f2a', created_at: 1_760_000_000, last_used_at: 1_761_000_000 }]
@@ -326,6 +326,17 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
     if (method === 'POST') folders.push({ id: uid(), name: String((await body(init)).name ?? 'Folder') })
     return json(folders)
   }
+  if ((m = p.match(/^\/api\/v1\/folders\/([^/]+)(\/update)?$/))) {
+    const i = folders.findIndex((f) => f.id === m![1])
+    if (i < 0) return json({ detail: 'Folder not found' }, 404)
+    if (method === 'DELETE') {
+      for (const c of chats.values()) if (c.folder_id === folders[i].id) c.folder_id = null
+      folders.splice(i, 1)
+      return json(true)
+    }
+    if (m[2]) folders[i].name = String((await body(init)).name ?? folders[i].name)
+    return json(folders[i])
+  }
   if (p === '/api/v1/users/user/settings') return json(settings)
   if (p === '/api/v1/users/user/settings/update') return json((settings = await body(init)))
   if (p === '/api/v1/auths/api_keys') {
@@ -345,9 +356,10 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
     if (t) t.authenticated = false
     return json({ ok: true })
   }
+  if (p === '/api/v1/chats/archived') return json([...chats.values()].filter((c) => c.archived).map(summary))
   if (p === '/api/v1/chats/' || p === '/api/v1/chats/pinned' || p === '/api/v1/chats/search') {
     const q = url.searchParams.get('text')?.toLowerCase() ?? ''
-    const list = [...chats.values()].filter((c) => c.mode !== 'cowork').sort((a, b) => b.updated_at - a.updated_at)
+    const list = [...chats.values()].filter((c) => c.mode !== 'cowork' && !c.archived).sort((a, b) => b.updated_at - a.updated_at)
     if (p.endsWith('pinned')) return json(list.filter((c) => c.pinned).map(summary))
     return json(list.filter((c) => !q || c.title.toLowerCase().includes(q)).map(summary))
   }
@@ -408,7 +420,7 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
     if (!c) return json({ detail: 'Chat not found' }, 404)
     if (method === 'DELETE') return json(chats.delete(c.id))
     if (m[3] === 'pin') c.pinned = !c.pinned
-    if (m[3] === 'archive') chats.delete(c.id)
+    if (m[3] === 'archive') c.archived = !c.archived
     if (m[3] === 'share') return json({ share_id: 'share-' + c.id })
     if (m[3] === 'folder') c.folder_id = ((await body(init)).folder_id as string) ?? null
     if (!m[3] && method === 'POST') c.title = String(((await body(init)).chat as Json)?.title ?? c.title)

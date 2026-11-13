@@ -1,7 +1,7 @@
 // Server state. Chat list freshness comes from invalidation on stream
 // `title`/`done` events (no socket).
 
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { api, setToken } from './client'
 import type { ApiKey, ChatSummary, Folder, Me, Model, ModelFeature, ToolServer } from './types'
 import { humanizeTool } from '@/features/tools/display'
@@ -49,8 +49,26 @@ export function sortModels(models: Model[], order: string[]): Model[] {
   return [...models].sort((a, b) => rank(a.id) - rank(b.id) || (a.name || a.id).localeCompare(b.name || b.id))
 }
 
+/** The server's page size for the chat list. */
+export const CHAT_PAGE = 60
+
+/** The next page to load, or undefined once a page came back short. */
+export function nextChatPage(last: ChatSummary[], pages: ChatSummary[][]): number | undefined {
+  return last.length < CHAT_PAGE ? undefined : pages.length + 1
+}
+
+/** The sidebar list, newest first, one page of CHAT_PAGE at a time. */
 export function useChats() {
-  return useQuery({ queryKey: ['chats', 'list'], queryFn: () => api<ChatSummary[]>('/api/v1/chats/?page=1') })
+  return useInfiniteQuery({
+    queryKey: ['chats', 'list'],
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) => api<ChatSummary[]>(`/api/v1/chats/?page=${pageParam}`),
+    getNextPageParam: nextChatPage,
+  })
+}
+
+export function useArchivedChats(enabled: boolean) {
+  return useQuery({ queryKey: ['chats', 'archived'], queryFn: () => api<ChatSummary[]>('/api/v1/chats/archived'), enabled })
 }
 
 export function usePinnedChats() {

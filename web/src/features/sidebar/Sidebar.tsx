@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, ChevronRight, Folder as FolderIcon, FolderPlus, LayoutGrid, ListChecks, MoreHorizontal, PanelLeftClose, Pencil, Pin, PinOff, Search, Share2, ShieldCheck, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, ChevronRight, Folder as FolderIcon, FolderPlus, LayoutGrid, ListChecks, MoreHorizontal, PanelLeftClose, Pencil, Pin, PinOff, Search, Share2, ShieldCheck, SquarePen, Trash2 } from 'lucide-react'
 import { api } from '@/api/client'
-import { useChats, useFolders, useMe, usePinnedChats } from '@/api/queries'
+import { useArchivedChats, useChats, useFolders, useMe, usePinnedChats } from '@/api/queries'
 import type { ChatSummary, Folder } from '@/api/types'
 import { useChat } from '@/stores/chat'
 import { useUI } from '@/stores/ui'
@@ -46,7 +46,8 @@ function useChatMutations() {
   return {
     rename: (c: ChatSummary, title: string) => wrap(() => api(`/api/v1/chats/${c.id}`, { method: 'POST', json: { chat: { title } } }))(),
     pin: (c: ChatSummary) => wrap(() => api(`/api/v1/chats/${c.id}/pin`, { method: 'POST' }))(),
-    archive: (c: ChatSummary) => wrap(() => api(`/api/v1/chats/${c.id}/archive`, { method: 'POST' }).then(() => c.id === chatId && navigate('/')), 'Chat archived')(),
+    // the route toggles: archiving an archived chat restores it
+    archive: (c: ChatSummary) => wrap(() => api(`/api/v1/chats/${c.id}/archive`, { method: 'POST' }).then(() => !c.archived && c.id === chatId && navigate('/')), c.archived ? 'Chat restored' : 'Chat archived')(),
     remove: (c: ChatSummary) => wrap(() => api(`/api/v1/chats/${c.id}`, { method: 'DELETE' }).then(() => c.id === chatId && navigate('/')), 'Chat deleted')(),
     move: (id: string, folderId: string | null) => wrap(() => api(`/api/v1/chats/${id}/folder`, { method: 'POST', json: { folder_id: folderId } }))(),
     share: async (c: ChatSummary) => {
@@ -82,9 +83,10 @@ export function Sidebar() {
     navigate('/')
     closeOnMobile()
   }
+  const all = useMemo(() => chats.data?.pages.flat() ?? [], [chats.data])
   const groups = useMemo(() => {
     const out: [string, ChatSummary[]][] = []
-    for (const c of chats.data ?? []) {
+    for (const c of all) {
       if (c.folder_id || c.pinned) continue
       const b = bucket(c.updated_at)
       const g = out.find(([k]) => k === b)
@@ -92,10 +94,11 @@ export function Sidebar() {
       else out.push([b, [c]])
     }
     return out
-  }, [chats.data])
+  }, [all])
 
-  const addFolder = async () => {
-    const name = prompt('Folder name')?.trim()
+  const [addingFolder, setAddingFolder] = useState(false)
+  const addFolder = async (name: string) => {
+    setAddingFolder(false)
     if (!name) return
     try {
       await api('/api/v1/folders/', { method: 'POST', json: { name } })
@@ -162,11 +165,16 @@ export function Sidebar() {
           <Section
             title="Folders"
             action={
-              <IconButton label="New folder" onClick={addFolder} className="size-6">
+              <IconButton label="New folder" onClick={() => setAddingFolder(true)} className="size-6">
                 <FolderPlus size={14} />
               </IconButton>
             }
           >
+            {addingFolder && (
+              <li>
+                <NameInput label="Folder name" initial="" onDone={(v) => void addFolder(v)} />
+              </li>
+            )}
             {(folders.data ?? []).map((f) => (
               <FolderRow key={f.id} folder={f} mut={mut} onOpen={closeOnMobile} />
             ))}
@@ -178,7 +186,22 @@ export function Sidebar() {
               ))}
             </Section>
           ))}
-          {chats.isSuccess && !chats.data.length && <p className="px-2.5 py-2 text-sm text-muted">No chats yet.</p>}
+          {chats.isPending && <p className="px-2.5 py-2 text-sm text-muted">Loading chats…</p>}
+          {chats.isError && (
+            <p role="alert" className="px-2.5 py-2 text-sm text-red-600">
+              Could not load chats.{' '}
+              <button type="button" onClick={() => void chats.refetch()} className="underline">
+                Retry
+              </button>
+            </p>
+          )}
+          {chats.isSuccess && !all.length && <p className="px-2.5 py-2 text-sm text-muted">No chats yet.</p>}
+          {chats.hasNextPage && (
+            <button type="button" data-testid="load-more-chats" disabled={chats.isFetchingNextPage} onClick={() => void chats.fetchNextPage()} className="w-full rounded-lg px-2.5 py-1.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-60">
+              {chats.isFetchingNextPage ? 'Loading…' : 'Load older chats'}
+            </button>
+          )}
+          <ArchivedSection mut={mut} onOpen={closeOnMobile} />
         </div>
       </nav>
       <SearchDialog />
@@ -207,11 +230,83 @@ function Section({ title, children, action, onDropChat }: { title: string; child
 
 type Mut = ReturnType<typeof useChatMutations>
 
+/** One-line name editor: Enter or leaving the field saves, Escape cancels (onDone('')). */
+function NameInput({ label, initial, onDone }: { label: string; initial: string; onDone: (name: string) => void }) {
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        onDone(new FormData(e.currentTarget).get('name')?.toString().trim() ?? '')
+      }}
+    >
+      <input
+        name="name"
+        defaultValue={initial}
+        autoFocus
+        aria-label={label}
+        placeholder={label}
+        maxLength={200}
+        onKeyDown={(e) => e.key === 'Escape' && (e.stopPropagation(), onDone(''))}
+        onBlur={(e) => e.currentTarget.form?.requestSubmit()}
+        className="w-full rounded-lg border border-accent bg-surface px-2.5 py-1.5 text-sm outline-none"
+      />
+    </form>
+  )
+}
+
+/** Archived chats, fetched when opened; each row's menu restores it. */
+function ArchivedSection({ mut, onOpen }: { mut: Mut; onOpen: () => void }) {
+  const [open, setOpen] = useState(false)
+  const archived = useArchivedChats(open)
+  return (
+    <section className="mt-2">
+      <button type="button" aria-expanded={open} data-testid="archived-toggle" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted hover:bg-surface-2">
+        <ChevronRight size={13} className={cx('transition-transform', open && 'rotate-90')} />
+        <Archive size={13} /> Archived
+      </button>
+      {open && (
+        <ul className="ml-4">
+          {archived.isPending && <li className="px-2.5 py-1 text-xs text-muted">Loading…</li>}
+          {archived.isError && <li className="px-2.5 py-1 text-xs text-red-600">Could not load archived chats.</li>}
+          {archived.data?.map((c) => <ChatRow key={c.id} chat={{ ...c, archived: true }} mut={mut} onOpen={onOpen} />)}
+          {archived.isSuccess && !archived.data.length && <li className="px-2.5 py-1 text-xs text-muted">No archived chats.</li>}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 function FolderRow({ folder, mut, onOpen }: { folder: Folder; mut: Mut; onOpen: () => void }) {
   const [open, setOpen] = useState(false)
   const [over, setOver] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const qc = useQueryClient()
   // A folder lists its own chats (they may be older than the first page of the main list).
-  const chats = useQuery({ queryKey: ['chats', 'folder', folder.id], queryFn: () => api<ChatSummary[]>(`/api/v1/chats/folder/${encodeURIComponent(folder.id)}`), enabled: open }).data ?? []
+  const q = useQuery({ queryKey: ['chats', 'folder', folder.id], queryFn: () => api<ChatSummary[]>(`/api/v1/chats/folder/${encodeURIComponent(folder.id)}`), enabled: open })
+  const chats = q.data ?? []
+  const change = async (f: () => Promise<unknown>) => {
+    try {
+      await f()
+      await Promise.all([qc.invalidateQueries({ queryKey: ['folders'] }), qc.invalidateQueries({ queryKey: ['chats'] })])
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+  const path = `/api/v1/folders/${encodeURIComponent(folder.id)}`
+  if (renaming)
+    return (
+      <li>
+        <NameInput
+          label="Folder name"
+          initial={folder.name}
+          onDone={(name) => {
+            setRenaming(false)
+            if (name && name !== folder.name) void change(() => api(`${path}/update`, { method: 'POST', json: { name } }))
+          }}
+        />
+      </li>
+    )
   return (
     <li
       onDragOver={(e) => {
@@ -228,16 +323,40 @@ function FolderRow({ folder, mut, onOpen }: { folder: Folder; mut: Mut; onOpen: 
         if (id) void mut.move(id, folder.id).then(() => setOpen(true))
       }}
     >
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cx('flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm hover:bg-surface-2', over && 'bg-accent-soft')}>
-        <ChevronRight size={14} className={cx('text-muted transition-transform', open && 'rotate-90')} />
-        <FolderIcon size={15} className="text-muted" />
-        <span className="truncate">{folder.name}</span>
-      </button>
+      <div className="group relative">
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cx('flex w-full items-center gap-2 rounded-lg py-1.5 pl-2.5 pr-8 text-sm hover:bg-surface-2', over && 'bg-accent-soft')}>
+          <ChevronRight size={14} className={cx('text-muted transition-transform', open && 'rotate-90')} />
+          <FolderIcon size={15} className="text-muted" />
+          <span className="truncate">{folder.name}</span>
+        </button>
+        <Menu>
+          <MenuTrigger aria-label={`Options for folder ${folder.name}`} className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-100 hover:bg-surface hover:text-fg data-[state=open]:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100">
+            <MoreHorizontal size={15} />
+          </MenuTrigger>
+          <MenuContent align="start">
+            <MenuItem onSelect={() => setRenaming(true)}>
+              <Pencil size={14} /> Rename
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem danger onSelect={() => setDeleting(true)}>
+              <Trash2 size={14} /> Delete folder
+            </MenuItem>
+          </MenuContent>
+        </Menu>
+      </div>
       {open && (
         <ul className="ml-4">
-          {chats.length ? chats.map((c) => <ChatRow key={c.id} chat={c} mut={mut} onOpen={onOpen} />) : <li className="px-2.5 py-1 text-xs text-muted">Drag chats here</li>}
+          {q.isPending ? <li className="px-2.5 py-1 text-xs text-muted">Loading…</li> : chats.length ? chats.map((c) => <ChatRow key={c.id} chat={c} mut={mut} onOpen={onOpen} />) : <li className="px-2.5 py-1 text-xs text-muted">Drag chats here</li>}
         </ul>
       )}
+      <Confirm
+        open={deleting}
+        title="Delete folder?"
+        confirmLabel="Delete folder"
+        body={<p className="text-muted">“{folder.name}” is removed. Its chats are kept and move back to the main list.</p>}
+        onConfirm={() => change(() => api(path, { method: 'DELETE' }))}
+        onClose={() => setDeleting(false)}
+      />
     </li>
   )
 }
@@ -299,7 +418,7 @@ function ChatRow({ chat, mut, onOpen }: { chat: ChatSummary; mut: Mut; onOpen: (
             </MenuItem>
           )}
           <MenuItem onSelect={() => void mut.archive(chat)}>
-            <Archive size={14} /> Archive
+            {chat.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />} {chat.archived ? 'Unarchive' : 'Archive'}
           </MenuItem>
           <MenuSeparator />
           <MenuItem danger onSelect={() => setDeleting(true)}>

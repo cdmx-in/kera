@@ -135,6 +135,7 @@ export interface ChatSummary {
   updated_at: number
   created_at?: number
   pinned?: boolean
+  archived?: boolean
   folder_id?: string | null
 }
 
