@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, Code2, Copy, Download, Network, ZoomIn, ZoomOut } from 'lucide-react'
 import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
 import { CodeBlock } from './CodeBlock'
+import { copyText } from '@/lib/format'
 
 let seq = 0
 
@@ -60,7 +61,7 @@ export function Mermaid({ code }: { code: string }) {
     )
 
   const copy = async () => {
-    await navigator.clipboard?.writeText(code).catch(() => undefined)
+    if (!(await copyText(code))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

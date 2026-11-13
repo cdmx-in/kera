@@ -3,7 +3,7 @@ import { AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, Pencil, RefreshC
 import type { Message } from '@/api/types'
 import { useChat, useMessage, siblingsOf } from '@/stores/chat'
 import { useUI } from '@/stores/ui'
-import { cx } from '@/lib/format'
+import { copyText, cx } from '@/lib/format'
 import { Spinner } from '@/ui/misc'
 import { IconButton } from '@/ui/Dialog'
 import { Markdown } from '../markdown/Markdown'
@@ -53,7 +53,7 @@ function CopyButton({ text }: { text: string }) {
       data-testid="copy-message"
       className="size-7"
       onClick={async () => {
-        await navigator.clipboard?.writeText(text).catch(() => undefined)
+        if (!(await copyText(text))) return
         setDone(true)
         setTimeout(() => setDone(false), 1500)
       }}

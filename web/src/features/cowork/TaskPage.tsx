@@ -6,7 +6,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useModels } from '@/api/queries'
 import { branchIds, useChat } from '@/stores/chat'
 import { cx } from '@/lib/format'
-import { Spinner } from '@/ui/misc'
+import { LoadFailed, Spinner } from '@/ui/misc'
 import { SidebarToggle, UserMenu } from '@/features/header/Header'
 import { ModelPicker } from '@/features/header/ModelPicker'
 import { useModelSetup, useOpenChat, usePending } from '@/features/chat/ChatPage'
@@ -74,6 +74,8 @@ export default function TaskPage() {
         <div className="grid flex-1 place-items-center text-muted">
           <Spinner size={20} />
         </div>
+      ) : state === 'failed' ? (
+        <LoadFailed what="task" />
       ) : state === 'missing' ? (
         <div className="grid flex-1 place-items-center px-4 text-center text-muted">
           <p>

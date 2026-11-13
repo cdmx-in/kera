@@ -3,18 +3,18 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useChat } from '@/stores/chat'
 import { uiConfig } from '@/lib/ui-config'
-import { Spinner } from '@/ui/misc'
+import { LoadFailed, Spinner, isMissing } from '@/ui/misc'
 import { MessageList } from '@/features/chat/messages/MessageList'
 import { loadChat } from '@/features/chat/ChatPage'
 
 export default function SharePage() {
   const { shareId = '' } = useParams()
-  const [state, setState] = useState<'loading' | 'ready' | 'missing'>('loading')
+  const [state, setState] = useState<'loading' | 'ready' | 'missing' | 'failed'>('loading')
   const title = useChat((s) => s.title)
   useEffect(() => {
     loadChat(shareId, `/api/v1/chats/share/${encodeURIComponent(shareId)}`)
       .then(() => setState('ready'))
-      .catch(() => setState('missing'))
+      .catch((e) => setState(isMissing(e) ? 'missing' : 'failed'))
   }, [shareId])
   return (
     <div className="flex h-dvh flex-col">
@@ -28,6 +28,8 @@ export default function SharePage() {
         <div className="grid flex-1 place-items-center text-muted">
           <Spinner size={20} />
         </div>
+      ) : state === 'failed' ? (
+        <LoadFailed what="shared chat" />
       ) : state === 'missing' ? (
         <p className="grid flex-1 place-items-center text-muted">This shared chat is not available.</p>
       ) : (

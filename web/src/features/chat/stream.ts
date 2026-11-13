@@ -2,7 +2,7 @@
 // store update per animation frame. A dropped connection resumes from the last
 // seq via GET .../messages/{mid}/stream?after=<seq>.
 
-import { apiFetch, api } from '@/api/client'
+import { ApiError, apiFetch, api } from '@/api/client'
 import { readSSE } from '@/api/sse'
 import type { FileRef, Message, StreamEvent } from '@/api/types'
 import { useChat } from '@/stores/chat'
@@ -201,10 +201,19 @@ export function resumeStream(chatId: string, messageId: string, after = 0) {
 export async function stopStream() {
   const run = current
   if (!run || useChat.getState().streamingId !== run.messageId) return
-  run.controller.abort()
+  // Cancel on the server first: aborting first showed "Stopped" while a failed
+  // cancel left the answer generating. 404 = the run already ended.
   if (run.chatId) {
-    await api(`/api/v1/chats/${encodeURIComponent(run.chatId)}/messages/${encodeURIComponent(run.messageId)}/cancel`, { method: 'POST' }).catch(() => undefined)
+    try {
+      await api(`/api/v1/chats/${encodeURIComponent(run.chatId)}/messages/${encodeURIComponent(run.messageId)}/cancel`, { method: 'POST' })
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 404)) {
+        toast(`Could not stop the answer: ${(e as Error).message}`, 'error')
+        return
+      }
+    }
   }
+  run.controller.abort()
 }
 
 /** Answers an ask_user/confirm call over HTTP; the run continues on the open stream. */

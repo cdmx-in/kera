@@ -9,7 +9,7 @@ import { useUI } from '@/stores/ui'
 import { toast } from '@/stores/toast'
 import { uiConfig } from '@/lib/ui-config'
 import { getTheme, setTheme, type Theme } from '@/lib/theme'
-import { cx } from '@/lib/format'
+import { copyText, cx } from '@/lib/format'
 import { Dialog, DialogHeader } from '@/ui/Dialog'
 import { Switch } from '@/ui/misc'
 import { Confirm } from '@/features/admin/ui'
@@ -242,8 +242,8 @@ function ApiKeys() {
       toast((err as Error).message, 'error')
     }
   }
+  const [revoking, setRevoking] = useState<ApiKey | null>(null)
   const revoke = async (k: ApiKey) => {
-    if (!confirm(`Revoke "${k.name}"? Scripts using it stop working.`)) return
     try {
       await api(`/api/v1/auths/api_keys/${encodeURIComponent(k.id)}`, { method: 'DELETE' })
       await qc.invalidateQueries({ queryKey: ['api-keys'] })
@@ -263,8 +263,7 @@ function ApiKeys() {
               type="button"
               aria-label="Copy key"
               onClick={async () => {
-                await navigator.clipboard?.writeText(fresh.key ?? '').catch(() => undefined)
-                toast('Key copied')
+                if (await copyText(fresh.key ?? '', 'Could not copy: select the key and copy it by hand')) toast('Key copied')
               }}
               className="rounded-lg border border-line bg-surface px-2 py-1 text-xs"
             >
@@ -284,13 +283,14 @@ function ApiKeys() {
                 {k.last_used_at ? `last used ${new Date(k.last_used_at * 1000).toLocaleDateString()}` : 'never used'}
               </span>
             </span>
-            <button type="button" aria-label={`Revoke ${k.name}`} onClick={() => revoke(k)} className="grid size-7 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-red-600">
+            <button type="button" aria-label={`Revoke ${k.name}`} onClick={() => setRevoking(k)} className="grid size-7 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-red-600">
               <Trash2 size={14} />
             </button>
           </li>
         ))}
         {keys.isSuccess && !keys.data.length && <li className="px-3 py-2 text-sm text-muted">No API keys yet.</li>}
       </ul>
+      <Confirm open={!!revoking} title="Revoke API key?" confirmLabel="Revoke" body={`Scripts using "${revoking?.name ?? ''}" stop working.`} onConfirm={async () => void (revoking && (await revoke(revoking)))} onClose={() => setRevoking(null)} />
       <form onSubmit={create} className="mt-2 flex gap-2">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Key name" aria-label="New key name" className="min-w-0 flex-1 rounded-lg border border-line bg-transparent px-3 py-1.5 text-sm outline-none focus:border-accent" />
         <button type="submit" className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white">

@@ -9,7 +9,7 @@ import { useChat } from '@/stores/chat'
 import { useUI } from '@/stores/ui'
 import { toast } from '@/stores/toast'
 import { uiConfig } from '@/lib/ui-config'
-import { cx } from '@/lib/format'
+import { copyText, cx } from '@/lib/format'
 import { IconButton } from '@/ui/Dialog'
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/ui/Menu'
 import { SearchDialog } from './SearchDialog'
@@ -66,8 +66,7 @@ function useChatMutations() {
       try {
         const r = await api<{ share_id?: string; id?: string }>(`/api/v1/chats/${c.id}/share`, { method: 'POST' })
         const url = `${location.origin}/s/${r.share_id ?? r.id}`
-        await navigator.clipboard?.writeText(url).catch(() => undefined)
-        toast('Share link copied')
+        if (await copyText(url, `Share link (copy it by hand): ${url}`)) toast('Share link copied')
       } catch (e) {
         toast((e as Error).message, 'error')
       }

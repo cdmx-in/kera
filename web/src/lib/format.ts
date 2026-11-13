@@ -1,3 +1,4 @@
+import { toast } from '@/stores/toast'
 export function formatBytes(n?: number): string {
   if (n == null || !Number.isFinite(n)) return ''
   if (n < 1024) return `${n} B`
@@ -56,5 +57,16 @@ export function storageSet(store: 'local' | 'session', key: string, value: strin
     else s.setItem(key, value)
   } catch {
     // storage blocked or full: drafts and preferences are best effort
+  }
+}
+
+/** Copies text and reports whether it worked; on failure (no clipboard permission, plain http) it shows failMessage. */
+export async function copyText(text: string, failMessage = 'Could not copy: the browser blocked clipboard access'): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    toast(failMessage, 'error')
+    return false
   }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Confirm } from '@/features/admin/ui'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -246,6 +247,7 @@ function Count({ n }: { n: number }) {
 }
 
 export function ModelEditor({ create = false }: { create?: boolean }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [params] = useSearchParams()
   const id = create ? undefined : (params.get('id') ?? undefined)
   const { data: row, error, isLoading } = useModelRow(id)
@@ -307,7 +309,6 @@ export function ModelEditor({ create = false }: { create?: boolean }) {
     }
   }
   const remove = async () => {
-    if (!confirm(`Delete ${f.name || f.id}? Chats keep their messages.`)) return
     try {
       await api(`/api/v1/models/model/delete?id=${encodeURIComponent(f.id)}`, { method: 'DELETE' })
       await Promise.all([qc.invalidateQueries({ queryKey: ['ws'] }), qc.invalidateQueries({ queryKey: ['models'] })])
@@ -362,9 +363,12 @@ export function ModelEditor({ create = false }: { create?: boolean }) {
               </button>
             )}
             {hasRow && (
-              <IconButton label="Delete model" onClick={remove}>
-                <Trash2 size={16} />
-              </IconButton>
+              <>
+                <Confirm open={confirmDelete} title="Delete model?" body={`${f.name || f.id} is deleted. Chats keep their messages.`} onConfirm={remove} onClose={() => setConfirmDelete(false)} />
+                <IconButton label="Delete model" onClick={() => setConfirmDelete(true)}>
+                  <Trash2 size={16} />
+                </IconButton>
+              </>
             )}
             <button type="submit" className={btnPrimary} disabled={saving || !!firstError} title={firstError} data-testid="save-model">
               {saving ? <Spinner /> : null} Save

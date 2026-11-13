@@ -12,6 +12,7 @@ import { uploadFile, useCollection, useCollections, type Collection, type Knowle
 import { ingestSummary } from './model-form'
 import { statusChips } from './lib'
 import { serverFieldError, validateCollection } from './validate'
+import { Confirm } from '@/features/admin/ui'
 import { AccessEditor, Badge, Chip, EditorHeader, Empty, Field, GridSkeleton, IconTile, SearchBox, Section, TabBar, Toolbar, btn, btnPrimary, cardLink, errorText, grid, input, useTab } from './ui'
 
 export function KnowledgeList({ canCreate }: { canCreate: boolean }) {
@@ -135,6 +136,7 @@ const statusLabel = { completed: 'indexed', pending: 'waiting', processing: 'ind
 const TABS = ['files', 'settings', 'access'] as const
 
 export function KnowledgeDetail() {
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const { id } = useParams()
   const { data: c, error, isLoading } = useCollection(id)
   const qc = useQueryClient()
@@ -188,7 +190,6 @@ export function KnowledgeDetail() {
     if (fileInput.current) fileInput.current.value = ''
   }
   const remove = async () => {
-    if (!confirm(`Delete the collection ${c.name}? Its files stay in their owners' file lists.`)) return
     if (await call('/delete', { method: 'DELETE' })) navigate('/workspace/knowledge')
   }
   const w = c.write_access
@@ -217,7 +218,8 @@ export function KnowledgeDetail() {
               <button type="button" className={btnPrimary} onClick={() => fileInput.current?.click()} disabled={uploading > 0}>
                 {uploading > 0 ? <Spinner /> : <Upload size={14} />} <span className="hidden sm:inline">Upload</span>
               </button>
-              <IconButton label="Delete collection" onClick={remove}>
+              <Confirm open={confirmDelete} title="Delete collection?" body={`${c.name} is deleted. Its files stay in their owners' file lists.`} onConfirm={remove} onClose={() => setConfirmDelete(false)} />
+              <IconButton label="Delete collection" onClick={() => setConfirmDelete(true)}>
                 <Trash2 size={16} />
               </IconButton>
             </>

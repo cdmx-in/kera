@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Confirm } from '@/features/admin/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { FileText, MessageSquareText, Plus, SearchX, Trash2, UserCog, Users } from 'lucide-react'
 import { api } from '@/api/client'
@@ -70,6 +71,7 @@ export function PromptsPage({ canCreate }: { canCreate: boolean }) {
 }
 
 function PromptDialog({ prompt, mine, onClose }: { prompt: Prompt | null; mine: Prompt[]; onClose: () => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const qc = useQueryClient()
   const [command, setCommand] = useState(prompt?.command ?? '')
   const [title, setTitle] = useState(prompt?.title ?? '')
@@ -105,7 +107,7 @@ function PromptDialog({ prompt, mine, onClose }: { prompt: Prompt | null; mine: 
     }
   }
   const remove = async () => {
-    if (!prompt || !confirm(`Delete /${prompt.command}?`)) return
+    if (!prompt) return
     try {
       await api(`/api/v1/prompts/id/${prompt.id}/delete`, { method: 'DELETE' })
       await done()
@@ -117,11 +119,12 @@ function PromptDialog({ prompt, mine, onClose }: { prompt: Prompt | null; mine: 
     <Dialog open onClose={onClose} label={prompt ? 'Edit prompt' : 'New prompt'} className="w-[min(48rem,calc(100vw-2rem))]">
       <DialogHeader title={prompt ? `/${prompt.command}` : 'New prompt'} onClose={onClose}>
         {prompt && canEdit && (
-          <IconButton label="Delete prompt" onClick={remove}>
+          <IconButton label="Delete prompt" onClick={() => setConfirmDelete(true)}>
             <Trash2 size={16} />
           </IconButton>
         )}
       </DialogHeader>
+      {prompt && <Confirm open={confirmDelete} title={`Delete /${prompt.command}?`} body="The prompt is deleted for everyone it is shared with." onConfirm={remove} onClose={() => setConfirmDelete(false)} />}
       {prompt && (
         <div className="border-b border-line px-4">
           <TabBar

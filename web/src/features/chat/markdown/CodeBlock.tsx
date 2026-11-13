@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Check, Copy } from 'lucide-react'
+import { copyText } from '@/lib/format'
 
 export function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<ReactNode | null>(null)
@@ -18,7 +19,7 @@ export function CodeBlock({ code, lang }: { code: string; lang: string }) {
     }
   }, [code, lang])
   const copy = async () => {
-    await navigator.clipboard?.writeText(code).catch(() => undefined)
+    if (!(await copyText(code))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

@@ -10,7 +10,7 @@ import { Aurora } from '@/features/brand/Splash'
 import { parseChatParams, withoutOneShot } from '@/app/search-params'
 import { toolKey } from '@/features/tools/ids'
 import { toast } from '@/stores/toast'
-import { Spinner } from '@/ui/misc'
+import { LoadFailed, Spinner, isMissing } from '@/ui/misc'
 import { Header } from '@/features/header/Header'
 import { MessageList } from './messages/MessageList'
 import { Composer } from './composer/Composer'
@@ -51,7 +51,7 @@ function lastAssistant(messages: Record<string, Message>): Message | undefined {
  */
 export function useOpenChat(chatId: string | undefined, mode: 'chat' | 'cowork' = 'chat') {
   const navigate = useNavigate()
-  const [state, setState] = useState<'ready' | 'loading' | 'missing'>('ready')
+  const [state, setState] = useState<'ready' | 'loading' | 'missing' | 'failed'>('ready')
   useEffect(() => {
     const moveIfOther = () => {
       const stored = useChat.getState().mode ?? 'chat'
@@ -71,7 +71,7 @@ export function useOpenChat(chatId: string | undefined, mode: 'chat' | 'cowork' 
         if (m) useComposer.getState().setModel(m)
         moveIfOther()
       })
-      .catch(() => live && setState('missing'))
+      .catch((e) => live && setState(isMissing(e) ? 'missing' : 'failed'))
     return () => {
       live = false
     }
@@ -203,6 +203,8 @@ export default function ChatPage() {
         <div className="grid flex-1 place-items-center text-muted">
           <Spinner size={20} />
         </div>
+      ) : state === 'failed' ? (
+        <LoadFailed what="chat" />
       ) : state === 'missing' ? (
         <div className="grid flex-1 place-items-center px-4 text-center text-muted">
           <p>

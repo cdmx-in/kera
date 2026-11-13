@@ -53,3 +53,20 @@ export function Toaster() {
     </div>
   )
 }
+
+/** A page that failed to load for a reason other than "not found" (network, server error): say so and offer a reload. */
+export function LoadFailed({ what }: { what: string }) {
+  return (
+    <div role="alert" className="grid flex-1 place-items-center px-4 text-center text-muted">
+      <p>
+        Could not load this {what}. Check your connection and try again.{' '}
+        <button type="button" className="text-link underline" onClick={() => location.reload()}>
+          Reload
+        </button>
+      </p>
+    </div>
+  )
+}
+
+/** Load errors that mean "not there for you": the page says so instead of offering a retry. */
+export const isMissing = (e: unknown) => typeof e === 'object' && e !== null && [400, 403, 404].includes((e as { status?: number }).status ?? 0)
