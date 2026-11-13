@@ -451,9 +451,25 @@ func (e *Engine) features(ctx context.Context, x *exec) map[string]bool {
 		case x.req.Features == nil:
 			on = containsStr(x.m.DefaultFeatures, id)
 		}
-		out[id] = on && x.u.Can("features."+id) && (id == "memory" || supported(x.m.Features[id]))
+		// memory follows the user's own setting unless the model turns it off
+		modelOK := supported(x.m.Features[id])
+		if id == "memory" {
+			modelOK = !switchedOff(x.m.Features[id])
+		}
+		out[id] = on && x.u.Can("features."+id) && modelOK
 	}
 	return out
+}
+
+// switchedOff reports a model feature value that says no: false, "false" or "off".
+func switchedOff(v any) bool {
+	switch x := v.(type) {
+	case bool:
+		return !x
+	case string:
+		return x == "false" || x == "off"
+	}
+	return false
 }
 
 // supported reads a model feature value ({"web_search": "native"}, true, "false").

@@ -324,6 +324,26 @@ func TestAskAnswerAndCancel(t *testing.T) {
 	}
 }
 
+// A model whose features say memory: false must not remember, whatever the user's own setting:
+// the flag was ignored for memory (it only gated web search and code), so presets that switched
+// memory off still had the memory tools.
+func TestModelCanSwitchMemoryOff(t *testing.T) {
+	h := newHarness(t)
+	for _, c := range []struct {
+		v    any
+		want bool
+	}{{nil, true}, {true, true}, {"native", true}, {false, false}, {"false", false}, {"off", false}} {
+		x := &exec{u: h.u, m: &models.Resolved{Features: map[string]any{"memory": c.v}}, req: &Request{}}
+		if got := h.e.features(context.Background(), x)["memory"]; got != c.want {
+			t.Errorf("model memory %v: features.memory = %v, want %v", c.v, got, c.want)
+		}
+	}
+	x := &exec{u: h.u, m: &models.Resolved{}, req: &Request{}}
+	if !h.e.features(context.Background(), x)["memory"] {
+		t.Error("a model that says nothing about memory must leave it on")
+	}
+}
+
 func TestShutdownSavesPartialAnswer(t *testing.T) {
 	h := newHarness(t)
 	cid := h.chat(t)
