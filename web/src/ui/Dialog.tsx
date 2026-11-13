@@ -21,8 +21,10 @@ export function Dialog(props: { open: boolean; onClose: () => void; label: strin
       aria-label={props.label}
       data-testid={props.testId}
       className={cx('modal', props.drawer && 'drawer', props.className)}
-      onClose={props.onClose}
-      onCancel={(e) => props.persistent && e.preventDefault()}
+      // only this dialog's own events: React bubbles a nested dialog's close/cancel
+      // (a Confirm inside Settings) up the component tree, which closed the parent too
+      onClose={(e) => e.target === ref.current && props.onClose()}
+      onCancel={(e) => e.target === ref.current && props.persistent && e.preventDefault()}
       onPointerDown={(e) => (downOnBackdrop.current = e.target === ref.current)}
       onClick={(e) => {
         if (!props.persistent && downOnBackdrop.current && e.target === ref.current) props.onClose()

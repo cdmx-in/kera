@@ -279,6 +279,7 @@ async function body(init?: RequestInit): Promise<Json> {
 }
 
 const desktopsEnded = new Set<string>()
+const mems = [{ id: 'mem1', content: 'Prefers answers as short bullet points', updated_at: now() }]
 const votes = new Map<string, { rating: number; comment: string; model: string; chat: string }>()
 
 const summary = (c: ReturnType<typeof chats.get> & object) => ({ id: c.id, title: c.title, updated_at: c.updated_at, created_at: c.created_at, pinned: c.pinned, folder_id: c.folder_id })
@@ -300,6 +301,22 @@ async function route(method: string, url: URL, init?: RequestInit): Promise<Resp
     return json(Object.fromEntries([...votes].filter(([, v]) => v.chat === decodeURIComponent(m![1])).map(([k, v]) => [k, v.rating])))
   if (p === '/api/v1/evaluations/feedbacks/all')
     return json([...votes].map(([k, v]) => ({ id: k, user_name: me.name, user_email: me.email, model_id: v.model, rating: v.rating, comment: v.comment, source: 'web', voter: '', chat_id: v.chat, created_at: now() })))
+  if (p === '/api/v1/memories/') return json(mems)
+  if (p === '/api/v1/memories/add') {
+    const mem = { id: uid(), content: String((await body(init)).content), updated_at: now() }
+    mems.push(mem)
+    return json(mem)
+  }
+  if ((m = p.match(/^\/api\/v1\/memories\/([^/]+)\/update$/))) {
+    const mem = mems.find((x) => x.id === m![1])
+    if (mem) mem.content = String((await body(init)).content)
+    return json(mem ?? {})
+  }
+  if (p === '/api/v1/memories/delete/user') return json(mems.splice(0).length > -1)
+  if ((m = p.match(/^\/api\/v1\/memories\/([^/]+)$/)) && method === 'DELETE') {
+    mems.splice(mems.findIndex((x) => x.id === m![1]), 1)
+    return json(true)
+  }
   if (p === '/api/v1/prompts/')
     return json([
       { id: 'pr1', user_id: 'u1', command: 'summary', title: 'Summarise for a manager', content: 'Summarise the following in 5 bullet points for a busy manager:\n\n', write_access: true, updated_at: now() },
