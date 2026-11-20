@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cdmx-in/kera/internal/app"
@@ -21,6 +22,7 @@ import (
 	_ "github.com/cdmx-in/kera/internal/connectors/gworkspace"
 	"github.com/cdmx-in/kera/internal/db"
 	"github.com/cdmx-in/kera/internal/identity"
+	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/knowledge"
 	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/settings"
@@ -182,7 +184,7 @@ func identityCmd(ctx context.Context, args []string) error {
 	return identity.APIKeyCmd(ctx, pool, args[1:], os.Stdout, os.Stderr)
 }
 
-// loginLink prints a sign-in link for an existing user. It is the way into
+// loginLink prints a sign-in link for an existing user, or creates the first user as admin. It is the way into
 // the web app before an OAuth provider is configured for this host (for
 // example while running on a LAN address that Google will not redirect to).
 func loginLink(ctx context.Context, pool *pgxpool.Pool, args []string) error {
@@ -204,6 +206,15 @@ func loginLink(ctx context.Context, pool *pgxpool.Pool, args []string) error {
 	}
 	var id, role string
 	err = pool.QueryRow(ctx, `SELECT id, role FROM "user" WHERE lower(email) = lower($1)`, fs.Arg(0)).Scan(&id, &role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A fresh install has no OAuth provider yet: the first user can be created here, as admin.
+		err = pool.QueryRow(ctx, `INSERT INTO "user" (id, name, email, role)
+			SELECT $1, split_part($2, '@', 1), lower($2), 'admin' WHERE NOT EXISTS (SELECT 1 FROM "user")
+			RETURNING id, role`, ids.New(), fs.Arg(0)).Scan(&id, &role)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = errors.New("no such user (only the first user can be created with login-link)")
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("user %s: %w", fs.Arg(0), err)
 	}

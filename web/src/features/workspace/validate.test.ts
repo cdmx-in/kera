@@ -6,7 +6,7 @@ import { paramsError, serverFieldError, validateCollection, validateModel, valid
 const form = (o: Partial<ReturnType<typeof rowToForm>> = {}) => ({ ...rowToForm({ id: 'hr', name: 'HR', base_model_id: 'gpt' }), ...o })
 
 describe('validateModel', () => {
-  const opts = { create: true, isPreset: true, existingIds: ['gpt', 'astra'] }
+  const opts = { create: true, isPreset: true, existingIds: ['gpt', 'sales'] }
   it('accepts a valid preset', () => {
     expect(validateModel(form(), opts)).toEqual({})
   })
@@ -16,10 +16,10 @@ describe('validateModel', () => {
   it('checks the id format and uniqueness on create only', () => {
     expect(validateModel(form({ id: 'HR Bot' }), opts).id).toMatch(/lowercase/)
     expect(validateModel(form({ id: '-x' }), opts).id).toMatch(/lowercase/)
-    expect(validateModel(form({ id: 'astra' }), opts).id).toMatch(/already exists/)
+    expect(validateModel(form({ id: 'sales' }), opts).id).toMatch(/already exists/)
     expect(validateModel(form({ id: 'qwen3:27b-q4_k.m' }), opts)).toEqual({})
     expect(validateModel(form({ id: 'Legacy_ID' }), { ...opts, create: false })).toEqual({})
-    expect(validateModel(form({ id: 'astra' }), { ...opts, create: false })).toEqual({})
+    expect(validateModel(form({ id: 'sales' }), { ...opts, create: false })).toEqual({})
   })
   it('does not need a base model for base model settings', () => {
     expect(validateModel(form({ baseModelId: '' }), { ...opts, isPreset: false })).toEqual({})

@@ -71,7 +71,7 @@ describe('derived labels', () => {
 describe('server prefix without a server field', () => {
   it('drops a kebab-case server id prefix but keeps plain names', () => {
     expect(humanizeTool('google-sheets_get_spreadsheet_info')).toBe('get spreadsheet info')
-    expect(humanizeTool('astra-kb-tools_search_kb')).toBe('search kb')
+    expect(humanizeTool('team-kb-tools_search_kb')).toBe('search kb')
     expect(humanizeTool('search_web')).toBe('search web')
   })
 })

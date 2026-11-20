@@ -30,8 +30,8 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: no tenant strings in core
         run: |
-          hits=$(git grep -n -I -i -E 'cdmx|kera\.cdmx\.io|alfboard|192\.168\.|172\.63\.' -- ':!examples/kera' ':!testdata' ':!.github' \
-            | grep -v -E 'github\.com/cdmx-in/kera|ghcr\.io/cdmx-in/|security@cdmx\.in|CodeMax \(cdmx\.in\)' || true)
+          hits=$(git grep -n -I -i -E 'cdmx|kera\.cdmx\.io|alfboard|astra|orion|192\.168\.|172\.63\.' -- ':!examples/kera' ':!testdata' ':!.github' \
+            | grep -v -E 'github\.com/cdmx-in/kera|ghcr\.io/cdmx-in/|security@cdmx\.in|CodeMax \(cdmx\.in\)|CodeMax IT Solutions Pvt\. Ltd\.' || true)
           if [ -n "$hits" ]; then echo "$hits"; exit 1; fi
       - name: no Open WebUI identifiers in core
         run: "! git grep -n -I 'open_webui' -- internal web/src cmd"

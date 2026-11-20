@@ -2,20 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { filterModels, filterPrompts, statusChips, type ModelCardData } from './lib'
 
 const m = (id: string, o: Partial<ModelCardData> = {}): ModelCardData => ({ id, name: id, description: '', preset: false, local: false, hidden: false, ...o })
-const items = [m('astra', { preset: true, description: 'Payments PM' }), m('qwen', { local: true }), m('gpt', { hidden: true }), m('hr', { preset: true, local: true, hidden: true })]
+const items = [m('sales', { preset: true, description: 'Sales assistant' }), m('qwen', { local: true }), m('gpt', { hidden: true }), m('hr', { preset: true, local: true, hidden: true })]
 const ids = (x: ModelCardData[]) => x.map((i) => i.id)
 
 describe('filterModels', () => {
   it('filters by chip', () => {
-    expect(ids(filterModels(items, '', 'all'))).toEqual(['astra', 'qwen', 'gpt', 'hr'])
-    expect(ids(filterModels(items, '', 'assistants'))).toEqual(['astra', 'hr'])
+    expect(ids(filterModels(items, '', 'all'))).toEqual(['sales', 'qwen', 'gpt', 'hr'])
+    expect(ids(filterModels(items, '', 'assistants'))).toEqual(['sales', 'hr'])
     expect(ids(filterModels(items, '', 'base'))).toEqual(['qwen', 'gpt'])
     expect(ids(filterModels(items, '', 'local'))).toEqual(['qwen', 'hr'])
-    expect(ids(filterModels(items, '', 'cloud'))).toEqual(['astra', 'gpt'])
+    expect(ids(filterModels(items, '', 'cloud'))).toEqual(['sales', 'gpt'])
     expect(ids(filterModels(items, '', 'hidden'))).toEqual(['gpt', 'hr'])
   })
   it('searches every word in id, name and description', () => {
-    expect(ids(filterModels(items, 'PAYMENTS pm', 'all'))).toEqual(['astra'])
+    expect(ids(filterModels(items, 'SALES assistant', 'all'))).toEqual(['sales'])
     expect(ids(filterModels(items, 'payments', 'base'))).toEqual([])
     expect(ids(filterModels(items, '  ', 'all'))).toHaveLength(4)
   })

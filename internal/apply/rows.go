@@ -565,7 +565,7 @@ func normModel(m Model) Model {
 }
 
 // refreshStamp is the trailing "Updated YYYY-MM-DD." a knowledge refresh job writes onto a model's
-// description at runtime (e.g. astra-kb kera_stamp.py). It is not config: apply ignores it when diffing
+// description at runtime (e.g. a knowledge-refresh script). It is not config: apply ignores it when diffing
 // and keeps it when rewriting the row, so an unrelated apply does not wipe the landing-page date.
 var refreshStamp = regexp.MustCompile(`\s*Updated \d{4}-\d{2}-\d{2}\.$`)
 

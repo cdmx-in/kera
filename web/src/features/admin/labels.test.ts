@@ -10,6 +10,6 @@ describe('displayName', () => {
     expect(displayName('opensearch')).toBe('OpenSearch')
   })
   it('prefers an explicit name', () => {
-    expect(displayName('x', ' Astra KB facts ')).toBe('Astra KB facts')
+    expect(displayName('x', ' Team KB facts ')).toBe('Team KB facts')
   })
 })

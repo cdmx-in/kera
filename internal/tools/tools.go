@@ -85,7 +85,7 @@ type Result struct {
 }
 
 // Provider offers a set of tools. ID is the tool server id from config
-// ("astra-kb-tools", "google-sheets") or a built-in set id ("builtin:files",
+// ("team-kb-tools", "google-sheets") or a built-in set id ("builtin:files",
 // "builtin:code", "builtin:web", "builtin:memory", ...).
 type Provider interface {
 	ID() string
