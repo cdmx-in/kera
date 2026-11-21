@@ -1,0 +1,12 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: input
+    attributes: {label: Kera version, description: "Output of `kera version`", placeholder: v1.0.0}
+    validations: {required: true}
+  - type: textarea
+    attributes: {label: What happened, description: What you did, what you expected, what you got}
+    validations: {required: true}
+  - type: textarea
+    attributes: {label: Logs, description: "Relevant lines from `docker compose logs kera`. Remove secrets and personal data.", render: text}

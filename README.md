@@ -1,15 +1,24 @@
+<div align="center">
+
 # Kera
 
+**A self-hosted AI chat for teams.** One small Go binary, Postgres only, built for Ollama and any OpenAI-compatible model.
+
 [![ci](https://github.com/cdmx-in/kera/actions/workflows/ci.yml/badge.svg)](https://github.com/cdmx-in/kera/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/cdmx-in/kera)](https://github.com/cdmx-in/kera/releases/latest)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)](go.mod)
+[![Image size](https://img.shields.io/badge/image-~28%20MB-success.svg)](https://github.com/cdmx-in/kera/pkgs/container/kera)
 
-A self-hosted AI chat for teams, built for Ollama and any OpenAI-compatible model. It ships as one small Go binary with the web app built in, and Postgres is the only service it needs.
+[Quick start](#quick-start) · [Features](#features) · [Architecture](#architecture) · [Configuration](#configuration) · [Guardrails](#guardrails) · [Discussions](https://github.com/cdmx-in/kera/discussions)
 
-Kera runs CodeMax's own internal AI workspace in production every day.
+</div>
+
+Kera runs CodeMax's own internal AI workspace in production every day. It gives a team one place to chat with local and hosted models, search company knowledge, run tools and code, and keep control of the data.
 
 ## Why Kera
 
-- **Small and fast.** One static binary, a container image under 100 MB, idle memory under 100 MB.
+- **Small and fast.** One static binary, a ~28 MB container image and ~20 MB of memory when idle.
 - **One dependency.** Postgres 18 with pgvector holds users, chats, file metadata, vectors and full-text indexes. You don't need Redis, a vector database or a queue.
 - **Local first.** Ollama models are first-class. Any OpenAI-compatible endpoint works too, including the Responses API.
 - **Plugins in any language.** Hooks and tools are HTTP services (OpenAPI or MCP), not code loaded into the server.
@@ -54,6 +63,41 @@ make build && ./kera serve        # http://localhost:8080
 
 Run the tests with `make test`. The database tests use the `testdb` container.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Browser / API clients] --> K
+    subgraph K[kera: one Go binary + embedded web app]
+        direction TB
+        G[Guardrails] --> E[Chat engine]
+        E --> T[Tools, skills, memory]
+        E --> R[Knowledge search]
+    end
+    K --> P[(Postgres 18 + pgvector)]
+    E --> M[Ollama / OpenAI-compatible models]
+    T --> TS[OpenAPI and MCP tool servers]
+    T --> SB[Code sandbox - Jupyter]
+    T --> DS[Cowork desktop sidecar]
+    R --> X[Extract and rerank sidecars]
+```
+
+Only Postgres is required. The sidecars (document extraction, reranking, code sandbox, Cowork desktop) are optional HTTP services that you start when you need them.
+
+## Configuration
+
+| Variable | Purpose |
+|---|---|
+| `KERA_DATABASE_URL` | Postgres connection string (required) |
+| `KERA_SECRET_KEY` | 32-byte hex key that signs sessions and encrypts stored secrets (required; rotating it signs everyone out) |
+| `KERA_URL` | Public URL of the server, used for sign-in redirects |
+| `KERA_CALLBACK_URL` | Callback base URL for tools and sidecars, if different from `KERA_URL` |
+| `KERA_LISTEN` | Listen address, default `:8080` |
+| `KERA_DATA_DIR` | Where uploaded files live, default `/data` |
+| `OLLAMA_BASE_URL` | Ollama server, default `http://host.docker.internal:11434` in the compose file |
+
+Everything else (connections, sign-in providers, branding, guardrails, tool servers) is set in the admin console, or as code with `kera apply -f config.yaml`.
+
 ## Guardrails
 
 Every call to a model server (chats, background tasks, memory, embeddings) goes through one guard. Its settings live under `guardrails.*`, set in Admin > Settings > Guardrails or in the `guardrails:` section of a config file:
@@ -79,6 +123,12 @@ A blocked call fails with HTTP 400 and the code `guardrail_blocked`. Each event 
 | `sidecars/` | optional helper services: document extraction, reranking, Cowork desktop |
 | `deploy/` | Docker Compose example |
 | `docs/` | documentation |
+
+## Community
+
+- Questions and ideas: [GitHub Discussions](https://github.com/cdmx-in/kera/discussions)
+- Bugs: [open an issue](https://github.com/cdmx-in/kera/issues/new/choose)
+- If Kera is useful to you, a star helps others find it.
 
 ## Contributing
 
