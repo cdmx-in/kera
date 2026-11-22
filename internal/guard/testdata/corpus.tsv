@@ -111,7 +111,7 @@ neg	pii.phone	Note: order 1234567890.
 neg	pii.phone	Note: epoch 1731900000.
 neg	pii.phone	Note: epoch ms 1731900000000.
 neg	pii.phone	Note: version 2026.11.22.
-neg	pii.phone	Note: server 10.20.30.40.
+neg	pii.phone	Note: server 203.0.113.40.
 neg	pii.phone	Note: postcode 560001.
 neg	pii.phone	Note: amount 1,234,567.89.
 neg	pii.phone	Note: ticket TASK-2036.
