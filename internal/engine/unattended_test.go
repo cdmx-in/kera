@@ -85,6 +85,7 @@ func TestUnattendedFailsOnMissingServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	wait(t, run)
+	h.e.Wait() // the run is finished before its message is saved: read the stored status only after the save
 	if m, _ := h.e.Chats.Message(context.Background(), cid, "a"+cid); m.Status != "done" {
 		t.Fatalf("watched run: status %q error %q", m.Status, m.Error)
 	}
