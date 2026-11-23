@@ -2,7 +2,7 @@
 import { NavLink, Navigate, useParams } from 'react-router'
 import { useMe } from '@/api/queries'
 import { uiConfig } from '@/lib/ui-config'
-import { AdminFrame, tabCls } from './Frame'
+import { AdminFrame, pillCls } from './Frame'
 import { AnalyticsPage } from './Analytics'
 import { GroupsPage } from './Groups'
 import { SkillsPage } from './Skills'
@@ -59,9 +59,9 @@ export default function AdminPage() {
     if (!tab) return <Navigate to="/admin/settings/connections" replace />
     body = (
       <>
-        <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto border-b border-line px-3">
+        <nav aria-label="Settings sections" className="flex flex-wrap gap-1 border-b border-line px-3 py-2">
           {settingsTabs.map(([k, l]) => (
-            <NavLink key={k} to={`/admin/settings/${k}`} className={tabCls}>
+            <NavLink key={k} to={`/admin/settings/${k}`} className={pillCls}>
               {l}
             </NavLink>
           ))}

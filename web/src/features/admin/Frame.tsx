@@ -4,7 +4,10 @@ import { NavLink } from 'react-router'
 import { SidebarToggle, UserMenu } from '@/features/header/Header'
 import { cx } from '@/lib/format'
 
-export const tabCls = ({ isActive }: { isActive: boolean }) => cx('whitespace-nowrap border-b-2 px-3 py-2 text-sm', isActive ? 'border-accent text-fg' : 'border-transparent text-muted hover:text-fg')
+export const tabCls = ({ isActive }: { isActive: boolean }) => cx('whitespace-nowrap border-b-2 px-2 py-2 text-sm sm:px-3', isActive ? 'border-accent text-fg' : 'border-transparent text-muted hover:text-fg')
+
+// Second-level tabs: a wrapping row of compact pills, so a long list never needs a scrollbar.
+export const pillCls = ({ isActive }: { isActive: boolean }) => cx('whitespace-nowrap rounded-md px-2.5 py-1 text-sm', isActive ? 'bg-accent-soft text-accent dark:text-accent-bright' : 'text-muted hover:bg-surface-2 hover:text-fg')
 
 export function AdminFrame({ title, base, sections, children }: { title: string; base: string; sections: [string, string][]; children: React.ReactNode }) {
   return (
@@ -14,7 +17,7 @@ export function AdminFrame({ title, base, sections, children }: { title: string;
         <h1 className="flex-1 text-[15px] font-semibold">{title}</h1>
         <UserMenu />
       </header>
-      <nav aria-label={`${title} sections`} className="flex gap-1 overflow-x-auto border-b border-line px-3">
+      <nav aria-label={`${title} sections`} className="flex flex-wrap gap-x-1 border-b border-line px-3">
         {sections.map(([k, l]) => (
           <NavLink key={k} to={`${base}/${k}`} className={tabCls}>
             {l}

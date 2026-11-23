@@ -39,7 +39,7 @@ export function CoworkTabs({ active }: { active: 'tasks' | 'scheduled' }) {
     </Link>
   )
   return (
-    <nav aria-label="Cowork sections" className="flex gap-1 overflow-x-auto border-b border-line px-3">
+    <nav aria-label="Cowork sections" className="flex flex-wrap gap-x-1 border-b border-line px-3">
       {tab('/cowork', 'Tasks', ListChecks, active === 'tasks', 'tab-tasks', busy, true)}
       {tab('/cowork?tab=scheduled', 'Scheduled', CalendarClock, active === 'scheduled', 'tab-scheduled', jobs.data?.length ?? 0)}
     </nav>
