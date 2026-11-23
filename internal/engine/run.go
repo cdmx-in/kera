@@ -21,6 +21,9 @@ import (
 	"github.com/cdmx-in/kera/internal/sandbox"
 )
 
+// unattendedUnit is the unit of cowork.schedule.max_minutes (tests shorten it).
+var unattendedUnit = time.Minute
+
 // exec is the working state of one run.
 type exec struct {
 	u           *auth.User
@@ -33,6 +36,8 @@ type exec struct {
 	noChat      bool        // API call without a chat
 	profile     userProfile
 	started     time.Time
+	limit       *time.Timer // unattended runs: stops the run when the time limit passes
+	missing     []string    // requested tool servers that did not join (assembleTools)
 
 	turns       []turn
 	fileIDs     []string // readable files attached anywhere in the conversation
@@ -99,6 +104,7 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 		chatID = req.ChatID // later turns of a temporary chat keep its id (answers and cancel use it)
 	}
 	run := newRun(chatID, msgID, u.ID, m.ID, x.chat != nil)
+	run.unattended = req.Unattended
 	x.run = run
 	if err := e.runs.add(run); err != nil {
 		return nil, err
@@ -118,6 +124,13 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 	}
 	runCtx = guard.WithNotifier(runCtx, run.guardNotice)
 	run.cancel = cancel
+	if req.Unattended {
+		// The run context drops the caller's deadline and tool calls have no client
+		// timeout, so one hung tool would hold a scheduler seat forever.
+		minutes := 120
+		e.setting(ctx, "cowork.schedule.max_minutes", &minutes)
+		x.limit = time.AfterFunc(time.Duration(max(minutes, 1))*unattendedUnit, func() { cancel(errTimeLimit) })
+	}
 	e.wg.Add(1)
 	go e.execute(runCtx, x)
 	return run, nil
@@ -198,6 +211,9 @@ func (e *Engine) prepareMessages(ctx context.Context, x *exec) error {
 // execute is the run's goroutine.
 func (e *Engine) execute(ctx context.Context, x *exec) {
 	defer e.wg.Done()
+	if x.limit != nil {
+		defer x.limit.Stop()
+	}
 	defer func() {
 		if v := recover(); v != nil {
 			slog.Error("run panic", "run", x.run.ID, "value", v)
@@ -214,6 +230,8 @@ func (e *Engine) execute(ctx context.Context, x *exec) {
 		status = "stopped"
 	case errors.Is(context.Cause(ctx), errShutdown):
 		x.run.fail("interrupted", interruptedMsg)
+	case errors.Is(context.Cause(ctx), errTimeLimit):
+		x.run.fail("timeout", "This scheduled run was stopped because it ran longer than the time limit.")
 	default:
 		code, msg := classify(err)
 		slog.Warn("run failed", "run", x.run.ID, "model", x.m.ID, "code", code, "err", err)
@@ -237,6 +255,10 @@ func (e *Engine) process(ctx context.Context, x *exec) error {
 		return err
 	}
 	x.run.setUserLinks(x.turns) // before inlet hooks: what the user typed, not what a hook added
+	if p := strings.TrimSpace(x.req.Preface); p != "" {
+		// after setUserLinks: its URLs are no consent; first, so the goal stays the last user turn
+		x.turns = append([]turn{{msg: provider.Message{Role: "user", Content: p}}}, x.turns...)
+	}
 	if err := e.runHooks(ctx, x, "inlet"); err != nil {
 		return err
 	}
@@ -249,6 +271,10 @@ func (e *Engine) process(ctx context.Context, x *exec) error {
 	table, specs, err := e.assembleTools(ctx, x)
 	if err != nil {
 		return err
+	}
+	if x.req.Unattended && len(x.missing) > 0 {
+		// Nobody can fix it mid-run, and running without the app would only produce a wrong report.
+		return api.Errf(http.StatusConflict, "tool_unavailable", "These tools could not be used for this run (not connected, expired, not allowed for this assistant, or not available): "+strings.Join(x.missing, ", "))
 	}
 	if t, ok := table["execute_code"]; ok && t.provider.ID() == sandbox.ID {
 		x.system = append(x.system, sandbox.Prompt(ctx, e.Settings))

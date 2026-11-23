@@ -16,6 +16,7 @@ import (
 	_ "github.com/cdmx-in/kera/internal/oauthclient"
 	_ "github.com/cdmx-in/kera/internal/prompts"
 	_ "github.com/cdmx-in/kera/internal/sandbox"
+	_ "github.com/cdmx-in/kera/internal/schedule"
 	_ "github.com/cdmx-in/kera/internal/skills"
 	_ "github.com/cdmx-in/kera/internal/toolserver"
 	_ "github.com/cdmx-in/kera/internal/ui"

@@ -1,6 +1,32 @@
 import { describe, expect, it } from 'vitest'
 import type { FileRef, Message } from '@/api/types'
-import { canCowork, collectOutputs, taskStatus } from './lib'
+import { canCowork, canSchedule, clock, collectOutputs, minutesOf, scheduleText, taskStatus } from './lib'
+
+describe('scheduleText', () => {
+  const base = { at_minute: 150, weekday: 1, timezone: 'Asia/Kolkata' }
+  it('says each frequency in words', () => {
+    expect(scheduleText({ ...base, frequency: 'daily' })).toBe('Every day at 02:30 (Asia/Kolkata)')
+    expect(scheduleText({ ...base, frequency: 'weekdays', at_minute: 540 })).toBe('Weekdays at 09:00 (Asia/Kolkata)')
+    expect(scheduleText({ ...base, frequency: 'weekly', at_minute: 540 })).toBe('Every Monday at 09:00 (Asia/Kolkata)')
+    expect(scheduleText({ ...base, frequency: 'hourly', at_minute: 5 })).toBe('Every hour at :05 (Asia/Kolkata)')
+  })
+  it('converts between a time input and minutes', () => {
+    expect(clock(1439)).toBe('23:59')
+    expect(minutesOf('02:30')).toBe(150)
+    expect(minutesOf('')).toBe(0)
+  })
+})
+
+describe('canSchedule', () => {
+  const user = (features: Record<string, boolean>) => ({ id: 'u', name: 'U', email: 'u@example.com', role: 'user' as const, permissions: { features } })
+  it('needs cowork and the schedule permission; admins always', () => {
+    expect(canSchedule(user({ cowork: true }))).toBe(false)
+    expect(canSchedule(user({ cowork: true, cowork_schedule: true }))).toBe(true)
+    expect(canSchedule(user({ cowork_schedule: true }))).toBe(false)
+    expect(canSchedule({ ...user({}), role: 'admin' })).toBe(true)
+    expect(canSchedule(undefined)).toBe(false)
+  })
+})
 
 const msg = (id: string, over: Partial<Message> = {}): Message => ({ id, parentId: null, childrenIds: [], role: 'assistant', createdAt: 0, status: 'done', parts: [], files: [], sources: [], pendingCalls: [], ...over })
 

@@ -32,6 +32,7 @@ Kera runs CodeMax's own internal AI workspace in production every day. It gives 
 - **Tools.** OpenAPI and MCP tool servers, with per-user OAuth for services like Google Sheets, Gmail and Docs. Built-in web search (SearXNG, Brave or DuckDuckGo).
 - **Code interpreter.** Runs Python, Node.js, TypeScript, Bash, PHP, Ruby, Go, Java and R in a Jupyter sandbox, and returns the files and images the code creates.
 - **Cowork.** A task mode in which the model drives a sandboxed Linux desktop (browser and shell). You watch it live and can take over at any time.
+- **Scheduled tasks.** Save a Cowork task with a timetable (hourly, daily, weekdays, weekly) and the server runs it by itself as you, with your connected apps. Each run is a normal task, and the task keeps notes from run to run.
 - **Memory.** Automatic memory capture, which users manage in Settings.
 - **Guardrails.** Personal-data redaction or blocking, prompt-injection and blocklist checks, and optional moderation on every model call, with an audit trail (see below).
 - **Integrations.** Scheduled directory sync from Google Workspace: users come in, departments become groups, and suspended or deleted users are disabled (see [docs/integrations.md](docs/integrations.md)).

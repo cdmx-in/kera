@@ -20,7 +20,7 @@ import { useUploads } from './uploads'
 const plusIntegration = (i: Integration) => i.kind === 'oauthToolServer' && i.showInPlusMenu !== false
 
 /** `variant="task"` is the Cowork goal box: its own draft, wording and test ids. `initialText` (?q=) wins over a saved draft. */
-export function Composer({ onSend, disabled, variant, initialText }: { onSend: (text: string, files: FileRef[]) => Promise<boolean>; disabled?: boolean; variant?: 'task'; initialText?: string }) {
+export function Composer({ onSend, disabled, variant, initialText, sendLabel }: { onSend: (text: string, files: FileRef[]) => Promise<boolean>; disabled?: boolean; variant?: 'task'; initialText?: string; sendLabel?: string }) {
   const chatId = useChat((s) => s.chatId)
   const streaming = useChat((s) => s.streamingId !== null)
   const task = variant === 'task'
@@ -213,7 +213,7 @@ export function Composer({ onSend, disabled, variant, initialText }: { onSend: (
             <Square size={14} fill="currentColor" />
           </button>
         ) : (
-          <button type="button" data-testid={task ? 'start-task' : 'send'} aria-label={task ? 'Start task' : 'Send'} disabled={!canSend} onClick={() => void send()} className="grid size-9 place-items-center rounded-full bg-accent text-white transition-[opacity,background-color] enabled:hover:bg-accent-bright disabled:opacity-35">
+          <button type="button" data-testid={task ? 'start-task' : 'send'} aria-label={sendLabel ?? (task ? 'Start task' : 'Send')} title={sendLabel} disabled={!canSend} onClick={() => void send()} className="grid size-9 place-items-center rounded-full bg-accent text-white transition-[opacity,background-color] enabled:hover:bg-accent-bright disabled:opacity-35">
             <ArrowUp size={18} />
           </button>
         )}

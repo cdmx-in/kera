@@ -102,6 +102,14 @@ func fakeModel(t *testing.T) *httptest.Server {
 			}
 		case strings.Contains(lastText, "echo system"):
 			text(sys)
+		case strings.Contains(lastText, "echo users"): // every user turn, in order, one per line
+			var us []string
+			for _, m := range body.Messages {
+				if m.Role == "user" {
+					us = append(us, fmt.Sprint(m.Content))
+				}
+			}
+			text(strings.Join(us, "\n"))
 		default:
 			text("hello ")
 			text("world")

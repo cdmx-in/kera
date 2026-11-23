@@ -28,6 +28,14 @@ type Request struct {
 	Temporary    bool            `json:"temporary"`
 
 	Params map[string]any `json:"-"` // generation options from the body
+
+	// In-process only (never decoded from HTTP). Unattended: nobody is watching
+	// (a scheduled run), so questions are refused at once and a requested tool
+	// server that cannot join fails the run. Preface is text for the model that
+	// is not the user's own words (saved notes), sent as a separate user turn so
+	// its links are no consent and the guardrails and hooks still see it.
+	Unattended bool   `json:"-"`
+	Preface    string `json:"-"`
 }
 
 // UserMessage is the new user turn the web app sends with a completion.

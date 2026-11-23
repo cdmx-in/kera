@@ -22,7 +22,7 @@ var Defaults = map[string]json.RawMessage{
 
 	// Default permissions for every non-admin user; groups can only add.
 	"user.permissions": raw(`{
-		"features": {"api_keys": false, "web_search": true, "code_interpreter": true, "memory": true, "temporary_chat": true, "cowork": true},
+		"features": {"api_keys": false, "web_search": true, "code_interpreter": true, "memory": true, "temporary_chat": true, "cowork": true, "cowork_schedule": false},
 		"chat": {"file_upload": true, "share": true, "export": true, "delete": true},
 		"workspace": {"models": false, "knowledge": false, "prompts": false}
 	}`),
@@ -57,6 +57,11 @@ var Defaults = map[string]json.RawMessage{
 	// Cowork (task mode): the prompt added after the preset prompt ("" = cowork.DefaultPrompt) and its tool-round cap.
 	"cowork.prompt":              raw(`""`),
 	"cowork.max_tool_iterations": raw(`100`),
+	// Scheduled tasks (internal/schedule): saved tasks per user, scheduled runs at once (0 pauses every schedule),
+	// and the minutes after which an unattended run is stopped.
+	"cowork.schedule.max_per_user":   raw(`5`),
+	"cowork.schedule.max_concurrent": raw(`2`),
+	"cowork.schedule.max_minutes":    raw(`120`),
 	// Desktop sidecar live view: its API and websockify base URLs ("" = off); desktop.key is a secret without default.
 	"desktop.url":      raw(`""`),
 	"desktop.view_url": raw(`""`),

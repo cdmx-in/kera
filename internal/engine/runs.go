@@ -49,6 +49,8 @@ type Run struct {
 	Persisted bool
 	Created   time.Time
 
+	unattended bool // nobody can answer: ask fails at once
+
 	mu         sync.Mutex
 	state      msgState
 	events     []event
@@ -422,6 +424,9 @@ var ErrNoAnswer = errors.New("no answer")
 
 // ask shows a question card and waits for its answer.
 func (r *Run) ask(ctx context.Context, pc PendingCall, timeout time.Duration) (json.RawMessage, error) {
+	if r.unattended { // before anything is registered, so no question is left pending
+		return nil, fmt.Errorf("%w: nobody is watching this run", ErrNoAnswer)
+	}
 	if pc.CallID == "" {
 		pc.CallID = "ask_" + ids.New()
 	}

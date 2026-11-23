@@ -80,8 +80,19 @@ export function useOpenChat(chatId: string | undefined, mode: 'chat' | 'cowork' 
   return state
 }
 
-/** Resolves the composer model (explicit ?models= wins) and applies the model's default pills and tools. */
-export function useModelSetup(requestedModels: string[], chatId: string | undefined, toolsParamList: string[]) {
+/** Pills and tools a saved (scheduled) task reopens with, instead of its assistant's defaults. */
+export interface ModelPreset {
+  model_id: string
+  /** null = the assistant's default pills */
+  features: Record<string, boolean> | null
+  tool_ids: string[]
+}
+
+/**
+ * Resolves the composer model (explicit ?models= wins) and applies the model's default pills and tools.
+ * A `preset` applies instead while its assistant is the chosen one; picking another assistant brings that one's defaults.
+ */
+export function useModelSetup(requestedModels: string[], chatId: string | undefined, toolsParamList: string[], preset?: ModelPreset) {
   const models = useModels()
   const tools = useTools()
   const model = useComposer((s) => s.model)
@@ -110,7 +121,9 @@ export function useModelSetup(requestedModels: string[], chatId: string | undefi
     const m = models.data?.find((x) => x.id === model)
     if (!m) return
     const c = useComposer.getState()
-    c.setFeatures(Object.fromEntries((m.features ?? []).map((f) => [f.id, !!f.default])))
+    const own = preset?.model_id === model ? preset : undefined
+    c.setFeatures(own?.features ?? Object.fromEntries((m.features ?? []).map((f) => [f.id, !!f.default])))
+    if (own) return c.setToolIds(own.tool_ids.map(toolKey))
     const connected = (id: string) => tools.data?.some((t) => t.id === id && t.authenticated)
     const auto = [
       ...uiConfig().integrations.flatMap((i) => (i.kind === 'oauthToolServer' && i.autoEnable && connected(i.toolServerId) ? [i.toolServerId] : [])),
@@ -118,7 +131,7 @@ export function useModelSetup(requestedModels: string[], chatId: string | undefi
     ]
     c.setToolIds([...(m.toolIds ?? []).map(toolKey), ...auto, ...urlTools.current])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, models.data, tools.data, toolsParam])
+  }, [model, models.data, tools.data, toolsParam, preset?.model_id])
 }
 
 /** The open reply's pending ask_user / confirm calls. */

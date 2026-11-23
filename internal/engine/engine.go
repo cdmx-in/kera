@@ -59,7 +59,21 @@ var (
 	errTempForbidden   = api.Errf(http.StatusForbidden, "forbidden", "Permission required: features.temporary_chat")
 	errCancelled       = errors.New("cancelled by the user")
 	errShutdown        = errors.New("the server is restarting")
+	errTimeLimit       = errors.New("the unattended time limit passed")
 )
+
+var (
+	regMu sync.Mutex
+	reg   = map[*app.App]*Engine{}
+)
+
+// For returns the engine Mount built for a, for features that start runs on
+// their own (scheduled tasks). It is nil until engine.Mount has run.
+func For(a *app.App) *Engine {
+	regMu.Lock()
+	defer regMu.Unlock()
+	return reg[a]
+}
 
 // interruptedMsg is the error a run stopped by a restart is saved with.
 const interruptedMsg = "The server restarted while this answer was being written; the text above is what was written until then."
@@ -110,6 +124,9 @@ func Mount(a *app.App) error {
 	a.Server.OnShutdown(func() { e.Shutdown(20 * time.Second) })
 	go e.janitor()
 	e.routes(a)
+	regMu.Lock()
+	reg[a] = e
+	regMu.Unlock()
 	return nil
 }
 

@@ -256,9 +256,12 @@ func (e *Engine) callbackAsk(w http.ResponseWriter, r *http.Request) {
 	v, err := run.ask(r.Context(), pendingFor(q), wait)
 	if err != nil {
 		reason := "timeout"
-		if r.Context().Err() != nil {
+		switch {
+		case run.unattended:
+			reason = "unattended" // a scheduled run: asking again will not help
+		case r.Context().Err() != nil:
 			reason = "disconnected"
-		} else if run.Finished() {
+		case run.Finished():
 			reason = "run_ended"
 		}
 		api.JSON(w, http.StatusOK, map[string]any{"answer": nil, "reason": reason})

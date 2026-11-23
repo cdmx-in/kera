@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/files"
+	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/provider"
 	"github.com/cdmx-in/kera/internal/tools"
 )
@@ -126,6 +128,7 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 	}
 	table := map[string]toolEntry{}
 	var names []string
+	listed := map[string]bool{} // requested servers that offered at least one function
 	for _, p := range order {
 		specs, err := p.Tools(ctx, x.u)
 		if err != nil {
@@ -135,6 +138,7 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 		server := ""
 		if !strings.HasPrefix(p.ID(), "builtin:") {
 			server = p.ID()
+			listed[server] = len(specs) > 0
 		}
 		for _, s := range specs {
 			if e.toolDisabled(x, s.Name) {
@@ -144,6 +148,15 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 				names = append(names, s.Name)
 			}
 			table[s.Name] = toolEntry{spec: s, provider: p, server: server}
+		}
+	}
+	// A server the run asked for but that did not join (not connected, local-only on
+	// a hosted model, hook-disabled, listing failed) is normally dropped silently;
+	// unattended runs fail on it, so x.missing records it.
+	x.missing = nil
+	for _, id := range x.serverIDs() {
+		if !strings.HasPrefix(id, "builtin:") && !listed[id] {
+			x.missing = append(x.missing, id)
 		}
 	}
 	specs := make([]provider.Tool, 0, len(names))
@@ -156,6 +169,30 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 		specs = append(specs, provider.Tool{Name: s.Name, Description: s.Description, Parameters: params})
 	}
 	return table, specs, nil
+}
+
+// UsableServers returns those of toolIDs ("server:<id>" or bare ids; built-in
+// ids are ignored) that would join a run of model for u right now, so a saved
+// task keeps only what works today. It errors when u may not use the model.
+func (e *Engine) UsableServers(ctx context.Context, u *auth.User, model string, toolIDs []string) ([]string, error) {
+	m, err := e.Models.Resolve(ctx, u, model)
+	if err != nil {
+		return nil, err
+	}
+	if m.Kind != "" {
+		return nil, models.ErrNotChat
+	}
+	x := &exec{u: u, m: m, req: &Request{ToolIDs: append([]string{}, toolIDs...)}, disabledNames: map[string]bool{}}
+	if _, _, err := e.assembleTools(ctx, x); err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, id := range x.serverIDs() {
+		if !strings.HasPrefix(id, "builtin:") && !slices.Contains(x.missing, id) {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 
 func (e *Engine) toolDisabled(x *exec, name string) bool {

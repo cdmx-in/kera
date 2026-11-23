@@ -288,9 +288,18 @@ type CodeInterpreter struct {
 
 // Cowork is task mode: the prompt added to task runs ("" = built-in) and their tool-round cap.
 type Cowork struct {
-	Prompt            *string `yaml:"prompt,omitempty"`
-	PromptFile        string  `yaml:"prompt_file,omitempty" apply:"-"`
-	MaxToolIterations *int    `yaml:"max_tool_iterations,omitempty"`
+	Prompt            *string         `yaml:"prompt,omitempty"`
+	PromptFile        string          `yaml:"prompt_file,omitempty" apply:"-"`
+	MaxToolIterations *int            `yaml:"max_tool_iterations,omitempty"`
+	Schedule          *CoworkSchedule `yaml:"schedule,omitempty"`
+}
+
+// CoworkSchedule limits scheduled tasks: saved tasks per user, scheduled runs at
+// once (0 pauses them all) and the minutes after which an unattended run is stopped.
+type CoworkSchedule struct {
+	MaxPerUser    *int `yaml:"max_per_user,omitempty"`
+	MaxConcurrent *int `yaml:"max_concurrent,omitempty"`
+	MaxMinutes    *int `yaml:"max_minutes,omitempty"`
 }
 
 // Desktop is the desktop sidecar's live view: its API URL, websockify URL and service key.

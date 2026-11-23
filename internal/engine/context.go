@@ -24,6 +24,12 @@ const maxImageBytes = 20 << 20
 // fileWait is how long a run waits for an attachment's text extraction.
 var fileWait = 90 * time.Second
 
+// unattendedPrompt is added to runs nobody is watching (scheduled tasks).
+const unattendedPrompt = "This run is unattended: no person is watching and nobody can answer. " +
+	"Never ask questions and never wait for confirmation. When a tool refuses or asks for confirmation, " +
+	"do not retry it; leave that step undone and say so. When you cannot make progress, stop and report what blocked you. " +
+	"Your final message is what the person reads later, so make it a complete report: what you did, what changed, what failed."
+
 // renderVars fills the {{...}} placeholders of a system prompt.
 func renderVars(prompt string, u *auth.User, p userProfile, now time.Time) string {
 	if !strings.Contains(prompt, "{{") {
@@ -53,7 +59,10 @@ func renderVars(prompt string, u *auth.User, p userProfile, now time.Time) strin
 // buildContext assembles the system prompt, knowledge, attachments and the
 // provider-native tools.
 func (e *Engine) buildContext(ctx context.Context, x *exec) error {
-	// prepended in reverse: preset persona, then the cowork prompt, then the rest
+	// prepended in reverse: preset persona, then the cowork prompt, then the unattended note, then the rest
+	if x.req.Unattended {
+		x.system = append([]string{unattendedPrompt}, x.system...)
+	}
 	if x.cowork() {
 		x.system = append([]string{renderVars(cowork.Prompt(ctx, e.Settings), x.u, x.profile, time.Now())}, x.system...)
 	}
