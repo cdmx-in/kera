@@ -49,7 +49,7 @@ type stats struct {
 
 func (s *Service) stats(ctx context.Context, kids []string) (map[string]*stats, error) {
 	rows, err := s.db.Query(ctx, `SELECT knowledge_id, status, count(*), coalesce(sum(chunks), 0) FROM knowledge_file
-		WHERE knowledge_id = ANY($1) GROUP BY 1, 2`, kids)
+		WHERE knowledge_id = ANY($1) AND replaces IS NULL GROUP BY 1, 2`, kids)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge stats: %w", err)
 	}
@@ -206,7 +206,7 @@ func (s *Service) hGet(w http.ResponseWriter, r *http.Request) {
 func (s *Service) fileList(ctx context.Context, c *Collection) ([]map[string]any, error) {
 	rows, err := s.db.Query(ctx, `SELECT f.id, f.user_id, f.filename, f.meta, f.status, f.error, f.size, kf.status, kf.chunks,
 		extract(epoch FROM kf.added_at)::bigint, extract(epoch FROM f.updated_at)::bigint
-		FROM knowledge_file kf JOIN file f ON f.id = kf.file_id WHERE kf.knowledge_id = $1 ORDER BY f.filename, f.id`, c.ID)
+		FROM knowledge_file kf JOIN file f ON f.id = kf.file_id WHERE kf.knowledge_id = $1 AND kf.replaces IS NULL ORDER BY f.filename, f.id`, c.ID)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge files: %w", err)
 	}
@@ -358,22 +358,44 @@ func (s *Service) addFile(ctx context.Context, kid, fid string) error {
 	return nil
 }
 
+// execer is the Exec of a pool or a transaction.
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// removeFile unlinks a file from a collection: its row, all its chunks (of
+// every embedding model) and its recorded indexing error. The file itself
+// stays (see dropFile).
+func (s *Service) removeFile(ctx context.Context, q execer, kid, fid string) error {
+	if _, err := q.Exec(ctx, `WITH d AS (DELETE FROM knowledge_file WHERE knowledge_id = $1 AND file_id = $2)
+		DELETE FROM chunk WHERE knowledge_id = $1 AND file_id = $2`, kid, fid); err != nil {
+		return fmt.Errorf("remove knowledge file: %w", err)
+	}
+	if _, err := q.Exec(ctx, clearFileErrorSQL, kid, fid); err != nil {
+		return fmt.Errorf("clear index error: %w", err)
+	}
+	return nil
+}
+
+// touch moves a collection to the top of the recently-updated order.
+func (s *Service) touch(ctx context.Context, q execer, kid string) error {
+	if _, err := q.Exec(ctx, `UPDATE knowledge SET updated_at = now() WHERE id = $1`, kid); err != nil {
+		return fmt.Errorf("touch knowledge: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) hFileRemove(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	c, fid, ok := s.fileTarget(w, r)
 	if !ok {
 		return
 	}
-	if _, err := s.db.Exec(ctx, `WITH d AS (DELETE FROM knowledge_file WHERE knowledge_id = $1 AND file_id = $2)
-		DELETE FROM chunk WHERE knowledge_id = $1 AND file_id = $2`, c.ID, fid); err != nil {
-		api.Fail(w, r, fmt.Errorf("remove knowledge file: %w", err))
-		return
-	}
-	if err := s.setFileError(ctx, c.ID, fid, nil); err != nil {
+	if err := s.removeFile(ctx, s.db, c.ID, fid); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
-	if _, err := s.db.Exec(ctx, `UPDATE knowledge SET updated_at = now() WHERE id = $1`, c.ID); err != nil {
+	if err := s.touch(ctx, s.db, c.ID); err != nil {
 		api.Fail(w, r, err)
 		return
 	}

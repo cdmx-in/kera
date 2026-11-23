@@ -37,10 +37,10 @@ interface Connector {
   next_run: string | null
 }
 
-const when = (s: string) => new Date(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+export const when = (s: string) => new Date(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 /** "in 12 min" / "5 min ago", hours past 90 minutes, days past 48 hours; "now" within a minute. */
-function relative(s: string): string {
+export function relative(s: string): string {
   const min = Math.round((new Date(s).getTime() - Date.now()) / 60000)
   if (min === 0) return 'now'
   const n = Math.abs(min)

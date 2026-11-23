@@ -14,6 +14,7 @@ import (
 	_ "github.com/cdmx-in/kera/internal/memory"
 	_ "github.com/cdmx-in/kera/internal/models"
 	_ "github.com/cdmx-in/kera/internal/oauthclient"
+	_ "github.com/cdmx-in/kera/internal/pipeline"
 	_ "github.com/cdmx-in/kera/internal/prompts"
 	_ "github.com/cdmx-in/kera/internal/sandbox"
 	_ "github.com/cdmx-in/kera/internal/schedule"

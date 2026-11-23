@@ -247,9 +247,27 @@ func DeleteUser(ctx context.Context, db interface {
 	tag, err := db.Exec(ctx, `WITH g AS (DELETE FROM access_grant WHERE principal_type = 'user' AND principal_id = $1)
 		DELETE FROM "user" WHERE id = $1`, id)
 	if err != nil {
-		return false, fmt.Errorf("delete user: %w", err)
+		return false, fmt.Errorf("delete user: %w", ownsPipeline(err))
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// ownsPipeline turns the foreign-key violation raised when the user still owns a
+// pipeline (the owner column restricts the delete) into a 409 that says what to do.
+// Postgres reports ON DELETE RESTRICT as 23001 and the default NO ACTION as 23503,
+// so both count. Any other error is returned as it is.
+// ponytail: matches the pipeline table by name in the error (the violated row is
+// in "user", so the table field holds that; the constraint and message name the
+// referencing table). Upgrade path: name the constraint in the migration and match it exactly.
+func ownsPipeline(err error) error {
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) || (pe.Code != "23503" && pe.Code != "23001") {
+		return err
+	}
+	if pe.TableName == "pipeline" || strings.Contains(pe.ConstraintName, "pipeline") || strings.Contains(pe.Message+" "+pe.Detail, `"pipeline"`) {
+		return api.Errf(http.StatusConflict, "pipeline_owner", "This user owns a pipeline; change its owner first")
+	}
+	return err
 }
 
 func (h *handler) getDefaultPerms(w http.ResponseWriter, r *http.Request) {

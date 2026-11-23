@@ -63,6 +63,18 @@ var docExts = map[string]bool{".pdf": true, ".docx": true, ".pptx": true, ".doc"
 
 func ext(f File) string { return strings.ToLower(filepath.Ext(f.Filename)) }
 
+func isHTMLExt(e string) bool  { return e == ".html" || e == ".htm" || e == ".xhtml" }
+func isSheetExt(e string) bool { return e == ".xlsx" || e == ".xlsm" }
+
+// Extractable reports whether a file of this name can be turned into text: text
+// and code, html, spreadsheets and the document types the sidecar reads. It goes
+// by the name only; extract also takes an unknown extension whose bytes look
+// like text, and images (which it passes through empty) are not extractable.
+func Extractable(name string) bool {
+	e := strings.ToLower(filepath.Ext(name))
+	return textExts[e] || docExts[e] || isHTMLExt(e) || isSheetExt(e)
+}
+
 func isImage(f File) bool {
 	return strings.HasPrefix(f.ContentType, "image/") && !strings.HasPrefix(f.ContentType, "image/svg")
 }
@@ -73,13 +85,13 @@ func (s *Service) extract(ctx context.Context, f File) (string, map[string]any, 
 	switch {
 	case isImage(f):
 		return "", map[string]any{}, nil // vision models read images directly
-	case e == ".html" || e == ".htm" || e == ".xhtml":
+	case isHTMLExt(e):
 		b, err := os.ReadFile(s.abs(f))
 		if err != nil {
 			return "", nil, fmt.Errorf("read file: %w", err)
 		}
 		return clean(htmlText(b)), map[string]any{}, nil
-	case e == ".xlsx" || e == ".xlsm":
+	case isSheetExt(e):
 		return s.xlsxText(f)
 	case docExts[e]:
 		return s.sidecar(ctx, f, e)

@@ -244,6 +244,43 @@ func TestSyncGuards(t *testing.T) {
 	}
 }
 
+// A user past the delete countdown who still owns a pipeline is kept, disabled,
+// with a warning; the rest of the run (other users leaving, new hires) goes through.
+// DeleteUser would answer 409 and the failed statement would roll the whole run back.
+func TestSyncKeepsAPipelineOwner(t *testing.T) {
+	f := newFixture(t)
+	f.mkUser("boss@ex.com", "admin", "")
+	owner := f.mkUser("owner@ex.com", "user", "google@owner")
+	f.mkUser("leaver@ex.com", "user", "google@leaver")
+	f.exec(`INSERT INTO pipeline (id, name, user_id) VALUES ('p1', 'docs-sync', $1)`, owner)
+	boss := wsUser("b", "boss@ex.com", "Boss", "", false)
+	leaver := wsUser("l", "leaver@ex.com", "Leaver", "", false)
+
+	f.mustSync(boss, leaver) // the owner is missing: disabled, the countdown starts
+	if !f.disabled("owner@ex.com") {
+		t.Fatal("the missing owner was not disabled")
+	}
+	f.opt.Now = f.opt.Now.Add(31 * 24 * time.Hour)
+	rep, err := f.sync(boss, wsUser("n", "newbie@ex.com", "Newbie", "", false)) // the countdown is over; leaver just left
+	if err != nil {
+		t.Fatalf("a pipeline owner must not fail the run: %v", err)
+	}
+	if f.scalar(`SELECT count(*)::text FROM "user" WHERE email = 'owner@ex.com'`) != "1" || !f.disabled("owner@ex.com") {
+		t.Error("the owner was deleted or enabled")
+	}
+	if !f.disabled("leaver@ex.com") || f.scalar(`SELECT count(*)::text FROM "user" WHERE email = 'newbie@ex.com'`) != "1" {
+		t.Errorf("the rest of the run was rolled back: %+v", rep.Changes)
+	}
+	if len(rep.Warnings) != 1 || !strings.Contains(rep.Warnings[0], "owner@ex.com owns a pipeline") {
+		t.Errorf("warnings %v", rep.Warnings)
+	}
+	// once the owner changes, the next run deletes the user
+	f.exec(`UPDATE pipeline SET user_id = $1`, f.ids["boss@ex.com"])
+	if rep = f.mustSync(boss); !has(rep, "delete", "owner@ex.com") {
+		t.Errorf("owner not deleted after the pipeline changed hands: %+v", rep.Changes)
+	}
+}
+
 // TestRun drives the connector end to end: settings, service-account token,
 // paged directory listing, dry run, then a real run.
 func TestRun(t *testing.T) {

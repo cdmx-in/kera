@@ -455,6 +455,17 @@ func prune(ctx context.Context, tx pgx.Tx, kera []*keraUser, domains map[string]
 		if k.role == "admin" && !k.disabled {
 			continue // the last admin, kept by disable
 		}
+		// A pipeline's owner cannot be deleted (DeleteUser answers 409). Asking first
+		// keeps the sync going: a failed DELETE would abort the transaction and undo
+		// every other change of the run. The user was disabled when it went missing.
+		var owns bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pipeline WHERE user_id = $1)`, k.id).Scan(&owns); err != nil {
+			return fmt.Errorf("check pipelines of %s: %w", k.email, err)
+		}
+		if owns {
+			rep.Warn("%s owns a pipeline; kept disabled until its owner changes", k.email)
+			continue
+		}
 		if _, err := identity.DeleteUser(ctx, tx, k.id); err != nil {
 			return fmt.Errorf("delete %s: %w", k.email, err)
 		}

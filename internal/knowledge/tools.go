@@ -157,7 +157,7 @@ func (t *toolSet) searchFiles(ctx context.Context, cs []*Collection, query strin
 	words := strings.Fields(strings.ToLower(query))
 	rows, err := t.s.db.Query(ctx, `SELECT f.id, f.filename, k.id, k.name FROM knowledge_file kf
 		JOIN file f ON f.id = kf.file_id JOIN knowledge k ON k.id = kf.knowledge_id
-		WHERE kf.knowledge_id = ANY($1) AND (SELECT bool_and(lower(f.filename) LIKE '%' || w || '%') FROM unnest($2::text[]) w) IS NOT FALSE
+		WHERE kf.knowledge_id = ANY($1) AND kf.replaces IS NULL AND (SELECT bool_and(lower(f.filename) LIKE '%' || w || '%') FROM unnest($2::text[]) w) IS NOT FALSE
 		ORDER BY k.name, f.filename LIMIT $3`, collIDs(cs), nonNil(words), count)
 	if err != nil {
 		return tools.Result{}, fmt.Errorf("search knowledge files: %w", err)
@@ -213,7 +213,7 @@ func (t *toolSet) view(ctx context.Context, cs []*Collection, fileID string, off
 	}
 	var name string
 	err := t.s.db.QueryRow(ctx, `SELECT f.filename FROM knowledge_file kf JOIN file f ON f.id = kf.file_id
-		WHERE kf.file_id = $1 AND kf.knowledge_id = ANY($2) LIMIT 1`, fileID, collIDs(cs)).Scan(&name)
+		WHERE kf.file_id = $1 AND kf.knowledge_id = ANY($2) AND kf.replaces IS NULL LIMIT 1`, fileID, collIDs(cs)).Scan(&name)
 	if err == pgx.ErrNoRows {
 		return errResult("no such file in the available knowledge"), nil
 	}

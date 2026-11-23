@@ -23,7 +23,12 @@ export function Dialog(props: { open: boolean; onClose: () => void; label: strin
       className={cx('modal', props.drawer && 'drawer', props.className)}
       // only this dialog's own events: React bubbles a nested dialog's close/cancel
       // (a Confirm inside Settings) up the component tree, which closed the parent too
-      onClose={(e) => e.target === ref.current && props.onClose()}
+      onClose={(e) => {
+        if (e.target !== ref.current) return
+        // a persistent dialog (the one-time token) opens again: the browser lets a second Esc through cancel, so preventDefault alone does not hold it
+        if (props.persistent && props.open) ref.current?.showModal()
+        else props.onClose()
+      }}
       onCancel={(e) => e.target === ref.current && props.persistent && e.preventDefault()}
       onPointerDown={(e) => (downOnBackdrop.current = e.target === ref.current)}
       onClick={(e) => {

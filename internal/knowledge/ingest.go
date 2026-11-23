@@ -136,17 +136,23 @@ func (s *Service) indexNoPanic(ctx context.Context, kid, fid string) (n int, err
 	return s.index(ctx, kid, fid)
 }
 
+// clearFileErrorSQL drops a file's entry from knowledge.meta.errors ($1 collection, $2 file).
+const clearFileErrorSQL = `UPDATE knowledge SET meta = meta #- ARRAY['errors', $2] WHERE id = $1 AND meta ? 'errors'`
+
 // setFileError records (or clears) the last indexing error of a file.
 // ponytail: kept in knowledge.meta.errors to avoid a schema change; a
 // knowledge_file.error column is the upgrade.
 func (s *Service) setFileError(ctx context.Context, kid, fid string, perr error) error {
 	var err error
 	if perr == nil {
-		_, err = s.db.Exec(ctx, `UPDATE knowledge SET meta = meta #- ARRAY['errors', $2] WHERE id = $1 AND meta ? 'errors'`, kid, fid)
+		_, err = s.db.Exec(ctx, clearFileErrorSQL, kid, fid)
 	} else {
 		msg, _ := json.Marshal(truncate(perr.Error(), 500))
+		// Only for a file that is still in the collection: a staged version dropped
+		// while the worker embeds it would otherwise leave an entry nothing clears.
 		_, err = s.db.Exec(ctx, `UPDATE knowledge SET meta = jsonb_set(CASE WHEN jsonb_typeof(meta->'errors') = 'object' THEN meta
-			ELSE meta || '{"errors":{}}' END, ARRAY['errors', $2], $3::jsonb) WHERE id = $1`, kid, fid, string(msg))
+			ELSE meta || '{"errors":{}}' END, ARRAY['errors', $2], $3::jsonb)
+			WHERE id = $1 AND EXISTS (SELECT 1 FROM knowledge_file WHERE knowledge_id = $1 AND file_id = $2)`, kid, fid, string(msg))
 	}
 	if err != nil {
 		return fmt.Errorf("record index error: %w", err)
@@ -219,21 +225,34 @@ func (s *Service) index(ctx context.Context, kid, fid string) (int, error) {
 	return len(chunks), s.store(ctx, c, fid, m, chunks, vecs)
 }
 
+// errNoText fails a synced file that indexes to nothing (see store).
+var errNoText = errors.New("no text could be extracted")
+
 // store replaces the file's chunks for model m in one transaction, so
-// searches see either the old or the new chunks.
+// searches see either the old or the new chunks. A staged new version of a
+// synced document (knowledge_file.replaces, see sync.go) also takes the old
+// version's place here: the old row and all its chunks go in the same
+// transaction, so a search sees the old document or the new one, never both
+// and never neither. The old file is deleted once the swap is committed.
 func (s *Service) store(ctx context.Context, c *Collection, fid string, m *embedModel, chunks []Chunk, vecs [][]float32) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var st string
-	err = tx.QueryRow(ctx, `SELECT status FROM knowledge_file WHERE knowledge_id = $1 AND file_id = $2 FOR UPDATE`, c.ID, fid).Scan(&st)
+	var st, origin string
+	var replaces *string
+	err = tx.QueryRow(ctx, `SELECT status, origin, replaces FROM knowledge_file WHERE knowledge_id = $1 AND file_id = $2 FOR UPDATE`, c.ID, fid).Scan(&st, &origin, &replaces)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errors.New("file was removed from the collection while indexing")
 	}
 	if err != nil {
 		return fmt.Errorf("lock knowledge file: %w", err)
+	}
+	// A synced document that yields no chunks (a scan without text, an empty
+	// file) fails instead of replacing a readable version with nothing.
+	if len(chunks) == 0 && (replaces != nil || strings.HasPrefix(origin, OriginPrefix)) {
+		return errNoText
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM chunk WHERE knowledge_id = $1 AND file_id = $2 AND embedding_model_id = $3`, c.ID, fid, m.ID); err != nil {
 		return fmt.Errorf("delete old chunks: %w", err)
@@ -253,11 +272,23 @@ func (s *Service) store(ctx context.Context, c *Collection, fid string, m *embed
 	if err := tx.SendBatch(ctx, b).Close(); err != nil {
 		return fmt.Errorf("insert chunks: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE knowledge_file SET status = 'completed', chunks = $3 WHERE knowledge_id = $1 AND file_id = $2`,
+	if replaces != nil {
+		// no embedding-model filter: every chunk of the old version goes
+		if err := s.removeFile(ctx, tx, c.ID, *replaces); err != nil {
+			return fmt.Errorf("swap out the old version: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE knowledge_file SET status = 'completed', chunks = $3, replaces = NULL WHERE knowledge_id = $1 AND file_id = $2`,
 		c.ID, fid, len(chunks)); err != nil {
 		return fmt.Errorf("mark completed: %w", err)
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if replaces != nil {
+		s.dropFile(ctx, *replaces)
+	}
+	return nil
 }
 
 func (s *Service) splitter(ctx context.Context) Splitter {

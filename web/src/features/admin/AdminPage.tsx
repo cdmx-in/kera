@@ -5,6 +5,8 @@ import { uiConfig } from '@/lib/ui-config'
 import { AdminFrame, pillCls } from './Frame'
 import { AnalyticsPage } from './Analytics'
 import { GroupsPage } from './Groups'
+import { PipelineDetail } from './PipelineRuns'
+import { PipelinesPage } from './Pipelines'
 import { SkillsPage } from './Skills'
 import { SpendPage } from './Spend'
 import { UsersPage } from './Users'
@@ -40,6 +42,7 @@ function sections(): [string, string][] {
     ['skills', 'Skills'],
     ['analytics', 'Analytics'],
     ...(uiConfig().features.spend !== false ? [['spend', 'Spend'] as [string, string]] : []),
+    ['pipelines', 'Pipelines'],
     ['settings', 'Settings'],
   ]
 }
@@ -54,6 +57,7 @@ export default function AdminPage() {
   else if (section === 'skills') body = <SkillsPage />
   else if (section === 'analytics') body = <AnalyticsPage />
   else if (section === 'spend') body = <SpendPage />
+  else if (section === 'pipelines') body = sub ? <PipelineDetail name={sub} run={item} /> : <PipelinesPage />
   else if (section === 'settings') {
     const tab = settingsTabs.find(([k]) => k === sub)
     if (!tab) return <Navigate to="/admin/settings/connections" replace />

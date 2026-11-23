@@ -24,6 +24,7 @@ import (
 	"github.com/cdmx-in/kera/internal/identity"
 	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/knowledge"
+	"github.com/cdmx-in/kera/internal/pipeline"
 	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/settings"
 	"github.com/cdmx-in/kera/internal/skills"
@@ -41,14 +42,22 @@ Usage:
   kera export [-o FILE]   print the managed config as YAML (secrets as ${...})
   kera version            print the version
   kera health             exit 0 when the local server is ready (container healthcheck)
-` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + identity.CLIUsage + `
+` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + pipeline.CLIUsage + identity.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
 KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL).
+kera pipeline reads only KERA_URL, KERA_PIPELINE, KERA_PIPELINE_TOKEN (and sets KERA_RUN and KERA_MARK for the command it runs).
 `
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel()})))
 	if err := run(os.Args[1:]); err != nil {
+		var exit *pipeline.ExitError // "kera pipeline run" ends with its command's exit code
+		if errors.As(err, &exit) {
+			if exit.Msg != "" {
+				fmt.Fprintln(os.Stderr, exit.Msg)
+			}
+			os.Exit(exit.Code)
+		}
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -87,6 +96,8 @@ func run(args []string) error {
 		return knowledge.Command(ctx, args[1:], os.Stdout)
 	case "skills":
 		return skills.Command(ctx, args[1:], os.Stdout)
+	case "pipeline":
+		return pipeline.Command(ctx, args[1:], os.Stdout, os.Stderr)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

@@ -209,7 +209,7 @@ func (s *Service) create(ctx context.Context, u *auth.User, name, desc string) (
 
 // canReadFile grants file access to readers of a collection holding it.
 func (s *Service) canReadFile(ctx context.Context, u *auth.User, fileID string) (bool, error) {
-	rows, err := s.db.Query(ctx, `SELECT knowledge_id FROM knowledge_file WHERE file_id = $1`, fileID)
+	rows, err := s.db.Query(ctx, `SELECT knowledge_id FROM knowledge_file WHERE file_id = $1 AND replaces IS NULL`, fileID)
 	if err != nil {
 		return false, fmt.Errorf("file collections: %w", err)
 	}
@@ -263,7 +263,7 @@ func (s *Service) Documents(ctx context.Context, u *auth.User, knowledgeID strin
 		return nil, err
 	}
 	rows, err := s.db.Query(ctx, `SELECT f.id, f.filename, f.text FROM knowledge_file kf JOIN file f ON f.id = kf.file_id
-		WHERE kf.knowledge_id = $1 AND f.status = 'completed' AND f.text IS NOT NULL ORDER BY f.filename, f.id`, cs[0].ID)
+		WHERE kf.knowledge_id = $1 AND kf.replaces IS NULL AND f.status = 'completed' AND f.text IS NOT NULL ORDER BY f.filename, f.id`, cs[0].ID)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge documents: %w", err)
 	}
