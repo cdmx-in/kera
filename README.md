@@ -14,7 +14,85 @@
 
 </div>
 
+<p align="center">
+  <img src="docs/images/demo.gif" alt="Animated demo: an assistant searches a knowledge collection and answers with cited sources, then the Cowork task list with a finished task and its output file, the scheduled tasks with one failed run, and the admin settings tabs" width="860">
+</p>
+
 Kera runs CodeMax's own internal AI workspace in production every day. It gives a team one place to chat with local and hosted models, search company knowledge, run tools and code, and keep control of the data.
+
+## Screenshots
+
+The screenshots follow your light or dark theme. They show a demo workspace for a made-up company.
+
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/chat-dark.png">
+        <img src="docs/images/chat-light.png" alt="A chat in which the assistant searched the product docs, then answered with a heading, bullets, a table, numbered citations and a sources button" width="100%">
+      </picture>
+      <br>
+      <sub><b>Chat.</b> The assistant searches the knowledge, answers in Markdown and cites its sources.</sub>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/knowledge-dark.png">
+        <img src="docs/images/knowledge-light.png" alt="A knowledge collection called Product docs with five indexed Markdown files" width="100%">
+      </picture>
+      <br>
+      <sub><b>Knowledge.</b> A collection of files, indexed for hybrid search.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/assistants-dark.png">
+        <img src="docs/images/assistants-light.png" alt="The Workspace models page listing six assistant presets as cards with their knowledge and tool counts" width="100%">
+      </picture>
+      <br>
+      <sub><b>Assistants.</b> Presets with their own prompt, tools and knowledge.</sub>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/cowork-dark.png">
+        <img src="docs/images/cowork-light.png" alt="The Cowork task list with tasks that are running, waiting for input, done and failed" width="100%">
+      </picture>
+      <br>
+      <sub><b>Cowork.</b> Tasks that run on their own, finish, or wait for an answer.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/cowork-task-dark.png">
+        <img src="docs/images/cowork-task-light.png" alt="A finished Cowork task with its expanded step timeline and the Markdown file it produced in the Outputs panel" width="100%">
+      </picture>
+      <br>
+      <sub><b>A finished task.</b> Its steps, its report and the file it produced.</sub>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/scheduled-dark.png">
+        <img src="docs/images/scheduled-light.png" alt="The Scheduled tab with five scheduled tasks, their next and last runs, and one failed run with its reason" width="100%">
+      </picture>
+      <br>
+      <sub><b>Scheduled tasks.</b> A timetable per task, and the reason when a run fails.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/admin-dark.png">
+        <img src="docs/images/admin-light.png" alt="Admin settings on the Guardrails tab with personal data, prompt injection and blocklist options" width="100%">
+      </picture>
+      <br>
+      <sub><b>Admin.</b> Settings, here the guardrails every model call goes through.</sub>
+    </td>
+    <td width="50%">
+      <!-- pipelines screenshots go here once Admin > Pipelines ships -->
+    </td>
+  </tr>
+</table>
 
 ## Why Kera
 
