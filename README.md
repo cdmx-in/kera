@@ -48,6 +48,7 @@ Kera runs CodeMax's own internal AI workspace in production every day. It gives 
 - 🧠 **Memory.** Automatic memory capture, which users manage in Settings.
 - 🛡️ **Guardrails.** Personal-data redaction or blocking, prompt-injection and blocklist checks, and optional moderation on every model call, with an audit trail (see below).
 - 🔗 **Integrations.** Scheduled directory sync from Google Workspace: users come in, departments become groups, and suspended or deleted users are disabled (see [docs/integrations.md](docs/integrations.md)).
+- 🔄 **Pipelines.** Keep a knowledge collection in sync with a source on a schedule, from your own script or with one command. A flow view shows each run step by step, with its logs and errors (see [docs/pipelines.md](docs/pipelines.md)).
 - 🎨 **Branding.** Your own name, logos and colours, set from the admin console.
 
 <a id="screenshots"></a>
@@ -121,8 +122,24 @@ The screenshots follow your light or dark theme. They show a demo workspace for 
       <sub><b>Admin.</b> Settings, here the guardrails every model call goes through.</sub>
     </td>
     <td width="50%">
-      <!-- pipelines screenshots go here once Admin > Pipelines ships -->
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/pipelines-dark.png">
+        <img src="docs/images/pipelines-light.png" alt="The Pipelines page with five pipelines in different states: failed, late, warning, never run and OK, each with its last run" width="100%">
+      </picture>
+      <br>
+      <sub><b>Pipelines.</b> Collections kept in sync with their sources, and which runs failed or are late.</sub>
     </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/pipeline-run-dark.png">
+        <img src="docs/images/pipeline-run-light.png" alt="A failed pipeline run with the error in plain words and the last log lines, above the flow of steps with the build step in red" width="100%">
+      </picture>
+      <br>
+      <sub><b>A failed run.</b> The flow of steps, the step that broke and why.</sub>
+    </td>
+    <td width="50%"></td>
   </tr>
 </table>
 

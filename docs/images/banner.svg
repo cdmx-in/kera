@@ -74,6 +74,6 @@
     <text class="sans" x="298" y="196" font-size="30" font-weight="500" fill="#d7eef2">Self-hosted AI chat for teams</text>
   </g>
   <g class="rise" style="animation-delay: 1.3s">
-    <text class="sans" x="298" y="238" font-size="19" font-weight="500" fill="#8fb4bc" letter-spacing="0.6">Chat  ·  Knowledge  ·  Tools  ·  Cowork  ·  Scheduled tasks</text>
+    <text class="sans" x="298" y="238" font-size="19" font-weight="500" fill="#8fb4bc" letter-spacing="0.6">Chat  ·  Knowledge  ·  Tools  ·  Cowork  ·  Scheduled tasks  ·  Pipelines</text>
   </g>
 </svg>
