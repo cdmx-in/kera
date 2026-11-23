@@ -21,6 +21,7 @@ import { sendMessage } from '@/features/chat/actions'
 import { useCollections } from '@/features/workspace/api'
 import { input } from '@/features/workspace/ui'
 import { WEEKDAYS, canCowork, canSchedule, clock, minutesOf, type Frequency, type Schedule, type TaskStatus } from './lib'
+import { AppsPicker } from './AppsPicker'
 import Scheduled, { CoworkTabs, loadSchedules, schedulesKey } from './Scheduled'
 import TaskPage, { StatusBadge, TopBar } from './TaskPage'
 
@@ -230,6 +231,7 @@ function TaskForm({ job }: { job?: Schedule }) {
             {description && <p className="px-2.5 text-xs text-muted">{description}</p>}
           </section>
           <CollectionPicker value={collections} onChange={setCollections} />
+          <AppsPicker />
           {kept.length > 0 && (
             <section>
               <h2 className="pb-1 text-sm font-medium">Files</h2>

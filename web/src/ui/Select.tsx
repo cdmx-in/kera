@@ -82,7 +82,7 @@ export function Select({
           position="popper"
           sideOffset={6}
           collisionPadding={8}
-          className="z-50 min-w-[max(var(--radix-select-trigger-width),9rem)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-line bg-surface text-sm text-fg shadow-pop data-[state=open]:animate-pop-in"
+          className="z-50 min-w-[max(var(--radix-select-trigger-width),9rem)] max-w-[min(30rem,calc(100vw-1rem))] overflow-hidden rounded-xl border border-line bg-surface text-sm text-fg shadow-pop data-[state=open]:animate-pop-in"
         >
           <RSelect.Viewport className="max-h-[min(20rem,var(--radix-select-content-available-height))] overflow-y-auto p-1">
             {options.map((o) => (

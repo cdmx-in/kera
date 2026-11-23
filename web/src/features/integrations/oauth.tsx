@@ -16,8 +16,10 @@ const seg = (id: string) => encodeURIComponent(id).replace(/%3A/gi, ':')
 
 // The OAuth routes take the server's provider id (GET /api/v1/tools/), which
 // usually equals the tool server id.
+export const connectHref = (provider: string, next: string): string => `/oauth/clients/${seg(provider)}/authorize?next=${encodeURIComponent(next)}`
+
 export function authorizeUrl(i: OAuthToolServerIntegration, provider = i.toolServerId): string {
-  return `/oauth/clients/${seg(provider)}/authorize?next=${encodeURIComponent(`/?tools=${i.toolServerId}`)}`
+  return connectHref(provider, `/?tools=${i.toolServerId}`)
 }
 
 export function useConnected(i: OAuthToolServerIntegration) {
