@@ -76,7 +76,7 @@ KERA_URL=https://kera.example.com KERA_PIPELINE=docs-sync KERA_PIPELINE_TOKEN=kp
 - sends a report every 5 seconds or 16 KiB, a heartbeat every 60 seconds, and everything that is left before it closes the run;
 - exits with the command's exit code.
 
-If the command exits non-zero: when a step already **failed** (`fail` marker), no other step is failed and the run's error is built from the failed steps ("Failed at step fetch: kept the previous files."); otherwise the current step fails with "exit code N". A script that keeps its failures for the end therefore blames the step that failed, not the last one.
+If the command exits non-zero, the step it was in fails with "exit code N", and the run's error names every failed step ("Failed at step fetch: kept the previous files. Failed at step upload: exit code 1."). A script that keeps its failures for the end (`fail` markers, then a deferred `exit 1`) prints `${KERA_MARK}end` just before that exit: the current step then ends `ok`, and only the steps that failed are blamed ("Failed at step fetch: kept the previous files."). Without `end`, Kera cannot tell a deferred exit from a crash after the soft failure, so it blames the step that was running as well.
 
 If Kera cannot be reached when the run starts (or the token is wrong), the wrapper warns on stderr and **runs the command unreported**: a Kera outage never stops the real work. Only a `409 run_active` skips the run, with exit `75`.
 
@@ -86,11 +86,13 @@ A script that is itself wrapped by the same file can guard against loops:
 
 ```sh
 if [ -z "${KERA_MARK:-}" ] && [ -n "${KERA_PIPELINE:-}" ] && command -v kera >/dev/null; then
-  exec kera pipeline run -- "$0" "$@"
+  exec kera pipeline run -- bash "$0" "$@"
 fi
 M="${KERA_MARK:-::}"        # without the wrapper the markers are plain log lines
 step() { echo "${M}step $1"; }
 ```
+
+`bash "$0"` (not just `"$0"`) keeps the script starting when it was run as `bash refresh.sh`, whose name has no slash and so is not searched in the current folder, or when it has no execute bit.
 
 ## The marker protocol
 
@@ -104,9 +106,10 @@ A marker is a line that starts with `$KERA_MARK`, a random value the wrapper gen
 | `${KERA_MARK}fail TEXT` | The current step fails with that text; the script goes on. The run will be `failed`, and files are not removed from collections in this run. |
 | `${KERA_MARK}skip TEXT` | The current step is skipped, with the text as the reason. |
 | `${KERA_MARK}count key=N` | Sets a number on the current step (`key` starts with a letter, up to 40 characters; at most 20 keys per step). |
+| `${KERA_MARK}end` | The script is done and only keeps its verdict for its exit code (`exit 1` after `fail` markers). The current step ends `ok`; a non-zero exit then blames only the steps that failed. |
 | anything else | A log line of the current step. |
 
-The wrapper shows markers on its own stdout as `[step] NAME`, `[warn] TEXT`, `[fail] TEXT` and `[skip] TEXT`; `steps` and `count` lines are not shown.
+The wrapper shows markers on its own stdout as `[step] NAME`, `[warn] TEXT`, `[fail] TEXT` and `[skip] TEXT`; `steps`, `count` and `end` lines are not shown.
 
 Statuses never go down: a step marked `fail` stays failed, a warning can become a failure, a failed step cannot become `ok`.
 

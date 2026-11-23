@@ -41,7 +41,7 @@ export const lateText = (p: Pick<Pipeline, 'every_minutes' | 'last_ok_at'>) => `
 export function CopyBlock({ text, label }: { text: string; label: string }) {
   return (
     <div className="relative">
-      <pre className="overflow-x-auto rounded-lg bg-bg-soft p-3 pr-20 text-xs">{text}</pre>
+      <pre className="whitespace-pre-wrap break-words rounded-lg bg-bg-soft p-3 pr-24 text-xs">{text}</pre>
       <Btn className="absolute right-2 top-2 px-2 py-1 text-xs" aria-label={`Copy ${label}`} onClick={async () => (await copyText(text)) && toast('Copied')}>
         <Copy size={12} aria-hidden /> Copy
       </Btn>

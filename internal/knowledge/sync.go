@@ -222,7 +222,10 @@ func classify(listing []SyncFile, rows []syncRow, origin string, run int64, adop
 			if staged != nil {
 				p.drop = append(p.drop, staged.fileID) // the source went back to the live content
 			}
-		case staged != nil && staged.sha == f.SHA256 && staged.status != "failed":
+		case staged != nil && staged.sha == f.SHA256 && (staged.status != "failed" || staged.stamped(run)):
+			// A version that failed earlier is offered again, but not one that failed in
+			// this run: push lists again after its uploads, and dropping the row there
+			// would lose the failure before the run reports it.
 			p.Received = append(p.Received, f.Name)
 			p.stamp = append(p.stamp, staged.fileID)
 		default:

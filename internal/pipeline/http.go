@@ -238,8 +238,12 @@ func (s *Service) hSync(w http.ResponseWriter, r *http.Request) {
 	now := s.now()
 	if err := s.editNode(ctx, rn.ID, c.ID, func(st *step, budget *int) {
 		st.start(now)
-		// a second listing of the same files adopts nothing new: the count keeps the first one's
-		st.Counts["listed"], st.Counts["unchanged"] = int64(len(in.Files)), int64(len(plan.Unchanged))
+		// push lists twice (the second listing checks what the uploads left): the first
+		// listing's numbers stand, because by the second every uploaded file may already
+		// be live and would count as unchanged, and a second listing adopts nothing new
+		if _, listed := st.Counts["listed"]; !listed {
+			st.Counts["listed"], st.Counts["unchanged"] = int64(len(in.Files)), int64(len(plan.Unchanged))
+		}
 		st.Counts["adopted"] = max(st.Counts["adopted"], int64(len(plan.Adopted)))
 		if rn.DryRun { // what a real run would do
 			st.Counts["uploaded"], st.Counts["removed"] = int64(len(plan.Upload)), int64(len(plan.Stale))

@@ -458,6 +458,36 @@ func TestSyncFailedVersionKeepsTheOld(t *testing.T) {
 	}
 }
 
+// push lists the folder again after its uploads. A version that failed to index in
+// that window must still be there for the run to report: the second listing keeps it,
+// and only the next run offers the file again.
+func TestSyncSecondListingKeepsAFailureOfThisRun(t *testing.T) {
+	e := newSync(t)
+	e.push(1, "a.md", docFox)
+	e.plan(2, "a.md", docJugs)
+	staged := e.put(2, "a.md", docJugs)
+	e.emb.fail.Store(true)
+	e.drain()
+	e.emb.fail.Store(false)
+
+	p := e.plan(2, "a.md", docJugs) // the listing after the uploads
+	names(t, "upload", p.Upload)
+	names(t, "received", p.Received, "a.md")
+	if !e.fileExists(staged.FileID) || e.staged() != 1 {
+		t.Fatal("the second listing dropped the failed version")
+	}
+	st := e.state(2)
+	if st.Failed != 1 || len(st.Failures) != 1 || st.Failures[0].Name != "a.md" || !strings.Contains(st.Failures[0].Error, "embedding server down") {
+		t.Fatalf("the failure is not reported: %+v", st)
+	}
+	// A later run offers it again and drops the failed version.
+	p = e.plan(3, "a.md", docJugs)
+	names(t, "upload", p.Upload, "a.md")
+	if e.fileExists(staged.FileID) {
+		t.Fatal("the next run kept the failed version")
+	}
+}
+
 // A new name that fails has no old version; its error entry goes when a
 // retry succeeds.
 func TestSyncFailedNewFileThenRetry(t *testing.T) {

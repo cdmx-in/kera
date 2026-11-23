@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router'
 import type { NavigateFunction } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import { Flow, History, leaveStep, Notice, StepBody } from './PipelineRuns'
+import { CopyBlock } from './Pipelines'
 import type { Run, Step } from './pipelines'
 
 const at = (s: string) => `2026-03-10T06:${s}Z`
@@ -18,6 +19,14 @@ const steps: Step[] = [
   step({ seq: 1000, kera: true, key: 'k1', name: 'Product docs', status: 'running', finished_at: null, counts: { listed: 25, unchanged: 22, uploaded: 3, waiting: 2 } }),
   step({ seq: 1001, kera: true, key: 'k2', name: 'Guides', status: 'pending', started_at: null, finished_at: null }),
 ]
+
+describe('CopyBlock', () => {
+  it('wraps a long command instead of scrolling it sideways under the Copy button', () => {
+    const html = renderToStaticMarkup(<CopyBlock text="kera pipeline push --collection 'Product docs' --dir ./docs" label="command" />)
+    expect(html).toContain('whitespace-pre-wrap')
+    expect(html).not.toContain('overflow-x-auto')
+  })
+})
 
 describe('Flow', () => {
   const html = renderToStaticMarkup(<Flow steps={steps} seq={2} now={now} onOpen={() => {}} />)

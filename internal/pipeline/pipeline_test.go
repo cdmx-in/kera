@@ -769,6 +769,35 @@ func TestLifecycleOK(t *testing.T) {
 	}
 }
 
+// push lists twice; by the second listing the uploaded files may already be live and
+// would count as unchanged. The node keeps the first listing's numbers.
+func TestSecondListingKeepsTheFirstCounts(t *testing.T) {
+	e := newEnv(t, true)
+	p, kids := e.mkPipe("docs-sync", "Product docs")
+	run := p.start(startIn{Steps: []string{"fetch", "kera"}})
+	plan := p.sync(run, "Product docs", docs, true)
+	for _, n := range plan.Upload {
+		p.put(run, "Product docs", n, docs[n])
+	}
+	for i := 0; ; i++ { // wait until all three are live
+		if i > 600 {
+			t.Fatal("the uploads were not indexed")
+		}
+		if n := e.count(`SELECT count(*) FROM knowledge_file WHERE knowledge_id = $1 AND replaces IS NULL AND status = 'completed'`, kids[0]); n == 3 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if again := p.sync(run, "Product docs", docs, true); len(again.Unchanged) != 3 {
+		t.Fatalf("second listing: %+v", again)
+	}
+	p.finish(run, "")
+	node := stepOf(p.closed(run), true, "Product docs")
+	if node.Counts["listed"] != 3 || node.Counts["uploaded"] != 3 || node.Counts["unchanged"] != 0 {
+		t.Errorf("counts %+v: three new files are not unchanged", node.Counts)
+	}
+}
+
 func TestFailedScriptStepSkipsPrune(t *testing.T) {
 	for name, finishErr := range map[string]string{"a failed step": "", "a finish error": "the fetcher crashed"} {
 		t.Run(name, func(t *testing.T) {

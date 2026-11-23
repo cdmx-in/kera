@@ -140,7 +140,8 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
     <Page>
       <Back />
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
+        {/* a readable width, so the buttons wrap under the title on a tablet instead of squeezing it */}
+        <div className="min-w-[min(100%,18rem)] flex-1">
           <h2 className="flex flex-wrap items-center gap-2 break-words text-lg font-semibold tracking-tight">
             {p.title || p.name} <StatusBadge status={state} /> {p.managed && <ManagedBadge />}
           </h2>
@@ -490,7 +491,7 @@ export function Flow({ steps, seq, now, onOpen }: { steps: Step[]; seq: number |
           {script.map((s, i) => (
             <li key={s.seq} className="flex items-center sm:w-auto">
               {node(s)}
-              {(i < script.length - 1 || kera.length > 0) && <Connector />}
+              {i < script.length - 1 && <Connector />}
             </li>
           ))}
         </ol>
