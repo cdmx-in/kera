@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Link, Route, Routes, useNavigate, useSearchParams } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, X } from 'lucide-react'
+import { ListChecks, Plus, X } from 'lucide-react'
 import { api } from '@/api/client'
 import { useMe, useModels } from '@/api/queries'
 import type { FileRef } from '@/api/types'
@@ -19,7 +19,8 @@ import { useModelSetup, type ModelPreset } from '@/features/chat/ChatPage'
 import { Composer } from '@/features/chat/composer/Composer'
 import { sendMessage } from '@/features/chat/actions'
 import { useCollections } from '@/features/workspace/api'
-import { input } from '@/features/workspace/ui'
+import { Card } from '@/features/admin/ui'
+import { Empty, btnPrimary, input } from '@/features/workspace/ui'
 import { WEEKDAYS, canCowork, canSchedule, clock, minutesOf, type Frequency, type Schedule, type TaskStatus } from './lib'
 import { AppsPicker } from './AppsPicker'
 import Scheduled, { CoworkTabs, loadSchedules, schedulesKey } from './Scheduled'
@@ -66,6 +67,10 @@ function Index() {
   return schedulable && search.get('tab') === 'scheduled' ? <Scheduled /> : <TaskList tabs={schedulable} />
 }
 
+/** Row grid shared by the header and the rows: Task, Assistant, Updated, Files, Status. */
+const head = 'text-xs font-medium text-muted'
+const taskCols = 'sm:grid-cols-[minmax(0,2.4fr)_minmax(0,1.2fr)_10rem_5rem_7rem]'
+
 function TaskList({ tabs }: { tabs: boolean }) {
   const models = useModels()
   // ponytail: first 200 tasks (server LIMIT), no paging; add it when someone has more.
@@ -84,7 +89,7 @@ function TaskList({ tabs }: { tabs: boolean }) {
       </TopBar>
       {tabs && <CoworkTabs active="tasks" />}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl p-4">
+        <div className="mx-auto w-full max-w-[100rem] p-4 sm:p-6 lg:px-8">
           {tasks.isPending ? (
             <div className="grid place-items-center py-10 text-muted">
               <Spinner size={20} />
@@ -92,26 +97,56 @@ function TaskList({ tabs }: { tabs: boolean }) {
           ) : tasks.isError ? (
             <p className="py-10 text-center text-muted">Could not load tasks: {tasks.error.message}</p>
           ) : !tasks.data.length ? (
-            <p className="py-10 text-center text-muted">No tasks yet. Start one and the assistant works on it while you do something else.</p>
+            <Empty
+              icon={ListChecks}
+              title="No tasks yet"
+              action={
+                <Link to="/cowork/new" className={btnPrimary}>
+                  <Plus size={15} /> New task
+                </Link>
+              }
+            >
+              Start one and the assistant works on it while you do something else. Its files and report are kept here.
+            </Empty>
           ) : (
-            <ul className="divide-y divide-line">
-              {tasks.data.map((t) => {
-                const m = models.data?.find((x) => x.id === t.model)
-                const sub = [m?.name ?? t.model, new Date(t.updated_at * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }), `${t.files} file${t.files === 1 ? '' : 's'}`]
-                return (
-                  <li key={t.id} data-testid="task-row" data-task-id={t.id} data-status={t.status}>
-                    <Link to={`/cowork/${t.id}`} className="flex items-center gap-3 rounded-xl px-2 py-3 hover:bg-surface-2">
-                      {m ? <ModelIcon m={m} size="sm" /> : <span className="size-6 shrink-0" />}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{taskTitle(t.title)}</span>
-                        <span className="block truncate text-xs text-muted">{sub.filter(Boolean).join(' · ')}</span>
-                      </span>
-                      <StatusBadge status={t.status} />
-                    </Link>
-                  </li>
-                )
-              })}
-            </ul>
+            <Card>
+              <div className={cx('hidden gap-x-4 border-b border-line bg-surface-2/40 px-4 py-2 sm:grid', taskCols)} aria-hidden>
+                <span className={head}>Task</span>
+                <span className={head}>Assistant</span>
+                <span className={head}>Updated</span>
+                <span className={head}>Files</span>
+                <span className={head}>Status</span>
+              </div>
+              <ul className="divide-y divide-line">
+                {tasks.data.map((t) => {
+                  const m = models.data?.find((x) => x.id === t.model)
+                  const updated = new Date(t.updated_at * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                  const sub = [m?.name ?? t.model, updated, `${t.files} file${t.files === 1 ? '' : 's'}`]
+                  return (
+                    <li key={t.id} data-testid="task-row" data-task-id={t.id} data-status={t.status}>
+                      <Link to={`/cowork/${t.id}`} className={cx('grid items-center gap-x-4 gap-y-0.5 px-4 py-3 hover:bg-surface-2/60', taskCols)}>
+                        <span className="flex min-w-0 items-center gap-3">
+                          {m ? <ModelIcon m={m} size="sm" /> : <span className="size-6 shrink-0" />}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{taskTitle(t.title)}</span>
+                            <span className="block truncate text-xs text-muted sm:hidden">{sub.filter(Boolean).join(' · ')}</span>
+                          </span>
+                          <span className="sm:hidden">
+                            <StatusBadge status={t.status} />
+                          </span>
+                        </span>
+                        <span className="hidden truncate text-sm text-muted sm:block">{m?.name ?? t.model}</span>
+                        <span className="hidden text-sm text-muted sm:block">{updated}</span>
+                        <span className="hidden text-sm tabular-nums text-muted sm:block">{t.files}</span>
+                        <span className="hidden sm:block">
+                          <StatusBadge status={t.status} />
+                        </span>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </Card>
           )}
         </div>
       </div>
