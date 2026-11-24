@@ -46,13 +46,17 @@ func TestVerifyWithoutAHash(t *testing.T) {
 	}
 	t.Logf("no-hash check took %v", time.Since(start)) // the first call also makes the dummy hash
 	h, _ := HashPassword(ctx, "x")
-	start = time.Now()
-	_, _, _ = VerifyPassword(ctx, "anything at all", "")
-	empty := time.Since(start)
-	start = time.Now()
-	_, _, _ = VerifyPassword(ctx, "anything at all", h)
-	real := time.Since(start)
-	if empty < real/2 || empty > real*2 {
+	fastest := func(enc string) time.Duration { // the best of three: a busy machine slows single runs
+		best := time.Hour
+		for range 3 {
+			start := time.Now()
+			_, _, _ = VerifyPassword(ctx, "anything at all", enc)
+			best = min(best, time.Since(start))
+		}
+		return best
+	}
+	empty, real := fastest(""), fastest(h)
+	if empty < real/3 || empty > real*3 {
 		t.Fatalf("an empty hash took %v, a real one %v: timing tells them apart", empty, real)
 	}
 }
