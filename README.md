@@ -8,11 +8,10 @@
 Built for Ollama and any OpenAI-compatible model. One Go binary and Postgres.
 
 [![ci](https://github.com/cdmx-in/kera/actions/workflows/ci.yml/badge.svg)](https://github.com/cdmx-in/kera/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/cdmx-in/kera?logo=github)](https://github.com/cdmx-in/kera/releases/latest)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg?logo=go&logoColor=white)](go.mod)
-[![Postgres](https://img.shields.io/badge/postgres-18%20%2B%20pgvector-336791.svg?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
-[![Stars](https://img.shields.io/github/stars/cdmx-in/kera?style=flat&logo=github)](https://github.com/cdmx-in/kera/stargazers)
+[![License: Apache-2.0](docs/images/badge-license.svg)](LICENSE)
+[![Go](docs/images/badge-go.svg)](go.mod)
+[![Postgres](docs/images/badge-postgres.svg)](https://github.com/pgvector/pgvector)
+[![Docker image](docs/images/badge-docker.svg)](https://github.com/cdmx-in/kera/pkgs/container/kera)
 
 [🚀 Quick start](#quick-start) · [✨ Features](#features) · [📸 Screenshots](#screenshots) · [🧩 Architecture](#architecture) · [⚙️ Configuration](#configuration) · [🛡️ Guardrails](#guardrails) · [💬 Discussions](https://github.com/cdmx-in/kera/discussions)
 

@@ -37,6 +37,6 @@ The web app bundles the noVNC client (@novnc/novnc, https://github.com/novnc/noV
 distributed under the Mozilla Public License 2.0; its source is available from
 that repository and the npm package, unmodified.
 
-The icons in docs/images/architecture.svg are from Lucide (https://lucide.dev),
+The icons in docs/images/architecture.svg and docs/images/badge-*.svg are from Lucide (https://lucide.dev),
 licensed under the ISC licence; the web app uses the same icon set through the
 lucide-react npm package.
