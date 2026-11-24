@@ -27,6 +27,7 @@ func TestScanRules(t *testing.T) {
 		{"iban GB82WEST12345698765432", "iban [iban]", "pii.iban"},
 		{"iban GB82WEST12345698765431", "iban GB82WEST12345698765431", ""},
 		{"ssn 123-45-6789", "ssn [ssn]", "pii.ssn"},
+		{"nino AB123456C", "nino [nino]", "pii.nino"},
 		{"call +91 98765 43210", "call [phone]", "pii.phone"},
 		{"call (415) 555-2671", "call [phone]", "pii.phone"},
 		{"mobile 9876543210", "mobile [phone]", "pii.phone"},

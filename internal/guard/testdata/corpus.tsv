@@ -169,3 +169,19 @@ neg	injection	Previous instructions for the migration are in the wiki; ignore th
 neg	injection	Instruct the system to hold the transaction until second approval.
 neg	injection	Summarise the rules above in two lines.
 neg	injection	Print the receipt and show the initial balance.
+pos	pii.nino	NINO AB123456C on the P45.
+pos	pii.nino	NI number AB 12 34 56 A verified.
+pos	pii.nino	Employee JA000001B enrolled.
+pos	pii.nino	Applicant (nino CE987654D) approved.
+pos	pii.nino	Tax ref: HZ 45 67 89 A; active.
+pos	pii.nino	Payroll ID: KL112233B.
+pos	pii.nino	Submit NINO NW 65 43 21 C today.
+pos	pii.nino	Record YR887766D archived.
+neg	pii.nino	Invalid prefix GB123456A rejected.
+neg	pii.nino	Invalid prefix BG123456B rejected.
+neg	pii.nino	Invalid prefix ZZ999999C rejected.
+neg	pii.nino	Invalid second letter AO123456A rejected.
+neg	pii.nino	Invalid suffix AB123456E rejected.
+neg	pii.nino	Too short AB12345A ignored.
+neg	pii.nino	Too many digits AB1234567A ignored.
+neg	pii.nino	Lowercase ref ab123456c not matched.

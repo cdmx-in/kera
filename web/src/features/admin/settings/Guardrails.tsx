@@ -51,6 +51,7 @@ const ruleLabels: Record<string, string> = {
   'pii.aadhaar': 'Aadhaar',
   'pii.iban': 'IBAN',
   'pii.ssn': 'SSN',
+  'pii.nino': 'UK NINO',
   injection: 'Prompt injection',
   blocklist: 'Blocklist',
   'moderation.unavailable': 'Moderation unavailable',
