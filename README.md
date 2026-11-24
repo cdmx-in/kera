@@ -233,7 +233,7 @@ A blocked call fails with HTTP 400 and the code `guardrail_blocked`. Each event 
 Kera is young: v1.0.0 was released on 2026-11-21. Schema migrations run on start and only move forward, so keep a `pg_dump` before upgrading ([docs/deploy.md](docs/deploy.md#ports-data-backup)). Things to know before you choose it:
 
 - Sign-in is by email and password, Google or generic OIDC.
-- The web interface is in English only. There is no desktop or mobile app.
+- The web interface is in English only.
 - The default stack runs Kera, Postgres and the document extraction service. Reranking, the code interpreter's Jupyter server and the Cowork desktop are separate services (see [Quick start](#quick-start)). OCR reads English until you add languages to the extraction image.
 - Scheduled Cowork tasks are off for non-admin users until you turn on `features.cowork_schedule`.
 - The quick start expects a model server. Small CPU-only models are slow; add a GPU or point Kera at a hosted model.
