@@ -71,6 +71,15 @@ func TestParser(t *testing.T) {
 			[]stepIn{{Name: "a", Status: "pending"}, {Name: "b", Status: "pending"}, {Name: "a", Status: "running"}, {Name: "a", Log: "in a\n"},
 				{Name: "a", Status: "ok"}, {Name: "b", Status: "running"}, {Name: "b", Log: "in b\n"}},
 			[]string{"[step] a", "in a", "[step] b", "in b"}},
+		{"lines before the first step make an implicit start that comes before the declared steps",
+			[]string{testMark + "steps a b", "hello", testMark + "step a"},
+			[]stepIn{{Name: "start", Status: "running"}, {Name: "a", Status: "pending"}, {Name: "b", Status: "pending"}, {Name: "start", Log: "hello\n"},
+				{Name: "start", Status: "ok"}, {Name: "a", Status: "running"}},
+			[]string{"hello", "[step] a"}},
+		{"steps declared while a step is open are reported at once",
+			[]string{testMark + "step a", testMark + "steps b c"},
+			[]stepIn{{Name: "a", Status: "running"}, {Name: "b", Status: "pending"}, {Name: "c", Status: "pending"}},
+			[]string{"[step] a"}},
 		{"warn, fail and skip mark the current step and the script goes on",
 			[]string{testMark + "step a", testMark + "warn slow", testMark + "fail broken source", "more", testMark + "step b", testMark + "skip no changes"},
 			[]stepIn{{Name: "a", Status: "running"}, {Name: "a", Status: "warning", Error: "slow"}, {Name: "a", Status: "failed", Error: "broken source"},
@@ -114,6 +123,20 @@ func TestParser(t *testing.T) {
 		if !slices.Equal(echoed, c.echo) {
 			t.Errorf("%s: echo\n got %q\nwant %q", c.name, echoed, c.echo)
 		}
+	}
+}
+
+// A script that declares its steps and then ends without a word still reports them, so the run can skip them.
+func TestParserDeclaredOnlyIsReported(t *testing.T) {
+	var items []stepIn
+	p := newParser(testMark, func(in stepIn) { items = append(items, in) }, func(string) {})
+	p.line(testMark + "steps a b")
+	if len(items) != 0 {
+		t.Fatalf("nothing is reported before something happens: %+v", items)
+	}
+	p.end(0)
+	if want := []stepIn{{Name: "a", Status: "pending"}, {Name: "b", Status: "pending"}}; !equalItems(items, want) {
+		t.Errorf("reports\n got %+v\nwant %+v", items, want)
 	}
 }
 

@@ -327,6 +327,7 @@ type parser struct {
 	cur   string            // the current step, "" before the first line
 	state map[string]string // step -> pending | running | ok | warning | failed | skipped
 	order []string          // steps in order of first appearance
+	decl  []string          // declared by a steps marker, reported with the next step or line so an implicit start comes before them
 	errs  map[string]string // failed step -> its error text
 	ended bool              // the script printed "end"
 	sink  func(stepIn)      // receives every report
@@ -361,8 +362,10 @@ func (p *parser) marker(verb, arg string) bool {
 				continue
 			}
 			p.state[n] = "pending"
-			p.order = append(p.order, n)
-			p.sink(stepIn{Name: n, Status: "pending"})
+			p.decl = append(p.decl, n)
+		}
+		if p.cur != "" {
+			p.declare()
 		}
 		return true
 	case "step":
@@ -375,6 +378,7 @@ func (p *parser) marker(verb, arg string) bool {
 		}
 		p.echo("[step] " + name)
 		p.closeCur()
+		p.declare()
 		p.open(name)
 		return true
 	case "warn", "fail", "skip":
@@ -410,11 +414,25 @@ func (p *parser) open(name string) {
 	p.sink(stepIn{Name: name, Status: "running"})
 }
 
-// ensure makes sure there is a current step (the implicit "start").
+// ensure makes sure there is a current step (the implicit "start"), which then
+// comes first in the run, before the steps the script declared.
 func (p *parser) ensure() {
 	if p.cur == "" {
 		p.open("start")
 	}
+	p.declare()
+}
+
+// declare reports the declared steps that nothing has opened yet, as pending.
+func (p *parser) declare() {
+	for _, n := range p.decl {
+		if p.state[n] != "pending" || slices.Contains(p.order, n) {
+			continue
+		}
+		p.order = append(p.order, n)
+		p.sink(stepIn{Name: n, Status: "pending"})
+	}
+	p.decl = nil
 }
 
 // closeCur ends the current step ok, unless a marker already closed it.
@@ -443,6 +461,7 @@ func (p *parser) verdict(name, status, text string) {
 // only the failed steps are blamed. Without "end" the script may just have
 // crashed after the soft failure, so the current step is blamed too.
 func (p *parser) end(code int) string {
+	p.declare()
 	if code == 0 {
 		p.closeCur()
 		return ""
