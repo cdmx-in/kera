@@ -82,6 +82,9 @@ func addUserCLI(ctx context.Context, db *pgxpool.Pool, args []string, in io.Read
 	}
 	var hash string
 	if *pwStdin {
+		if f, ok := in.(*os.File); ok && isTerminal(f) {
+			return errors.New("--password-stdin reads a pipe, but standard input is a terminal (the password would be echoed): pipe it in, or add the user without it and run kera user passwd")
+		}
 		pw, err := passwordFromStdin(in)
 		if err != nil {
 			return err
@@ -146,6 +149,9 @@ func passwdCLI(ctx context.Context, db *pgxpool.Pool, args []string, in io.Reade
 	}
 	var pw string
 	if *stdin {
+		if f, ok := in.(*os.File); ok && isTerminal(f) {
+			return errors.New("--stdin reads a pipe, but standard input is a terminal: leave --stdin out to be asked (nothing is echoed), or pipe the password in")
+		}
 		pw, err = passwordFromStdin(in)
 	} else {
 		pw, err = promptPassword(in, out)
