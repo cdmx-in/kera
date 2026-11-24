@@ -25,7 +25,7 @@ type Env struct {
 	// admin when the user table is empty at startup; they change nothing once any user exists.
 	AdminEmail, AdminPassword string
 	// TrustedProxies (KERA_TRUSTED_PROXIES, comma-separated addresses or CIDRs) are CDNs that reach
-	// Kera over a public address: their CF-Connecting-IP and X-Forwarded-For are believed. Loopback
+	// Kera over a public address: their X-Forwarded-For is believed (read from the right; CF-Connecting-IP never is). Loopback
 	// and private peers are always taken for reverse proxies, but only their X-Forwarded-For counts.
 	// Used for sign-in rate limits (api.RealIP).
 	TrustedProxies []netip.Prefix

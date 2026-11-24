@@ -19,8 +19,10 @@ import (
 //     believed here: Caddy, nginx and Traefik pass a client-sent copy through, and
 //     a client could pick a new address per try.
 //   - A peer listed in KERA_TRUSTED_PROXIES (a CDN reaching Kera over a public
-//     address): CF-Connecting-IP, which that CDN sets itself, then X-Forwarded-For
-//     as above.
+//     address): X-Forwarded-For from the right, skipping listed proxies, the same
+//     way. Cloudflare appends the address it saw there. CF-Connecting-IP is not
+//     read for these peers either: another CDN, or a proxy an operator listed by
+//     mistake, may pass a client-sent copy through.
 //
 // A client on the same private network as Kera can still forge X-Forwarded-For,
 // which this accepts.
@@ -33,13 +35,7 @@ func RealIP(r *http.Request, trusted []netip.Prefix) string {
 	}
 	ip := peer
 	switch {
-	case inList(peer, trusted):
-		if cf := parseAddr(r.Header.Get("CF-Connecting-IP")); cf.IsValid() {
-			ip = cf
-			break
-		}
-		ip = fromForwardedFor(r, peer, trusted)
-	case isPrivate(peer):
+	case inList(peer, trusted), isPrivate(peer):
 		ip = fromForwardedFor(r, peer, trusted)
 	}
 	if ip.Is6() {
