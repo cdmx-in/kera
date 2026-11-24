@@ -87,7 +87,7 @@ export function Composer({ onSend, disabled, variant, initialText, sendLabel }: 
 
   return (
     <div
-      className={cx('rounded-3xl border bg-surface p-2 shadow-pop transition-colors focus-within:border-accent/60', dragging ? 'border-accent' : 'border-line')}
+      className={cx('rounded-3xl border bg-surface p-2 shadow-pop transition-colors focus-within:border-accent', dragging ? 'border-accent' : 'border-line')}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault()
@@ -124,7 +124,7 @@ export function Composer({ onSend, disabled, variant, initialText, sendLabel }: 
               {a.preview ? <img src={a.preview} alt="" className="size-8 rounded-md object-cover" /> : <ExtBadge name={a.name} />}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm">{a.name}</span>
-                <span className={cx('block text-xs', a.status === 'failed' ? 'text-red-600' : 'text-muted')}>
+                <span className={cx('block text-xs', a.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-muted')}>
                   {a.status === 'uploading' ? 'Uploading…' : a.status === 'processing' ? 'Processing…' : a.status === 'failed' ? (a.error ?? 'Failed') : 'Ready'}
                 </span>
               </span>
@@ -159,7 +159,6 @@ export function Composer({ onSend, disabled, variant, initialText, sendLabel }: 
         ref={ta}
         id="chat-input"
         aria-autocomplete="list"
-        aria-expanded={open}
         aria-controls={open ? 'slash-list' : undefined}
         aria-activedescendant={open ? `slash-${matches[sel].id}` : undefined}
         data-testid={task ? 'task-goal' : 'composer-input'}

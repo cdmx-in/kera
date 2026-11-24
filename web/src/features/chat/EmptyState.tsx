@@ -43,7 +43,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         {models && !models.some(isChatModel) && <NoModels admin={me?.role === 'admin'} />}
         {model && <p className="mt-2 line-clamp-3 max-w-xl text-pretty text-muted">{description || 'What would you like to work on?'}</p>}
         {model?.local && (
-          <span title="Runs on this server: data stays here" className="mt-3 inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-medium text-accent dark:text-accent-bright">
+          <span title="Runs on this server: data stays here" className="mt-3 inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-medium text-accent-ink">
             <ShieldCheck size={12} aria-hidden /> On server · private
           </span>
         )}

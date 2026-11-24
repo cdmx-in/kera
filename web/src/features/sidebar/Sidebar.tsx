@@ -199,7 +199,7 @@ export function Sidebar() {
           ))}
           {chats.isPending && <p className="px-2.5 py-2 text-sm text-muted">Loading chats…</p>}
           {chats.isError && (
-            <p role="alert" className="px-2.5 py-2 text-sm text-red-600">
+            <p role="alert" className="px-2.5 py-2 text-sm text-red-600 dark:text-red-400">
               Could not load chats.{' '}
               <button type="button" onClick={() => void chats.refetch()} className="underline">
                 Retry
@@ -278,7 +278,7 @@ function ArchivedSection({ mut, onOpen }: { mut: Mut; onOpen: () => void }) {
       {open && (
         <ul className="ml-4">
           {archived.isPending && <li className="px-2.5 py-1 text-xs text-muted">Loading…</li>}
-          {archived.isError && <li className="px-2.5 py-1 text-xs text-red-600">Could not load archived chats.</li>}
+          {archived.isError && <li className="px-2.5 py-1 text-xs text-red-600 dark:text-red-400">Could not load archived chats.</li>}
           {archived.data?.map((c) => <ChatRow key={c.id} chat={{ ...c, archived: true }} mut={mut} onOpen={onOpen} />)}
           {archived.isSuccess && !archived.data.length && <li className="px-2.5 py-1 text-xs text-muted">No archived chats.</li>}
         </ul>

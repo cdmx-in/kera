@@ -159,7 +159,7 @@ function AssistantMessage({ m, isLast, readOnly, modelName }: { m: Message; isLa
       )}
       <Sources sources={m.sources} />
       {m.status === 'error' && (
-        <p role="alert" className="mt-2 flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600">
+        <p role="alert" className="mt-2 flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           {m.error?.message ?? 'Something went wrong'}
         </p>

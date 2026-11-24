@@ -77,7 +77,7 @@ export function ChangePassword({ me, keysBelow }: { me: Me; keysBelow: boolean }
           </p>
         )}
         {errors.form && (
-          <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400" data-testid="change-password-error">
+          <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400" data-testid="change-password-error">
             {errors.form}
           </p>
         )}

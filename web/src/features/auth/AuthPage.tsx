@@ -59,7 +59,7 @@ export default function AuthPage() {
   const glass = brand.login?.style === 'glass-card'
   const mark = brandMark()
   const alert = error && (
-    <p role="alert" className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600">
+    <p role="alert" className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
       {authErrorMessage(error)}
     </p>
   )
@@ -237,7 +237,7 @@ export function SignInForm({ glass, autoFocus, onSignedIn }: { glass: boolean; a
         />
       </LField>
       {error && (
-        <p id={errorId} role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400" data-testid="login-error">
+        <p id={errorId} role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400" data-testid="login-error">
           {error}
         </p>
       )}

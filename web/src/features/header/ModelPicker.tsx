@@ -40,7 +40,7 @@ export function ModelPicker() {
         <ChevronDown size={16} className="shrink-0 text-muted" />
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content align="start" sideOffset={6} collisionPadding={8} className="z-50 w-[min(26rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-line bg-surface text-fg shadow-pop">
+        <Popover.Content aria-label="Choose a model" align="start" sideOffset={6} collisionPadding={8} className="z-50 w-[min(26rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-line bg-surface text-fg shadow-pop">
           <Command label="Models" loop>
             <Command.Input placeholder="Search models" className="w-full border-b border-line bg-transparent px-3 py-2.5 text-sm outline-none focus-visible:outline-none" />
             <Command.List className="max-h-[26rem] overflow-y-auto p-1.5">
@@ -67,7 +67,7 @@ export function ModelPicker() {
                       {m.info?.meta?.description && <span className="block truncate text-xs text-muted">{m.info.meta.description}</span>}
                     </span>
                     {m.local && (
-                      <span title="Runs on this server: data stays here" className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-accent dark:text-accent-bright">
+                      <span title="Runs on this server: data stays here" className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-accent-ink">
                         <ShieldCheck size={11} aria-hidden /> On server
                       </span>
                     )}
@@ -89,5 +89,5 @@ const iconBox = { xs: 'size-4 rounded text-[9px]', sm: 'size-6 rounded-md text-x
 export function ModelIcon({ m, size = 'md' }: { m: Model; size?: keyof typeof iconBox }) {
   const box = iconBox[size]
   if (m.profileImageUrl) return <img src={m.profileImageUrl} alt="" className={cx(box, 'shrink-0 object-cover')} />
-  return <span className={cx(box, 'grid shrink-0 place-items-center bg-accent-soft font-semibold text-accent dark:text-accent-bright')}>{(m.name || m.id)[0]?.toUpperCase()}</span>
+  return <span className={cx(box, 'grid shrink-0 place-items-center bg-accent-soft font-semibold text-accent-ink')}>{(m.name || m.id)[0]?.toUpperCase()}</span>
 }
