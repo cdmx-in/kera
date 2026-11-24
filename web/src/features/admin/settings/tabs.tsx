@@ -8,6 +8,7 @@ import { move } from '../lib'
 import { Btn, Card, Check, inputCls } from '../ui'
 import { ExtractorStatus } from './ExtractorStatus'
 import { SettingRow, SettingsForm, type Draft, type FieldSpec } from './form'
+import { WEB_SEARCH_FIELDS } from './webSearchFields'
 import { Select } from '@/ui/Select'
 import { Switch } from '@/ui/misc'
 
@@ -78,9 +79,7 @@ export function WebTab() {
           title: 'Web search',
           hint: 'The built-in web tools. Presets with native web search use the provider instead.',
           fields: [
-            f('web.search.engine', { select: [['duckduckgo', 'DuckDuckGo'], ['searxng', 'SearXNG'], ['brave', 'Brave']] }, undefined, 'Engine'),
-            f('web.search.result_count', 'int', undefined, 'Results per search'),
-            f('web.search.max_calls_per_turn', 'int', undefined, 'Searches per reply'),
+            ...WEB_SEARCH_FIELDS,
           ],
         },
         {
