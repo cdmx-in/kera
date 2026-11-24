@@ -100,7 +100,7 @@ func (h *handler) getSpend(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("spend source", "err", err)
 		api.Fail(w, r, api.Errf(http.StatusFailedDependency, "spend_source_failed",
-			"Cannot read LiteLLM's spend log. Check spend.source.dsn (Admin > Settings) and that LiteLLM has started once."))
+			"Cannot read LiteLLM's spend log. Check the database URL in Admin > Settings > Spend, and that LiteLLM has started once."))
 		return
 	}
 	urows, err := h.a.DB.Query(ctx, `SELECT id, name, email, extract(epoch FROM last_active_at)::bigint FROM "user" ORDER BY created_at`)
