@@ -3,11 +3,22 @@ import { useMe, useModels } from '@/api/queries'
 import { useComposer } from '@/stores/composer'
 import { uiConfig } from '@/lib/ui-config'
 import { ModelIcon } from '@/features/header/ModelPicker'
-import { pickSuggestions } from './model-select'
+import { isChatModel, pickSuggestions } from './model-select'
 
 function greeting(): string {
   const h = new Date().getHours()
   return h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+}
+
+/** Shown when the user can see no chat model at all, which is what a new non-admin user gets until an admin shares models. */
+export function NoModels({ admin }: { admin: boolean }) {
+  return (
+    <p className="mt-4 max-w-md text-pretty text-sm text-muted" data-testid="no-models">
+      {admin
+        ? 'No models yet. Connect a model server in Admin > Settings > Connections, or start Ollama on this host, then reload. Other users see no models until you share them (Admin > Settings > Interface > Base models public).'
+        : 'No model is available to you yet. Ask an admin to give you access to one.'}
+    </p>
+  )
 }
 
 /** The new-chat screen: the selected model (icon, name, description) and its prompt suggestions. */
@@ -29,6 +40,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
           {first ? `, ${first}` : ''}
         </p>
         <h1 className="mt-1 max-w-full break-words text-2xl font-semibold tracking-tight sm:text-3xl">{model ? model.name || model.id : 'What would you like to work on?'}</h1>
+        {models && !models.some(isChatModel) && <NoModels admin={me?.role === 'admin'} />}
         {model && <p className="mt-2 line-clamp-3 max-w-xl text-pretty text-muted">{description || 'What would you like to work on?'}</p>}
         {model?.local && (
           <span title="Runs on this server: data stays here" className="mt-3 inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-medium text-accent dark:text-accent-bright">
