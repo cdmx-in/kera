@@ -50,7 +50,7 @@ services:
     # NVIDIA GPU: install the NVIDIA container toolkit and add
     # deploy: {resources: {reservations: {devices: [{driver: nvidia, count: all, capabilities: [gpu]}]}}}
 
-  # Downloads about 1.6 GB once (watch it with: docker compose logs -f ollama-pull).
+  # Downloads about 2.3 GB once (watch it with: docker compose logs -f ollama-pull).
   ollama-pull:
     profiles: [ollama]
     image: ollama/ollama:0.40.17
@@ -58,7 +58,7 @@ services:
       ollama: {condition: service_healthy}
     environment:
       OLLAMA_HOST: ollama:11434
-    entrypoint: ["/bin/sh", "-c", "ollama pull llama3.2:1b && ollama pull nomic-embed-text"]
+    entrypoint: ["/bin/sh", "-c", "ollama pull llama3.2:3b && ollama pull nomic-embed-text"]
     restart: "no"
 
   # ---- profile "litellm": gateway, its database and a one-shot wiring step ----

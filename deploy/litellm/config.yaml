@@ -4,9 +4,9 @@
 # the ones the "ollama" profile downloads; with your own Ollama use the names
 # from `ollama list`.
 model_list:
-  - model_name: llama3.2:1b
+  - model_name: llama3.2:3b
     litellm_params:
-      model: ollama_chat/llama3.2:1b
+      model: ollama_chat/llama3.2:3b
       api_base: os.environ/OLLAMA_BASE_URL
 
   # Embeddings for knowledge search.

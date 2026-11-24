@@ -44,7 +44,7 @@ If you use your own Ollama instead of the `ollama` profile, use the names from `
 
 - Figures come from LiteLLM, which writes a row a few seconds after each call. Days are UTC.
 - Local models cost nothing, so their rows show requests and tokens with `$0.00`. Add `input_cost_per_token` and `output_cost_per_token` to a model's `litellm_params` to price it.
-- "Per model" shows the model LiteLLM called (for example `ollama_chat/llama3.2:1b`).
+- "Per model" shows the model LiteLLM called (for example `ollama_chat/llama3.2:3b`).
 - Without a spend source the page explains how to set one up. The source is also editable in Admin > Settings > Spend.
 
 ## Using a LiteLLM you already run
