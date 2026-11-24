@@ -37,15 +37,16 @@ func readSecret(f *os.File, prompt string, out io.Writer) (string, error) {
 	if err := ioctl(f.Fd(), ioctlGet, &old); err != nil {
 		return "", errors.New("standard input is not a terminal")
 	}
+	// listen for Ctrl-C before echo goes off, so a signal that arrives once echo is off is always seen
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sig)
 	quiet := old
 	quiet.Lflag &^= syscall.ECHO
 	if err := ioctl(f.Fd(), ioctlSet, &quiet); err != nil {
 		return "", fmt.Errorf("turn off echo: %w", err)
 	}
 	defer ioctl(f.Fd(), ioctlSet, &old)
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sig)
 	fmt.Fprint(out, prompt)
 	type result struct {
 		line string
