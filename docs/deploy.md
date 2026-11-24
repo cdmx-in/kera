@@ -165,15 +165,47 @@ Measured idle: Kera about 20 MB of memory (a burst of sign-ins can take up to 4 
 ## Ports, data, backup
 
 - Published: Kera on `8080` on every network interface (change the port with `KERA_PORT`, the interface with `KERA_BIND`) and, with the `litellm` profile, LiteLLM on `127.0.0.1:4000` (`LITELLM_PORT`). The databases, the `extract` service and Ollama are only reachable inside the stack.
-- Volumes: `kera_pgdata` (the database), `kera_data` (uploaded files), `litellm_pgdata`, `ollama_models`. Compose prefixes them with the project name, `deploy_` by default.
+- Volumes: `kera_pgdata` (the database), `kera_data` (uploaded files, branding), `litellm_pgdata`, `ollama_models`. Compose prefixes them with the project name, which is the folder name unless you set `COMPOSE_PROJECT_NAME` or `-p`: by default `deploy_kera_pgdata` and `deploy_kera_data`. `docker volume ls` shows the names on your machine; use them in place of `deploy_` in the commands below.
 - `docker compose down` keeps all data. `docker compose down -v` deletes it.
 
-Back up the database and the uploads, and keep `.env`:
+Back up the database and the uploads, and keep `.env` somewhere safe: it holds `KERA_SECRET_KEY`, which encrypts the API keys and secrets Kera stores and signs the sign-in sessions, and `KERA_DB_PASSWORD`. A backup without it cannot restore those. Take the two archives at about the same time, since the database lists the uploaded files.
 
 ```sh
 docker compose exec -T kera-db pg_dump -U kera kera | gzip > kera-db.sql.gz
 docker run --rm -v deploy_kera_data:/data -v "$PWD":/backup alpine tar czf /backup/kera-data.tgz -C /data .
 ```
+
+### Restore
+
+For a machine that lost its data, a new machine, or a restore over a running stack. Use the same Kera version as the backup or a newer one: migrations only move forward. The data of the `litellm` and `ollama` profiles (`litellm_pgdata`, `ollama_models`) is not in these backups.
+
+1. Put the saved `.env` into `deploy/` **before anything starts** (on a new machine: clone the repository first, then copy it in). Do not run `./init.sh` for a restore. Postgres takes its password from `KERA_DB_PASSWORD` only when it creates an empty volume, so the volume and `.env` must agree from the first start on.
+2. Stop Kera and start only the database (`docker compose stop kera` has nothing to stop on a new machine, which is fine):
+
+   ```sh
+   docker compose stop kera
+   docker compose up -d --wait kera-db
+   ```
+
+3. Replace the database with the backup. The first command drops the `kera` database and makes an empty one, so it also works when Kera has already run here and created its tables:
+
+   ```sh
+   docker compose exec -T kera-db psql -U kera -d postgres -c 'DROP DATABASE IF EXISTS kera WITH (FORCE)' -c 'CREATE DATABASE kera'
+   gunzip -c kera-db.sql.gz | docker compose exec -T kera-db psql -U kera -d kera -v ON_ERROR_STOP=1 -q > /dev/null
+   ```
+
+4. Replace the uploads. The first line makes Compose create the `kera_data` volume (one made by plain `docker run` is not Compose's: it draws a warning on every `up` and `docker compose down -v` leaves it behind); the second empties it and unpacks the archive, which keeps the file owner Kera runs as:
+
+   ```sh
+   docker compose up --no-start kera
+   docker run --rm -v deploy_kera_data:/data -v "$PWD":/backup alpine sh -c 'find /data -mindepth 1 -delete && tar xzf /backup/kera-data.tgz -C /data'
+   ```
+
+5. Start everything: `docker compose up -d`. Then open Kera, sign in with an account **of the backup**, and check that your chats and files are there. `docker compose logs kera` shows why when it does not come up.
+
+The accounts are the ones in the backup: an admin that `./init.sh` printed on a new machine does not exist after the restore. Forgotten password: `docker compose exec kera kera user passwd you@example.com`.
+
+### Upgrade
 
 Upgrade with `docker compose pull && docker compose up -d`; database migrations run on start. An install from before the `extract` service existed gets it by updating the checkout (`git pull`) and running `docker compose up -d`: Kera uses it with no setting changed, and files that failed earlier have a Retry button.
 
@@ -187,6 +219,7 @@ Upgrade with `docker compose pull && docker compose up -d`; database migrations 
 | The admin from `KERA_ADMIN_EMAIL` does not exist | It is created only at a start where Kera has no users; `docker compose logs kera` says "first admin created" or "ignored". Use `kera user add`, or `login-link` to get in. |
 | Kera stops at start with `KERA_ADMIN_PASSWORD` in the message | The password is shorter than 10 characters, or the email is not an address; fix `.env` and `docker compose up -d`. |
 | `KERA_SECRET_KEY must be at least 32 bytes` in `docker compose logs kera` | Use 64 hex characters: `openssl rand -hex 32`. |
+| Sign-in fails, or Kera does not come up, after a restore | `docker compose logs kera` says which. `password authentication failed for user "kera"`: `.env` has another `KERA_DB_PASSWORD` than the one the database volume was created with. Put the old `.env` back, or give the database the new password: ``docker compose exec -T kera-db psql -U kera -d kera -c "ALTER USER kera PASSWORD '$(sed -n 's/^KERA_DB_PASSWORD=//p' .env)'"``. You are signed out again, or `cannot be decrypted` appears for a connection or provider: `KERA_SECRET_KEY` is not the one of the backup, so old sessions are void and stored keys cannot be read; put the original value back (`docker compose up -d`), or sign in with your password and enter the keys again. "Invalid email or password" for the admin `./init.sh` printed: the restore replaced all accounts, use the ones from the backup. |
 | `port is already allocated` | Set `KERA_PORT=8081` (and `KERA_URL=http://localhost:8081`) in `.env`. |
 | Sign-in link or login redirects go to the wrong address | Set `KERA_URL` to the address in the browser's address bar. |
 | No models in the picker | Admin: Admin > Settings > Connections > Test shows why. Other users: see the note on models above. |
