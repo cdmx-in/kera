@@ -907,3 +907,42 @@ func TestRemovingTheLoginProviderLeavesPasswordSignInOff(t *testing.T) {
 		t.Fatalf("sign-in after the provider was removed: %d %s", r.Code, r.Body)
 	}
 }
+
+// Someone who types their password into the email box must not find it in the server log: only
+// strings that pass the plain-address check are logged, others become a placeholder, in the
+// failure line and in the lock line the limiter writes.
+func TestPasswordTypedInTheEmailBoxIsNotLogged(t *testing.T) {
+	l := captureLogs(t)
+	e := community(t)
+	e.withPassword("user", "ann@example.com", pwAnn)
+	const typed = "my-very-secret-pass1"
+	for range pairFree + 1 { // the last one is refused by the lock it set
+		e.signinAs(typed, "whatever-else-1", "203.0.113.9")
+	}
+	e.signinAs(" "+strings.ToUpper(typed)+" ", "whatever-else-1", "203.0.113.9")
+	e.signinAs("Ann@Example.com", pwEve, "203.0.113.10") // a real address is still named, lower-cased
+	got := l.String()
+	if strings.Contains(strings.ToLower(got), typed) {
+		t.Fatalf("the log contains what was typed into the email box:\n%s", got)
+	}
+	for _, want := range []string{notAnEmail, `"msg":"sign-in locked"`, "203.0.113.9", `"email":"ann@example.com"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestLoggable(t *testing.T) {
+	for in, want := range map[string]string{
+		"ann@example.com":      "ann@example.com",
+		"hunter2hunter2":       notAnEmail,
+		"my password is x@y z": notAnEmail,
+		"":                     notAnEmail,
+		"a@":                   notAnEmail,
+		"Ann <ann@x.com>":      notAnEmail,
+	} {
+		if got := loggable(in); got != want {
+			t.Errorf("loggable(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

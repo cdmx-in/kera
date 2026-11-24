@@ -13,6 +13,7 @@ import (
 type Key struct {
 	Kind, Value string
 	Free        int
+	Log         string // what a log line may show of Value (default: Value); an email field can hold a password
 }
 
 type tally struct {
@@ -49,6 +50,14 @@ const (
 // NewAttempts returns an empty counter.
 func NewAttempts() *Attempts { return &Attempts{m: map[string]*tally{}, now: time.Now} }
 
+// shown is the key as a log line says it.
+func (k Key) shown() string {
+	if k.Log != "" {
+		return k.Log
+	}
+	return strings.ReplaceAll(k.Value, "\x00", " from ")
+}
+
 func (k Key) id() string { return k.Kind + "\x00" + k.Value }
 
 // Begin counts one attempt against every key. When any key is locked it counts
@@ -78,7 +87,7 @@ func (a *Attempts) Begin(keys ...Key) (wait time.Duration, ok bool) {
 		if t.n >= k.Free {
 			d := lockBase << min(t.n-k.Free, 10)
 			t.until = now.Add(min(d, lockMax))
-			slog.Warn("sign-in locked", "kind", k.Kind, "key", strings.ReplaceAll(k.Value, "\x00", " from "), "attempts", t.n, "seconds", int(min(d, lockMax).Seconds()))
+			slog.Warn("sign-in locked", "kind", k.Kind, "key", k.shown(), "attempts", t.n, "seconds", int(min(d, lockMax).Seconds()))
 		}
 	}
 	return 0, true

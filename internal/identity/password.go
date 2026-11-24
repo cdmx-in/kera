@@ -100,10 +100,11 @@ func (h *handler) signin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := api.RealIP(r, h.a.Env.TrustedProxies)
-	pair := auth.Key{Kind: "email+ip", Value: email + "\x00" + ip, Free: pairFree}
-	byEmail, byIP := auth.Key{Kind: "email", Value: email, Free: emailFree}, auth.Key{Kind: "ip", Value: ip, Free: ipFree}
+	shown := loggable(email) // what the log may say about it
+	pair := auth.Key{Kind: "email+ip", Value: email + "\x00" + ip, Free: pairFree, Log: shown + " from " + ip}
+	byEmail, byIP := auth.Key{Kind: "email", Value: email, Free: emailFree, Log: shown}, auth.Key{Kind: "ip", Value: ip, Free: ipFree}
 	if wait, ok := h.attempts.Begin(pair, byEmail, byIP); !ok {
-		slog.Debug("password sign-in refused: locked", "email", email, "ip", ip)
+		slog.Debug("password sign-in refused: locked", "email", shown, "ip", ip)
 		tooMany(w, wait)
 		return
 	}
@@ -141,7 +142,7 @@ func (h *handler) signin(w http.ResponseWriter, r *http.Request) {
 		reason = "user is pending approval"
 	}
 	if reason != "" {
-		slog.Warn("password sign-in failed", "email", email, "ip", ip, "reason", reason)
+		slog.Warn("password sign-in failed", "email", shown, "ip", ip, "reason", reason)
 		api.Fail(w, r, errBadLogin)
 		return
 	}
@@ -448,6 +449,18 @@ func normalizeEmail(s string) (string, error) {
 		return "", errors.New("Enter an email address like name@example.com.")
 	}
 	return strings.ToLower(s), nil
+}
+
+// notAnEmail is logged instead of what was typed into the email box when that is not an
+// email address: people paste their password there, and a log must not keep it.
+const notAnEmail = "(not an email address)"
+
+// loggable is the email as it may be logged: itself when it passes the plain-address check, else a placeholder.
+func loggable(email string) string {
+	if e, err := normalizeEmail(email); err == nil {
+		return e
+	}
+	return notAnEmail
 }
 
 // clip cuts s to at most n bytes without splitting a character.
