@@ -26,6 +26,14 @@ jobs:
         with: {node-version: 24, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml}
       - run: make build
       - run: make test
+      - name: Go coverage
+        run: |
+          go tool cover -func=coverage.out | tail -n 1 | tee coverage.txt
+          { echo "### Go coverage"; cat coverage.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: coverage.out
       - name: known vulnerabilities reachable from our code
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: no tenant strings in core

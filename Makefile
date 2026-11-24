@@ -15,7 +15,7 @@ build: web
 test: test-go test-web
 
 test-go:
-	go vet ./... && go test -race ./...
+	go vet ./... && go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
 test-web:
 	cd web && pnpm typecheck && pnpm test
