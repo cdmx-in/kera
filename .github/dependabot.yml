@@ -38,8 +38,13 @@ updates:
     cooldown: {default-days: 7}
     open-pull-requests-limit: 3
     commit-message: {prefix: build, include: scope}
+    # Base images and toolchains (Go, Node, Python, Debian) are upgraded on purpose, not by a weekly pull request:
+    # only patch updates are proposed.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
-      docker-minor-patch: {patterns: ["*"], update-types: [minor, patch]}
+      docker-patch: {patterns: ["*"], update-types: [patch]}
 
   - package-ecosystem: pip
     directories: [/sidecars/extract, /sidecars/rerank, /sidecars/desktop]
