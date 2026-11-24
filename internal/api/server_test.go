@@ -33,6 +33,25 @@ func TestRequestLog(t *testing.T) {
 	}
 }
 
+func TestRequestLogSkipsHealthyReady(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	status := http.StatusOK
+	h := logRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/ready", nil))
+	if buf.Len() != 0 {
+		t.Fatalf("a healthy /ready was logged: %s", buf.String())
+	}
+	status = http.StatusServiceUnavailable
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/ready", nil))
+	if buf.Len() == 0 {
+		t.Fatal("a failing /ready must be logged")
+	}
+}
+
 func TestSecurityHeaders(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {})

@@ -56,6 +56,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build --build-arg VERSION=ci -t kera:ci .
+      # profile-only services must not break `docker compose up` for people who never turn the profile on
+      - name: compose file parses, with and without the profiles
+        working-directory: deploy
+        run: |
+          printf 'KERA_DB_PASSWORD=x\nKERA_SECRET_KEY=%s\n' "$(head -c 32 /dev/urandom | od -An -vtx1 | tr -d ' \n')" > .env
+          docker compose config -q
+          COMPOSE_PROFILES=litellm,ollama docker compose config -q
+          rm .env && ./init.sh litellm ollama && docker compose config -q
   gitleaks:
     runs-on: ubuntu-latest
     steps:

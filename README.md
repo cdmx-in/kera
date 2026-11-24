@@ -151,14 +151,14 @@ With Docker:
 
 ```sh
 cd deploy
-cp .env.example .env              # set KERA_SECRET_KEY (openssl rand -hex 32) and KERA_DB_PASSWORD
+./init.sh                         # writes .env with random secrets
 docker compose up -d
 docker compose exec kera kera user login-link you@example.com   # open the printed link
 ```
 
 On an empty install, `login-link` creates that first user as admin. After that, add a Google or OIDC sign-in provider in Admin > Settings. To let your account sign in through it, turn on `auth.oauth.merge_by_email`.
 
-The compose file expects Ollama on the host at port 11434. Set `OLLAMA_BASE_URL` to point it elsewhere, or add OpenAI-compatible connections in Admin > Settings.
+The compose file expects Ollama on the host at port 11434. No Ollama? `./init.sh ollama` (before `docker compose up -d`) adds one to the stack with a small chat and embedding model. Want [LiteLLM](docs/litellm.md) in front of your models, with the spend log wired to Admin > Spend? `./init.sh ollama litellm`. HTTPS, backups and troubleshooting: [docs/deploy.md](docs/deploy.md).
 
 From source (Go 1.26, Node 24, pnpm):
 

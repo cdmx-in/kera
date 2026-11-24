@@ -1,7 +1,6 @@
 // Lazy chunk: the admin console.
 import { NavLink, Navigate, useParams } from 'react-router'
 import { useMe } from '@/api/queries'
-import { uiConfig } from '@/lib/ui-config'
 import { AdminFrame, pillCls } from './Frame'
 import { AnalyticsPage } from './Analytics'
 import { GroupsPage } from './Groups'
@@ -15,7 +14,7 @@ import { ConnectionsTab } from './settings/Connections'
 import { ModelsTab } from './settings/Models'
 import { HookServersTab, OAuthTab, ToolServersTab } from './settings/Servers'
 import { GuardrailsTab } from './settings/Guardrails'
-import { ChatTab, CodeTab, InterfaceTab, RetrievalTab, TasksTab, WebTab } from './settings/tabs'
+import { ChatTab, CodeTab, InterfaceTab, RetrievalTab, SpendSourceTab, TasksTab, WebTab } from './settings/tabs'
 import { IntegrationsTab } from './settings/Integrations'
 
 const settingsTabs: [string, string, (item?: string) => React.ReactNode][] = [
@@ -31,6 +30,7 @@ const settingsTabs: [string, string, (item?: string) => React.ReactNode][] = [
   ['chat', 'Chat', () => <ChatTab />],
   ['web', 'Web search', () => <WebTab />],
   ['code', 'Code interpreter', () => <CodeTab />],
+  ['spend', 'Spend', () => <SpendSourceTab />],
   ['retrieval', 'Retrieval', () => <RetrievalTab />],
   ['integrations', 'Integrations', (item) => <IntegrationsTab name={item} />],
 ]
@@ -41,7 +41,7 @@ function sections(): [string, string][] {
     ['groups', 'Groups'],
     ['skills', 'Skills'],
     ['analytics', 'Analytics'],
-    ...(uiConfig().features.spend !== false ? [['spend', 'Spend'] as [string, string]] : []),
+    ['spend', 'Spend'],
     ['pipelines', 'Pipelines'],
     ['settings', 'Settings'],
   ]

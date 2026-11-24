@@ -70,7 +70,8 @@ func logRequests(next http.Handler) http.Handler {
 		li := &logInfo{}
 		sw := &statusWriter{ResponseWriter: w}
 		next.ServeHTTP(sw, r.WithContext(context.WithValue(r.Context(), logKey{}, li)))
-		if strings.HasPrefix(r.URL.Path, "/assets/") || r.URL.Path == "/health" {
+		// the container healthcheck polls /ready every few seconds; only failures are worth a line
+		if strings.HasPrefix(r.URL.Path, "/assets/") || r.URL.Path == "/health" || (r.URL.Path == "/ready" && sw.status < 400) {
 			return
 		}
 		slog.Info("http", "method", r.Method, "path", r.URL.Path, "status", sw.status,

@@ -1,0 +1,25 @@
+# Wires Kera to the LiteLLM gateway. Applied by the litellm-setup service on
+# every `docker compose --profile litellm up -d`; safe to repeat.
+connections:
+  - id: litellm
+    kind: openai
+    url: http://litellm:4000/v1
+    api_key: ${LITELLM_MASTER_KEY}
+    # Tell LiteLLM who is chatting: LiteLLM files each call under this header's
+    # value (the user's email), and Admin > Spend reads it back.
+    forward_user_headers: {email: X-LiteLLM-Customer-Id}
+
+# Everyone who signs in can use the models LiteLLM serves (otherwise an admin
+# shares each model with each user or group).
+site:
+  base_models_public: true
+
+# Knowledge search needs an embedding model; this one is declared in litellm/config.yaml.
+rag:
+  embedding: {connection: litellm, model: nomic-embed-text}
+
+# Admin > Spend reads LiteLLM's spend log from its own database.
+spend:
+  source:
+    kind: litellm_postgres
+    dsn: postgres://litellm:${LITELLM_DB_PASSWORD}@litellm-db:5432/litellm?sslmode=disable

@@ -39,7 +39,6 @@ type Config struct {
 // Features says what this deployment offers at all; per-user permissions
 // still decide who may use it.
 type Features struct {
-	Spend           bool `json:"spend"`
 	Memory          bool `json:"memory"`
 	CodeInterpreter bool `json:"codeInterpreter"`
 	WebSearch       bool `json:"webSearch"`
@@ -147,7 +146,7 @@ func (u *UI) expire() {
 func load(ctx context.Context, st *settings.Store) (*Config, error) {
 	cfg := &Config{DefaultModels: []string{}, ModelOrder: []string{}, PromptSuggestions: []apply.Suggestion{},
 		ToolDisplay: map[string]apply.ToolDisplay{}, Integrations: []apply.Integration{}}
-	var siteName, spend, interpreter, search string
+	var siteName, interpreter, search string
 	var memory bool
 	errs := []error{
 		st.Get(ctx, "ui.brand", &cfg.Brand),
@@ -157,7 +156,6 @@ func load(ctx context.Context, st *settings.Store) (*Config, error) {
 		st.Get(ctx, "site.suggestions", &cfg.PromptSuggestions),
 		st.Get(ctx, "ui.tool_display", &cfg.ToolDisplay),
 		st.Get(ctx, "ui.integrations", &cfg.Integrations),
-		st.Get(ctx, "spend.source.kind", &spend),
 		st.Get(ctx, "chat.memory.enable", &memory),
 		st.Get(ctx, "code_interpreter.engine", &interpreter),
 		st.Get(ctx, "web.search.engine", &search),
@@ -173,7 +171,7 @@ func load(ctx context.Context, st *settings.Store) (*Config, error) {
 	}
 	// temporary chats and API keys are per-user permissions (features.temporary_chat,
 	// features.api_keys), read from /api/v1/auths/, not deployment switches
-	cfg.Features = Features{Spend: spend != "", Memory: memory, CodeInterpreter: interpreter != "", WebSearch: search != ""}
+	cfg.Features = Features{Memory: memory, CodeInterpreter: interpreter != "", WebSearch: search != ""}
 	return cfg, nil
 }
 

@@ -5,6 +5,7 @@ import {
   changeSummary,
   countLabel,
   duration,
+  dockerPush,
   envFile,
   everyText,
   failedStep,
@@ -206,6 +207,22 @@ describe('triggerLabel', () => {
     expect(triggerLabel('script')).toBe('Script')
     expect(triggerLabel('push')).toBe('Push')
     expect(triggerLabel('cron')).toBe('Cron')
+  })
+})
+
+describe('dockerPush', () => {
+  const p = { targets: [{ id: 'k1', name: 'Product docs', missing: false }] }
+  it('uses the address as it is for a real host name', () => {
+    const c = dockerPush(p, 'https://kera.example.com')
+    expect(c).toContain('--env-file kera.env -v "$PWD/docs:/docs:ro"')
+    expect(c).not.toContain('host.docker.internal')
+  })
+  it('points a container at the host when Kera is opened on localhost', () => {
+    for (const origin of ['http://localhost:8080', 'http://127.0.0.1:8080']) {
+      const c = dockerPush(p, origin)
+      expect(c).toContain('--add-host host.docker.internal:host-gateway -e KERA_URL=http://host.docker.internal:8080')
+      expect(c.indexOf('--env-file')).toBeLessThan(c.indexOf('-e KERA_URL')) // the later -e wins over the env file
+    }
   })
 })
 

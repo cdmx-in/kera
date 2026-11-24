@@ -49,6 +49,8 @@ A pipeline owns the files it uploaded (`knowledge_file.origin = pipeline:<id>`).
 
    or, with a `kera` binary: `kera pipeline push --collection "Product docs" --dir ./docs`.
 
+   When you opened Kera on `localhost`, a container cannot reach it there: the command the token dialog prints adds `--add-host host.docker.internal:host-gateway -e KERA_URL=http://host.docker.internal:PORT` to reach the host. Use the same if you write the command yourself.
+
 `kera pipeline push --collection NAME --dir DIR [--wait 15m] [--dry-run]`:
 
 - walks the folder; skips names that start with a dot, symbolic links and files whose type Kera cannot read (it lists what it skipped); folders are flattened: `guides/setup.md` becomes `guides--setup.md`. Two files that flatten to the same name are an error;
@@ -61,7 +63,13 @@ Retries: a transport error or a 5xx answer is tried three times with a growing p
 
 ## Wrap a script
 
-If a script fetches and converts files before they are pushed, run it under the wrapper, so each stage shows up as a step with its log:
+If a script fetches and converts files before they are pushed, run it under the wrapper, so each stage shows up as a step with its log. The wrapper runs your script, so it needs a `kera` binary on the machine where the script lives; the Docker image has no shell to run it in. Copy the static binary out of the image:
+
+```sh
+id=$(docker create ghcr.io/cdmx-in/kera) && docker cp "$id:/usr/local/bin/kera" ./kera && docker rm "$id"
+```
+
+Then:
 
 ```sh
 KERA_URL=https://kera.example.com KERA_PIPELINE=docs-sync KERA_PIPELINE_TOKEN=kp-... \

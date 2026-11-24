@@ -686,3 +686,26 @@ func TestEnsureIndexReplacesInvalid(t *testing.T) {
 		t.Fatalf("index on %q valid %v err %v", table, valid, err)
 	}
 }
+
+// A fresh install has the usual Ollama embedding model preselected, and a
+// cleared setting says where to fix it instead of naming the raw key.
+func TestDefaultEmbeddingModel(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	for _, k := range []string{"rag.embedding.connection", "rag.embedding.model"} {
+		if _, err := e.s.db.Exec(ctx, `DELETE FROM config WHERE key = $1`, k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.st.Invalidate()
+	conn, model, err := e.s.defaultModelName(ctx)
+	if err != nil || conn != "ollama" || model != "nomic-embed-text" {
+		t.Fatalf("default = %q %q %v", conn, model, err)
+	}
+	if err := e.st.Set(ctx, "rag.embedding.model", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.s.defaultModelName(ctx); err == nil || !strings.Contains(err.Error(), "Admin > Settings > Retrieval") {
+		t.Fatalf("cleared model error = %v", err)
+	}
+}

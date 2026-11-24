@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -13,11 +14,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cdmx-in/kera/internal/auth"
+	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/settings"
 )
 
 // CLIUsage documents the identity subcommands for `kera help`.
 const CLIUsage = `  kera user list                                  list users
+  kera user add [--name N] [--admin] <email>      create a user (then: login-link <email>), for installs without Google or OIDC sign-in
   kera user promote <email>                       make a user an admin
   kera user login-link [--ttl 12h] <email>        print a sign-in link (no OAuth needed; creates the first admin on an empty install)
   kera apikey create --user <email> --name <n>    create an API key (printed once)
@@ -27,9 +30,11 @@ const CLIUsage = `  kera user list                                  list users
 // UserCmd runs `kera user ...`.
 func UserCmd(ctx context.Context, db *pgxpool.Pool, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: kera user list|promote <email>")
+		return errors.New("usage: kera user list|add|promote <email>")
 	}
 	switch args[0] {
+	case "add":
+		return addUserCLI(ctx, db, args[1:], out)
 	case "list":
 		return listUsersCLI(ctx, db, out)
 	case "promote":
@@ -47,6 +52,32 @@ func UserCmd(ctx context.Context, db *pgxpool.Pool, args []string, out io.Writer
 		return nil
 	}
 	return fmt.Errorf("unknown user command %q", args[0])
+}
+
+func addUserCLI(ctx context.Context, db *pgxpool.Pool, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("user add", flag.ContinueOnError)
+	name := fs.String("name", "", "display name (default: the part of the email before @)")
+	admin := fs.Bool("admin", false, "make the user an admin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 || !strings.Contains(fs.Arg(0), "@") {
+		return errors.New("usage: kera user add [--name N] [--admin] <email>")
+	}
+	role := "user"
+	if *admin {
+		role = "admin"
+	}
+	tag, err := db.Exec(ctx, `INSERT INTO "user" (id, name, email, role)
+		VALUES ($1, COALESCE(NULLIF($2, ''), split_part($3, '@', 1)), lower($3), $4) ON CONFLICT DO NOTHING`, ids.New(), *name, fs.Arg(0), role)
+	if err != nil {
+		return fmt.Errorf("add user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("user %s already exists", fs.Arg(0))
+	}
+	fmt.Fprintf(out, "added %s as %s; sign in with: kera user login-link %s\n", strings.ToLower(fs.Arg(0)), role, fs.Arg(0))
+	return nil
 }
 
 func listUsersCLI(ctx context.Context, db *pgxpool.Pool, out io.Writer) error {

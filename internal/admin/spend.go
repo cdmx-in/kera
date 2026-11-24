@@ -71,9 +71,12 @@ const litellmSpend = `SELECT COALESCE(end_user, ''), COALESCE(model, ''), to_cha
 	COALESCE(sum(spend), 0)::float8, COALESCE(sum(prompt_tokens), 0)::bigint, COALESCE(sum(completion_tokens), 0)::bigint, count(*)
 	FROM "LiteLLM_SpendLogs" WHERE "startTime" >= $1 AND "startTime" < $2 GROUP BY 1, 2, 3`
 
-// getSpend serves {start_date, end_date, rows, users}: LiteLLM spend log
-// totals per user, model and UTC day, plus every Kera user so the page can
-// show people without spend. LiteLLM's startTime is UTC without a zone.
+// getSpend serves {start_date, end_date, configured, rows, users}: LiteLLM
+// spend log totals per user, model and UTC day, plus every Kera user so the
+// page can show people without spend. LiteLLM's startTime is UTC without a
+// zone. Without a spend source it answers 200 with configured=false (an
+// empty state, not an error); a source that cannot be read answers 424, never
+// 502/503, which the web app takes for "Kera itself is down".
 func (h *handler) getSpend(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	d, err := parseRange(r, true)
@@ -89,14 +92,15 @@ func (h *handler) getSpend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if kind != "litellm_postgres" || dsn == "" {
-		api.Fail(w, r, api.Errf(http.StatusServiceUnavailable, "spend_not_configured",
-			"Spend source not configured (spend.source.kind litellm_postgres and spend.source.dsn)"))
+		api.JSON(w, http.StatusOK, map[string]any{"configured": false, "start_date": d.start.Format(time.DateOnly),
+			"end_date": d.end.Format(time.DateOnly), "rows": []spendRow{}, "users": []spendUser{}})
 		return
 	}
 	rows, err := h.spendRows(ctx, dsn, d)
 	if err != nil {
 		slog.Error("spend source", "err", err)
-		api.Fail(w, r, api.Errf(http.StatusBadGateway, "spend_source_failed", "Cannot read the spend source"))
+		api.Fail(w, r, api.Errf(http.StatusFailedDependency, "spend_source_failed",
+			"Cannot read LiteLLM's spend log. Check the database URL in Admin > Settings > Spend, and that LiteLLM has started once."))
 		return
 	}
 	urows, err := h.a.DB.Query(ctx, `SELECT id, name, email, extract(epoch FROM last_active_at)::bigint FROM "user" ORDER BY created_at`)
@@ -113,7 +117,7 @@ func (h *handler) getSpend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	api.JSON(w, http.StatusOK, map[string]any{"start_date": d.start.Format(time.DateOnly), "end_date": d.end.Format(time.DateOnly),
-		"rows": rows, "users": nonNil(users)})
+		"configured": true, "rows": rows, "users": nonNil(users)})
 }
 
 func (h *handler) spendRows(ctx context.Context, dsn string, d dateRange) ([]spendRow, error) {

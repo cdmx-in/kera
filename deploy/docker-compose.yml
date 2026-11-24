@@ -1,12 +1,15 @@
-# Minimal Kera stack: the app plus Postgres 18 with pgvector.
-#   cp .env.example .env   # set KERA_SECRET_KEY and KERA_DB_PASSWORD
+# Kera: the app plus Postgres 18 with pgvector.
+#   ./init.sh              # writes .env with random secrets (or: cp .env.example .env and edit)
 #   docker compose up -d
+# Optional profiles, ./init.sh ollama litellm turns them on in .env (docs/deploy.md, docs/litellm.md):
+#   ollama   a model server with a small chat and embedding model, for hosts without Ollama
+#   litellm  LiteLLM gateway with spend tracking, wired to Kera
 services:
   kera-db:
     image: pgvector/pgvector:pg18
     environment:
       POSTGRES_USER: kera
-      POSTGRES_PASSWORD: ${KERA_DB_PASSWORD:?set KERA_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${KERA_DB_PASSWORD:?KERA_DB_PASSWORD is empty, run ./init.sh in deploy/ to create .env with random secrets}
       POSTGRES_DB: kera
     volumes: [kera_pgdata:/var/lib/postgresql]
     healthcheck:
@@ -16,19 +19,113 @@ services:
     restart: unless-stopped
 
   kera:
-    image: ghcr.io/cdmx-in/kera:latest
+    image: ${KERA_IMAGE:-ghcr.io/cdmx-in/kera:latest}
     depends_on:
       kera-db: {condition: service_healthy}
     environment:
       KERA_DATABASE_URL: postgres://kera:${KERA_DB_PASSWORD}@kera-db:5432/kera?sslmode=disable
-      KERA_SECRET_KEY: ${KERA_SECRET_KEY:?set KERA_SECRET_KEY (openssl rand -hex 32)}
+      KERA_SECRET_KEY: ${KERA_SECRET_KEY:?KERA_SECRET_KEY is empty, run ./init.sh in deploy/ to create .env with random secrets}
       KERA_URL: ${KERA_URL:-http://localhost:8080}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: [kera_data:/data]
-    ports: ["8080:8080"]
+    ports: ["${KERA_PORT:-8080}:8080"]
+    healthcheck:
+      test: ["CMD", "kera", "health"]
+      interval: 5s
+      retries: 20
     restart: unless-stopped
+
+  # ---- profile "ollama": models on CPU, no account needed. Needs OLLAMA_BASE_URL=http://ollama:11434 in .env ----
+
+  ollama:
+    profiles: [ollama]
+    image: ollama/ollama:0.40.17
+    volumes: [ollama_models:/root/.ollama]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+    # NVIDIA GPU: install the NVIDIA container toolkit and add
+    # deploy: {resources: {reservations: {devices: [{driver: nvidia, count: all, capabilities: [gpu]}]}}}
+
+  # Downloads about 2.3 GB once (watch it with: docker compose logs -f ollama-pull).
+  ollama-pull:
+    profiles: [ollama]
+    image: ollama/ollama:0.40.17
+    depends_on:
+      ollama: {condition: service_healthy}
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull llama3.2:3b && ollama pull nomic-embed-text"]
+    restart: "no"
+
+  # ---- profile "litellm": gateway, its database and a one-shot wiring step ----
+
+  litellm-db:
+    profiles: [litellm]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:-}
+      POSTGRES_DB: litellm
+    volumes: [litellm_pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  litellm:
+    profiles: [litellm]
+    image: ghcr.io/berriai/litellm:v1.110.3
+    # ":?" would also fail `docker compose up` without the profile, so the keys are checked here.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        [ -n "$$LITELLM_MASTER_KEY" ] && [ -n "$$LITELLM_DB_PASSWORD" ] || { echo "LITELLM_MASTER_KEY and LITELLM_DB_PASSWORD must be set in deploy/.env (run ./init.sh)"; exit 1; }
+        exec litellm --config /app/config.yaml --port 4000
+    depends_on:
+      litellm-db: {condition: service_healthy}
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_DB_PASSWORD: ${LITELLM_DB_PASSWORD:-}
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD:-}@litellm-db:5432/litellm
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: [./litellm/config.yaml:/app/config.yaml:ro]
+    ports: ["127.0.0.1:${LITELLM_PORT:-4000}:4000"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness', timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  # Runs `kera apply` once (and again on every `up`): points Kera at LiteLLM and
+  # at its spend log. Safe to repeat; exits when done.
+  litellm-setup:
+    profiles: [litellm]
+    image: ${KERA_IMAGE:-ghcr.io/cdmx-in/kera:latest}
+    command: ["apply", "-f", "/etc/kera/litellm.yaml"]
+    depends_on:
+      kera: {condition: service_healthy}
+      litellm: {condition: service_healthy}
+    environment:
+      KERA_DATABASE_URL: postgres://kera:${KERA_DB_PASSWORD}@kera-db:5432/kera?sslmode=disable
+      KERA_SECRET_KEY: ${KERA_SECRET_KEY:?KERA_SECRET_KEY is empty, run ./init.sh in deploy/ to create .env with random secrets}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_DB_PASSWORD: ${LITELLM_DB_PASSWORD:-}
+    volumes: [./litellm/kera.yaml:/etc/kera/litellm.yaml:ro]
+    restart: "no"
 
 volumes:
   kera_pgdata:
   kera_data:
+  litellm_pgdata:
+  ollama_models:

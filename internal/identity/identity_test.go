@@ -734,6 +734,20 @@ func TestCLI(t *testing.T) {
 		t.Fatalf("list: %v %q", err, out.String())
 	}
 	out.Reset()
+	if err := UserCmd(ctx, e.a.DB, []string{"add", "--name", "Bo Lee", "Bo@Example.com"}, &out); err != nil || !strings.Contains(out.String(), "bo@example.com as user") {
+		t.Fatalf("add: %v %q", err, out.String())
+	}
+	if err := UserCmd(ctx, e.a.DB, []string{"add", "bo@example.com"}, &out); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("add twice: %v", err)
+	}
+	if err := UserCmd(ctx, e.a.DB, []string{"add", "--admin", "root@example.com"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var role, uname string
+	if err := e.a.DB.QueryRow(ctx, `SELECT role, name FROM "user" WHERE email = 'root@example.com'`).Scan(&role, &uname); err != nil || role != "admin" || uname != "root" {
+		t.Fatalf("admin user: %v %q %q", err, role, uname)
+	}
+	out.Reset()
 	if err := APIKeyCmd(ctx, e.a.DB, []string{"create", "--user", "ann@example.com", "--name", "cli"}, &out, &warn); err != nil {
 		t.Fatal(err)
 	}
