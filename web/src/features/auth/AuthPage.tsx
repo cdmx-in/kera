@@ -48,7 +48,7 @@ export default function AuthPage() {
       <Spinner size={20} />
     </div>
   ) : options.isError ? (
-    <p role="alert" className="mt-6 text-sm text-red-600">
+    <p role="alert" className="mt-6 text-sm text-red-600 dark:text-red-400">
       Could not load the sign-in options.{' '}
       <button type="button" className="underline" onClick={() => location.reload()}>
         Reload
@@ -217,7 +217,7 @@ export function SignInForm({ glass, autoFocus, onSignedIn }: { glass: boolean; a
         />
       </LField>
       {error && (
-        <p id={errorId} role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600" data-testid="login-error">
+        <p id={errorId} role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400" data-testid="login-error">
           {error}
         </p>
       )}
