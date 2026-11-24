@@ -21,7 +21,7 @@ export function MenuContent({ children, align = 'start', side, testId }: { child
 
 export function MenuItem({ children, onSelect, danger, disabled, testId }: { children: ReactNode; onSelect?: (e: Event) => void; danger?: boolean; disabled?: boolean; testId?: string }) {
   return (
-    <DropdownMenu.Item onSelect={onSelect} disabled={disabled} className={item + (danger ? ' text-red-600' : '')} data-testid={testId}>
+    <DropdownMenu.Item onSelect={onSelect} disabled={disabled} className={item + (danger ? ' text-red-700 dark:text-red-400' : '')} data-testid={testId}>
       {children}
     </DropdownMenu.Item>
   )
