@@ -16,7 +16,7 @@ func clock() (*Attempts, *time.Time) {
 
 func TestAttemptsLockAndBackoff(t *testing.T) {
 	a, now := clock()
-	k := Key{"email", "ann@example.com", 5}
+	k := Key{Kind: "email", Value: "ann@example.com", Free: 5}
 	for i := 1; i <= 5; i++ {
 		if wait, ok := a.Begin(k); !ok || wait != 0 {
 			t.Fatalf("attempt %d refused (%v)", i, wait)
@@ -47,7 +47,7 @@ func TestAttemptsLockAndBackoff(t *testing.T) {
 
 func TestAttemptsResetAndForget(t *testing.T) {
 	a, now := clock()
-	k := Key{"email", "ann@example.com", 3}
+	k := Key{Kind: "email", Value: "ann@example.com", Free: 3}
 	for range 3 {
 		a.Begin(k)
 	}
@@ -72,7 +72,7 @@ func TestAttemptsResetAndForget(t *testing.T) {
 
 func TestAttemptsRefund(t *testing.T) {
 	a, _ := clock()
-	ip := Key{"ip", "203.0.113.9", 3}
+	ip := Key{Kind: "ip", Value: "203.0.113.9", Free: 3}
 	// Many good sign-ins from one address (an office) never add up to a lock.
 	for range 50 {
 		if _, ok := a.Begin(ip); !ok {
@@ -97,15 +97,15 @@ func TestAttemptsRefund(t *testing.T) {
 // Any locked key refuses the attempt and nothing else is counted.
 func TestAttemptsSeveralKeys(t *testing.T) {
 	a, _ := clock()
-	email := Key{"email", "ann@example.com", 2}
-	ip := Key{"ip", "203.0.113.9", 100}
+	email := Key{Kind: "email", Value: "ann@example.com", Free: 2}
+	ip := Key{Kind: "ip", Value: "203.0.113.9", Free: 100}
 	a.Begin(email, ip)
 	a.Begin(email, ip) // locks the email
 	if wait, ok := a.Begin(email, ip); ok || wait == 0 {
 		t.Fatal("locked email did not refuse")
 	}
 	// A refused attempt did not touch the address: another email from it is fine.
-	if _, ok := a.Begin(Key{"email", "bob@example.com", 2}, ip); !ok {
+	if _, ok := a.Begin(Key{Kind: "email", Value: "bob@example.com", Free: 2}, ip); !ok {
 		t.Fatal("the address was charged for a refused attempt")
 	}
 	if got := a.m[ip.id()].n; got != 3 {
@@ -119,7 +119,7 @@ func TestAttemptsStayBounded(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(was) })
 	a, _ := clock()
 	for i := range maxTallies * 3 {
-		a.Begin(Key{"email", fmt.Sprintf("user%d@example.com", i), 5})
+		a.Begin(Key{Kind: "email", Value: fmt.Sprintf("user%d@example.com", i), Free: 5})
 	}
 	if len(a.m) > maxTallies {
 		t.Fatalf("%d entries, want at most %d", len(a.m), maxTallies)
@@ -127,7 +127,7 @@ func TestAttemptsStayBounded(t *testing.T) {
 	// Even when everything is locked the map does not grow.
 	b, _ := clock()
 	for i := range maxTallies + 500 {
-		b.Begin(Key{"email", fmt.Sprintf("user%d@example.com", i), 1})
+		b.Begin(Key{Kind: "email", Value: fmt.Sprintf("user%d@example.com", i), Free: 1})
 	}
 	if len(b.m) > maxTallies {
 		t.Fatalf("all-locked map grew to %d", len(b.m))
@@ -136,8 +136,8 @@ func TestAttemptsStayBounded(t *testing.T) {
 
 func TestAttemptsResetPrefix(t *testing.T) {
 	a, _ := clock()
-	pair := func(email, ip string) Key { return Key{"email+ip", email + "\x00" + ip, 1} }
-	for _, k := range []Key{pair("ann@example.com", "203.0.113.1"), pair("ann@example.com", "203.0.113.2"), pair("bob@example.com", "203.0.113.1"), {"email", "ann@example.com", 1}} {
+	pair := func(email, ip string) Key { return Key{Kind: "email+ip", Value: email + "\x00" + ip, Free: 1} }
+	for _, k := range []Key{pair("ann@example.com", "203.0.113.1"), pair("ann@example.com", "203.0.113.2"), pair("bob@example.com", "203.0.113.1"), {Kind: "email", Value: "ann@example.com", Free: 1}} {
 		a.Begin(k) // one try locks each of them
 	}
 	a.ResetPrefix("email+ip", "ann@example.com\x00")
@@ -149,7 +149,7 @@ func TestAttemptsResetPrefix(t *testing.T) {
 	if _, ok := a.Begin(pair("bob@example.com", "203.0.113.1")); ok {
 		t.Error("another user's pair was cleared")
 	}
-	if _, ok := a.Begin(Key{"email", "ann@example.com", 1}); ok {
+	if _, ok := a.Begin(Key{Kind: "email", Value: "ann@example.com", Free: 1}); ok {
 		t.Error("a key of another kind was cleared")
 	}
 }
