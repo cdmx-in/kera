@@ -3,6 +3,7 @@
 package identity
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/cdmx-in/kera/internal/app"
@@ -18,8 +19,12 @@ type handler struct {
 
 func newHandler(a *app.App) *handler { return &handler{a: a, attempts: auth.NewAttempts()} }
 
-// Mount registers the identity routes.
+// Mount registers the identity routes and, when KERA_ADMIN_EMAIL and
+// KERA_ADMIN_PASSWORD are set on an empty install, creates the first admin.
 func Mount(a *app.App) error {
+	if err := bootstrapAdmin(context.Background(), a); err != nil {
+		return err
+	}
 	h := newHandler(a)
 	s, au := a.Server, a.Auth
 	admin := func(f http.HandlerFunc) http.Handler { return au.Admin(f) }

@@ -44,7 +44,9 @@ Usage:
   kera health             exit 0 when the local server is ready (container healthcheck)
 ` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + pipeline.CLIUsage + identity.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
-KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL).
+KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL),
+KERA_ADMIN_EMAIL and KERA_ADMIN_PASSWORD (create the first admin when serve finds no users), KERA_TRUSTED_PROXIES
+(reverse proxies, addresses or CIDRs, whose X-Forwarded-For is believed besides private addresses).
 kera pipeline reads only KERA_URL, KERA_PIPELINE, KERA_PIPELINE_TOKEN (and sets KERA_RUN and KERA_MARK for the command it runs).
 `
 
@@ -190,7 +192,7 @@ func identityCmd(ctx context.Context, args []string) error {
 		return loginLink(ctx, pool, args[2:])
 	}
 	if args[0] == "user" {
-		return identity.UserCmd(ctx, pool, args[1:], os.Stdout)
+		return identity.UserCmd(ctx, pool, args[1:], os.Stdin, os.Stdout)
 	}
 	return identity.APIKeyCmd(ctx, pool, args[1:], os.Stdout, os.Stderr)
 }
