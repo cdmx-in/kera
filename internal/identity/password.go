@@ -2,6 +2,8 @@ package identity
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -100,7 +102,7 @@ func (h *handler) signin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := api.RealIP(r, h.a.Env.TrustedProxies)
-	shown := loggable(email) // what the log may say about it
+	shown := fingerprint(email) // what the log may say about what was typed, until we know it is an account
 	pair := auth.Key{Kind: "email+ip", Value: email + "\x00" + ip, Free: pairFree, Log: shown + " from " + ip}
 	byEmail, byIP := auth.Key{Kind: "email", Value: email, Free: emailFree, Log: shown}, auth.Key{Kind: "ip", Value: ip, Free: ipFree}
 	if wait, ok := h.attempts.Begin(pair, byEmail, byIP); !ok {
@@ -142,7 +144,11 @@ func (h *handler) signin(w http.ResponseWriter, r *http.Request) {
 		reason = "user is pending approval"
 	}
 	if reason != "" {
-		slog.Warn("password sign-in failed", "email", shown, "ip", ip, "reason", reason)
+		who := shown
+		if found {
+			who = email // a real account: the log may name it
+		}
+		slog.Warn("password sign-in failed", "email", who, "fp", shown, "ip", ip, "reason", reason)
 		api.Fail(w, r, errBadLogin)
 		return
 	}
@@ -458,16 +464,12 @@ func normalizeEmail(s string) (string, error) {
 	return strings.ToLower(s), nil
 }
 
-// notAnEmail is logged instead of what was typed into the email box when that is not an
-// email address: people paste their password there, and a log must not keep it.
-const notAnEmail = "(not an email address)"
-
-// loggable is the email as it may be logged: itself when it passes the plain-address check, else a placeholder.
-func loggable(email string) string {
-	if e, err := normalizeEmail(email); err == nil {
-		return e
-	}
-	return notAnEmail
+// fingerprint names an email in a log without printing it. What reaches the email field is not always an
+// address: people paste their password there, and a log must not keep it. The same text always gives the
+// same fingerprint, so lines about one attempt can still be matched. Only an account that exists is named.
+func fingerprint(email string) string {
+	sum := sha256.Sum256([]byte(email))
+	return "email#" + hex.EncodeToString(sum[:4])
 }
 
 // clip cuts s to at most n bytes without splitting a character.

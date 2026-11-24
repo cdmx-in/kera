@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -747,8 +748,13 @@ func TestNothingSecretIsLogged(t *testing.T) {
 	see(e.send("GET", "/api/v1/users/"+annID, admin, "", nil))
 
 	t.Logf("log output:\n%s", l.String())
-	if !strings.Contains(l.String(), "password sign-in failed") || !strings.Contains(l.String(), "nobody@example.com") || !strings.Contains(l.String(), "203.0.113.5") {
-		t.Fatal("failed attempts are not logged with email and address")
+	// a failed try names an account that exists, and an address nobody has only by its fingerprint
+	if !strings.Contains(l.String(), "password sign-in failed") || !strings.Contains(l.String(), `"email":"ann@example.com"`) ||
+		!strings.Contains(l.String(), fingerprint("nobody@example.com")) || !strings.Contains(l.String(), "203.0.113.5") {
+		t.Fatal("failed attempts are not logged with who (an account, or a fingerprint) and the address")
+	}
+	if strings.Contains(l.String(), "nobody@example.com") {
+		t.Error("the log names an address that is not an account")
 	}
 	for _, secret := range []string{pwAnn, pwNew, pwEve, "argon2"} {
 		if strings.Contains(l.String(), secret) {
@@ -883,34 +889,39 @@ func TestPasswordTypedInTheEmailBoxIsNotLogged(t *testing.T) {
 	l := captureLogs(t)
 	e := community(t)
 	e.withPassword("user", "ann@example.com", pwAnn)
-	const typed = "my-very-secret-pass1"
-	for range pairFree + 1 { // the last one is refused by the lock it set
-		e.signinAs(typed, "whatever-else-1", "203.0.113.9")
+	// including text that looks like an address (one @, no spaces): only an account that exists is named
+	typed := []string{"my-very-secret-pass1", "hunter2@home", "p@ssw0rd-long-1", "correct-horse@battery"}
+	for _, in := range typed {
+		for range pairFree + 1 { // the last one is refused by the lock it set
+			e.signinAs(in, "whatever-else-1", "203.0.113.9")
+		}
+		e.signinAs(" "+strings.ToUpper(in)+" ", "whatever-else-1", "203.0.113.9")
 	}
-	e.signinAs(" "+strings.ToUpper(typed)+" ", "whatever-else-1", "203.0.113.9")
-	e.signinAs("Ann@Example.com", pwEve, "203.0.113.10") // a real address is still named, lower-cased
+	e.signinAs("Ann@Example.com", pwEve, "203.0.113.10") // a real account is still named, lower-cased
 	got := l.String()
-	if strings.Contains(strings.ToLower(got), typed) {
-		t.Fatalf("the log contains what was typed into the email box:\n%s", got)
+	for _, in := range typed {
+		if strings.Contains(strings.ToLower(got), in) {
+			t.Fatalf("the log contains %q, typed into the email box:\n%s", in, got)
+		}
 	}
-	for _, want := range []string{notAnEmail, `"msg":"sign-in locked"`, "203.0.113.9", `"email":"ann@example.com"`} {
+	for _, want := range []string{"email#", `"msg":"sign-in locked"`, "203.0.113.9", `"email":"ann@example.com"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log lacks %q:\n%s", want, got)
 		}
 	}
 }
 
-func TestLoggable(t *testing.T) {
-	for in, want := range map[string]string{
-		"ann@example.com":      "ann@example.com",
-		"hunter2hunter2":       notAnEmail,
-		"my password is x@y z": notAnEmail,
-		"":                     notAnEmail,
-		"a@":                   notAnEmail,
-		"Ann <ann@x.com>":      notAnEmail,
-	} {
-		if got := loggable(in); got != want {
-			t.Errorf("loggable(%q) = %q, want %q", in, got, want)
+func TestFingerprint(t *testing.T) {
+	a, b := fingerprint("ann@example.com"), fingerprint("bob@example.com")
+	if a == b || a != fingerprint("ann@example.com") {
+		t.Errorf("fingerprints must be stable and differ per input: %q %q", a, b)
+	}
+	if !regexp.MustCompile(`^email#[0-9a-f]{8}$`).MatchString(a) {
+		t.Errorf("fingerprint %q is not email# and 8 hex digits", a)
+	}
+	for _, in := range []string{"hunter2@home", "ann@example.com", ""} {
+		if strings.Contains(fingerprint(in), in) && in != "" {
+			t.Errorf("fingerprint(%q) contains its input", in)
 		}
 	}
 }
