@@ -399,10 +399,10 @@ func TestConnectionRoutes(t *testing.T) {
 	if got := idList(e.json(t, "admin", "GET", "/api/models", nil, 200)["data"]); !strings.Contains(got, "web.gpt-b") || !strings.Contains(got, "x.gpt-a") {
 		t.Fatalf("after upsert %s", got)
 	}
-	// clearing the key breaks verify with a 502
+	// clearing the key breaks verify with a 424 (a 502 would show the web app's outage page)
 	e.json(t, "admin", "POST", "/api/v1/configs/connections", map[string]any{"connections": []map[string]any{
 		{"id": "extra", "kind": "openai", "base_url": e.fakes.openai.URL, "api_key": ""}}}, 200)
-	e.json(t, "admin", "POST", "/api/v1/configs/connections/extra/verify", nil, 502)
+	e.json(t, "admin", "POST", "/api/v1/configs/connections/extra/verify", nil, 424)
 	e.json(t, "admin", "POST", "/api/v1/configs/connections", map[string]any{"connections": []map[string]any{
 		{"id": "bad", "kind": "gemini", "base_url": "http://x"}}}, 400)
 	e.json(t, "admin", "DELETE", "/api/v1/configs/connections/extra", nil, 200)

@@ -538,7 +538,8 @@ func (h *handlers) verify(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	ms, err := cl.ListModels(ctx)
 	if err != nil {
-		api.Fail(w, r, api.Errf(http.StatusBadGateway, "connection_failed", err.Error()))
+		// 424, not 502: the web app reads 502 as "Kera is down"
+		api.Fail(w, r, api.Errf(http.StatusFailedDependency, "connection_failed", err.Error()))
 		return
 	}
 	h.r.Invalidate(r.PathValue("id"))
