@@ -52,6 +52,7 @@ export function SpendPage() {
     const needle = q.trim().toLowerCase()
     return sortPeople(needle ? view.people.filter((p) => `${p.name} ${p.email}`.toLowerCase().includes(needle)) : view.people, sort.key, sort.desc)
   }, [view, q, sort])
+  const free = !!view && view.total === 0 // only free models so far: chart requests, a spend chart would be empty
   const maxSpend = Math.max(0, ...(view?.people ?? []).map((p) => p.spend))
   const head = (key: SortKey, label: string, right = false) => (
     <th className={cx(thCls, right && 'text-right')} aria-sort={sort.key === key ? (sort.desc ? 'descending' : 'ascending') : undefined}>
@@ -72,12 +73,12 @@ export function SpendPage() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Kpi label="Total spend (USD)" value={usd(view.total)} />
             <Kpi label="Total users" value={num(view.users)} />
-            <Kpi label="Active users (spend > 0)" value={num(view.active)} />
+            <Kpi label="Active users" value={num(view.active)} />
             <Kpi label="No usage" value={num(view.idle)} />
           </div>
           <section className="space-y-2">
-            <h3 className="text-sm font-semibold">Per day</h3>
-            <DayBars days={view.days.map((d) => ({ day: d.day, value: d.spend }))} format={usd} />
+            <h3 className="text-sm font-semibold">{free ? 'Per day (requests)' : 'Per day'}</h3>
+            <DayBars days={view.days.map((d) => ({ day: d.day, value: free ? d.requests : d.spend }))} format={free ? num : usd} />
           </section>
           <Card
             title="Per user"
@@ -103,7 +104,7 @@ export function SpendPage() {
                 </thead>
                 <tbody className="divide-y divide-line tabular-nums">
                   {pageSlice(people, userPager.page, userPager.size).map((p) => {
-                    const [tone, label] = levels[spendLevel(p.spend)]
+                    const [tone, label] = levels[spendLevel(p.spend, p.requests)]
                     const inactive = p.last != null && Date.now() / 1000 - p.last > 30 * 86400
                     return (
                       <tr key={p.id ?? `ext:${p.email}`}>

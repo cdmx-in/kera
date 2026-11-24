@@ -107,7 +107,7 @@ export interface SpendView {
   active: number
   idle: number
   people: SpendPerson[]
-  days: { day: string; spend: number }[]
+  days: { day: string; spend: number; requests: number }[]
   models: { model: string; spend: number; requests: number; input: number; output: number }[]
 }
 
@@ -115,7 +115,7 @@ export interface SpendView {
 export function spendView(d: SpendData): SpendView {
   const byUser = new Map<string, { spend: number; requests: number; tokens: number }>()
   const byModel = new Map<string, { spend: number; requests: number; input: number; output: number }>()
-  const byDay = new Map<string, number>()
+  const byDay = new Map<string, { spend: number; requests: number }>()
   for (const r of d.rows) {
     const u = byUser.get(r.end_user) ?? { spend: 0, requests: 0, tokens: 0 }
     u.spend += r.spend
@@ -128,7 +128,8 @@ export function spendView(d: SpendData): SpendView {
     m.input += r.prompt_tokens
     m.output += r.completion_tokens
     byModel.set(r.model, m)
-    byDay.set(r.day, (byDay.get(r.day) ?? 0) + r.spend)
+    const d0 = byDay.get(r.day) ?? { spend: 0, requests: 0 }
+    byDay.set(r.day, { spend: d0.spend + r.spend, requests: d0.requests + r.requests })
   }
   const zero = { spend: 0, requests: 0, tokens: 0 }
   const seen = new Set<string>()
@@ -141,14 +142,15 @@ export function spendView(d: SpendData): SpendView {
     if (!seen.has(email)) people.push({ id: null, name: email || 'Unattributed (embeddings)', email, last: null, ...s })
   }
   const total = people.reduce((a, p) => a + p.spend, 0)
-  const active = people.filter((p) => p.spend > 0).length
+  // free models (Ollama) cost nothing, so someone who used them is active all the same
+  const active = people.filter((p) => p.spend > 0 || p.requests > 0).length
   return {
     total,
     users: d.users.length,
     active,
     idle: people.length - active,
     people,
-    days: eachDay(d.start_date, d.end_date).map((day) => ({ day, spend: byDay.get(day) ?? 0 })),
+    days: eachDay(d.start_date, d.end_date).map((day) => ({ day, ...(byDay.get(day) ?? { spend: 0, requests: 0 }) })),
     models: [...byModel].map(([model, m]) => ({ model, ...m })).sort((a, b) => b.spend - a.spend),
   }
 }
@@ -162,11 +164,11 @@ export function eachDay(start: string, end: string): string[] {
 
 export type SpendLevel = 'high' | 'medium' | 'light' | 'none'
 
-/** Usage level by spend in USD: High > 10, Medium > 5, Light > 0. */
-export function spendLevel(spend: number): SpendLevel {
+/** Usage level by spend in USD: High > 10, Medium > 5, Light > 0 or any request (free models cost nothing). */
+export function spendLevel(spend: number, requests = 0): SpendLevel {
   if (spend > 10) return 'high'
   if (spend > 5) return 'medium'
-  if (spend > 0) return 'light'
+  if (spend > 0 || requests > 0) return 'light'
   return 'none'
 }
 

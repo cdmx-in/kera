@@ -59,14 +59,15 @@ describe('admin lib', () => {
       ['Unattributed (embeddings)', 0.01, 30],
     ])
     expect(v.days).toEqual([
-      { day: '2026-03-01', spend: 5 },
-      { day: '2026-03-02', spend: 6.01 },
-      { day: '2026-03-03', spend: 0 },
+      { day: '2026-03-01', spend: 5, requests: 1 },
+      { day: '2026-03-02', spend: 6.01, requests: 3 },
+      { day: '2026-03-03', spend: 0, requests: 0 },
     ])
     expect(v.models[0]).toEqual({ model: 'gpt', spend: 6, requests: 2, input: 100, output: 10 })
     expect(sortPeople(v.people, 'spend', true).map((p) => p.name)[0]).toBe('Ada')
     expect(sortPeople(v.people, 'name', false).map((p) => p.name)).toEqual(['Ada', 'Bob', 'Unattributed (embeddings)'])
     expect([spendLevel(11), spendLevel(6), spendLevel(0.5), spendLevel(0)]).toEqual(['high', 'medium', 'light', 'none'])
+    expect(spendLevel(0, 4)).toBe('light') // used free models only
   })
 })
 
@@ -145,5 +146,21 @@ describe('dialog validation', () => {
     expect([groupIcon('Admin'), groupIcon('Backend developers'), groupIcon('QA team'), groupIcon('Everyone')]).toEqual(['shield', 'code', 'flask', 'users'])
     expect(permChips({ workspace: { models: true, tools: false }, features: { api_keys: true } })).toEqual(['Workspace models', 'Features API keys'])
     expect(permChips(null)).toEqual([])
+  })
+})
+
+describe('spend with free models only', () => {
+  it('counts people who made requests as active although nothing was charged', () => {
+    const v = spendView({
+      start_date: '2026-03-01',
+      end_date: '2026-03-01',
+      rows: [{ end_user: 'ada@x.io', model: 'local', day: '2026-03-01', spend: 0, prompt_tokens: 100, completion_tokens: 10, requests: 4 }],
+      users: [
+        { id: 'u1', name: 'Ada', email: 'ada@x.io', last_active_at: 1 },
+        { id: 'u2', name: 'Bob', email: 'bob@x.io', last_active_at: 0 },
+      ],
+    })
+    expect([v.total, v.active, v.idle]).toEqual([0, 1, 1])
+    expect(v.days).toEqual([{ day: '2026-03-01', spend: 0, requests: 4 }])
   })
 })
