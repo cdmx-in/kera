@@ -175,6 +175,21 @@ docker compose exec -T kera-db pg_dump -U kera kera | gzip > kera-db.sql.gz
 docker run --rm -v deploy_kera_data:/data -v "$PWD":/backup alpine tar czf /backup/kera-data.tgz -C /data .
 ```
 
+### Restore
+
+Restore the database and uploads into a fresh stack, with the same `.env` (it holds `KERA_SECRET_KEY`; without it the stored provider keys and other secrets cannot be decrypted). The volume names below assume the default compose project `deploy`; check `docker volume ls` if you renamed it.
+
+```sh
+docker compose down
+docker volume rm deploy_kera_pgdata deploy_kera_data
+docker compose up -d kera-db
+gunzip -c kera-db.sql.gz | docker compose exec -T kera-db psql -U kera -d kera
+docker run --rm -v deploy_kera_data:/data -v "$PWD":/backup alpine tar xzf /backup/kera-data.tgz -C /data
+docker compose up -d
+```
+
+Then sign in, open a chat and open an uploaded file: those three checks cover the database, the encryption key and the uploads volume. `docker compose logs kera` should have no migration or decryption errors.
+
 Upgrade with `docker compose pull && docker compose up -d`; database migrations run on start. An install from before the `extract` service existed gets it by updating the checkout (`git pull`) and running `docker compose up -d`: Kera uses it with no setting changed, and files that failed earlier have a Retry button.
 
 ## Troubleshooting
