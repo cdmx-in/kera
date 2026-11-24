@@ -44,7 +44,9 @@ Usage:
   kera health             exit 0 when the local server is ready (container healthcheck)
 ` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + pipeline.CLIUsage + identity.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
-KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL).
+KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL),
+KERA_ADMIN_EMAIL and KERA_ADMIN_PASSWORD (create the first admin when serve finds no users), KERA_TRUSTED_PROXIES
+(CDNs, addresses or CIDRs, whose CF-Connecting-IP is believed for sign-in rate limits; private proxies are always trusted for X-Forwarded-For).
 kera pipeline reads only KERA_URL, KERA_PIPELINE, KERA_PIPELINE_TOKEN (and sets KERA_RUN and KERA_MARK for the command it runs).
 `
 
@@ -190,7 +192,7 @@ func identityCmd(ctx context.Context, args []string) error {
 		return loginLink(ctx, pool, args[2:])
 	}
 	if args[0] == "user" {
-		return identity.UserCmd(ctx, pool, args[1:], os.Stdout)
+		return identity.UserCmd(ctx, pool, args[1:], os.Stdin, os.Stdout)
 	}
 	return identity.APIKeyCmd(ctx, pool, args[1:], os.Stdout, os.Stderr)
 }
@@ -216,7 +218,8 @@ func loginLink(ctx context.Context, pool *pgxpool.Pool, args []string) error {
 		return err
 	}
 	var id, role string
-	err = pool.QueryRow(ctx, `SELECT id, role FROM "user" WHERE lower(email) = lower($1)`, fs.Arg(0)).Scan(&id, &role)
+	var epoch int64
+	err = pool.QueryRow(ctx, `SELECT id, role, session_epoch FROM "user" WHERE lower(email) = lower($1)`, fs.Arg(0)).Scan(&id, &role, &epoch)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A fresh install has no OAuth provider yet: the first user can be created here, as admin.
 		err = pool.QueryRow(ctx, `INSERT INTO "user" (id, name, email, role)
@@ -232,7 +235,7 @@ func loginLink(ctx context.Context, pool *pgxpool.Pool, args []string) error {
 	if role == "pending" {
 		return errors.New("user is pending approval")
 	}
-	tok, err := auth.IssueToken(keys, id, *ttl)
+	tok, err := auth.IssueSession(keys, id, epoch, *ttl)
 	if err != nil {
 		return err
 	}

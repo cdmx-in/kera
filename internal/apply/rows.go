@@ -11,6 +11,7 @@ import (
 
 	"github.com/cdmx-in/kera/internal/access"
 	"github.com/cdmx-in/kera/internal/ids"
+	"github.com/cdmx-in/kera/internal/settings"
 )
 
 // row is one current resource, normalised like the desired side.
@@ -317,6 +318,9 @@ func (r *run) writeProvider(p OAuthProvider) error {
 		scope = EXCLUDED.scope, pkce = EXCLUDED.pkce, send_resource = EXCLUDED.send_resource, options = EXCLUDED.options, managed = true`,
 		p.ID, p.Issuer, p.AuthorizationEndpoint, p.TokenEndpoint, p.RevocationEndpoint, p.UserinfoEndpoint, p.ClientID, enc,
 		p.Scope, p.PKCE == nil || *p.PKCE, p.SendResource, jsonCol(providerOptions{Login: p.Login, Name: p.Name}, "{}"))
+	if err == nil && p.Login { // password sign-in stays as it is when this provider is later removed
+		err = settings.PinPasswordSignInOff(r.ctx, r.tx)
+	}
 	return wrap(err, "write oauth provider %s", p.ID)
 }
 

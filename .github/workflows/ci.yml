@@ -64,6 +64,14 @@ jobs:
           docker compose config -q
           COMPOSE_PROFILES=litellm,ollama docker compose config -q
           rm .env && ./init.sh litellm ollama && docker compose config -q
+          # a named admin: both variables land in a .env only the owner can read, and reach the kera service
+          rm .env && KERA_ADMIN_EMAIL=ci@example.com ./init.sh > /dev/null
+          test "$(stat -c %a .env)" = 600
+          grep -qE '^KERA_ADMIN_PASSWORD=[A-Za-z0-9-]{23}$' .env
+          docker compose config | grep -q 'KERA_ADMIN_EMAIL: ci@example.com'
+          # the published port is on all interfaces unless KERA_BIND narrows it
+          docker compose config | grep -q 'host_ip: 0.0.0.0'
+          KERA_BIND=127.0.0.1 docker compose config | grep -q 'host_ip: 127.0.0.1'
   gitleaks:
     runs-on: ubuntu-latest
     steps:

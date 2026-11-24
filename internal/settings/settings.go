@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -87,6 +88,21 @@ func (s *Store) Set(ctx context.Context, key string, value any, managed bool) er
 		return fmt.Errorf("write config %s: %w", key, err)
 	}
 	s.Invalidate(key)
+	return nil
+}
+
+// PinPasswordSignInOff writes auth.password.enabled = false when it holds no value, and leaves a
+// value an admin set alone. It is called whenever an OAuth login provider is saved: with no value, password
+// sign-in is on while no login provider exists, so without the pin, deleting the provider later
+// would switch the password form on by itself. db is a pool or a transaction.
+func PinPasswordSignInOff(ctx context.Context, db interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}) error {
+	_, err := db.Exec(ctx, `INSERT INTO config (key, value, managed) VALUES ('auth.password.enabled', 'false', false)
+		ON CONFLICT (key) DO NOTHING`)
+	if err != nil {
+		return fmt.Errorf("pin auth.password.enabled: %w", err)
+	}
 	return nil
 }
 

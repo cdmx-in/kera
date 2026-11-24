@@ -549,3 +549,49 @@ func TestSkillsMappingOrList(t *testing.T) {
 		t.Fatalf("unknown key not reported: %v", err)
 	}
 }
+
+// Applying a login provider pins password sign-in off, so dropping the provider from the file
+// later does not switch the form on; an explicit value in the same file wins, and a second apply
+// changes nothing.
+func TestApplyPinsPasswordSignInOffWithALoginProvider(t *testing.T) {
+	fx := setup(t)
+	ctx := context.Background()
+	stored := func() string {
+		var v string
+		if err := fx.db.QueryRow(ctx, `SELECT value::text FROM config WHERE key = 'auth.password.enabled'`).Scan(&v); err != nil {
+			return "(unset)"
+		}
+		return v
+	}
+	load := func(yaml string) *File {
+		t.Helper()
+		f, err := Parse([]byte(yaml), "testdata", lookup(testEnv))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	provider := "oauth_providers:\n  - {id: sso, login: true, client_id: c, client_secret: s, authorization_endpoint: https://idp.example.com/a, token_endpoint: https://idp.example.com/t}\n"
+	tool := "oauth_providers:\n  - {id: sheets, client_id: c, client_secret: s, authorization_endpoint: https://idp.example.com/a, token_endpoint: https://idp.example.com/t}\n"
+
+	mustApply(t, fx, load(tool), Options{})
+	if v := stored(); v != "(unset)" {
+		t.Fatalf("a tool-server provider pinned the setting: %s", v)
+	}
+	mustApply(t, fx, load(provider), Options{})
+	if v := stored(); v != "false" {
+		t.Fatalf("after applying a login provider: %s, want false", v)
+	}
+	mustApply(t, fx, load("oauth_providers: []\n"), Options{Prune: true})
+	if v := stored(); v != "false" {
+		t.Fatalf("after the provider left the file: %s, the form must stay off", v)
+	}
+
+	// An explicit true in the same file wins over the pin, whatever the order inside the run.
+	fx2 := setup(t)
+	mustApply(t, fx2, load("auth: {password: {enabled: true}}\n"+provider), Options{})
+	var v string
+	if err := fx2.db.QueryRow(ctx, `SELECT value::text FROM config WHERE key = 'auth.password.enabled'`).Scan(&v); err != nil || v != "true" {
+		t.Fatalf("explicit true with a login provider: %q %v", v, err)
+	}
+}

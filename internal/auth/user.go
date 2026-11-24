@@ -12,6 +12,7 @@ type User struct {
 	Groups          []string    `json:"groups"` // group ids
 	Permissions     Permissions `json:"permissions"`
 	ViaAPIKey       bool        `json:"-"`
+	SessionEpoch    int64       `json:"-"` // tokens must carry this number; a password change adds one
 }
 
 // IsAdmin reports the admin role.

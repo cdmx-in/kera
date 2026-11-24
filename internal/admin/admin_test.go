@@ -477,3 +477,75 @@ func TestSpend(t *testing.T) {
 		t.Fatal("spend pool can write")
 	}
 }
+
+// auth.password.enabled has no value until an admin sets one (then the sign-in
+// form follows the OAuth providers); it takes true or false and nothing else.
+func TestPasswordSwitchSetting(t *testing.T) {
+	e := setup(t)
+	var list []settingOut
+	e.ok("GET", "/api/v1/configs/settings", nil, &list)
+	if s := findSetting(t, list, "auth.password.enabled"); string(s.Value) != "null" || string(s.Default) != "null" || s.Set {
+		t.Fatalf("unset switch = %+v", s)
+	}
+	for _, bad := range []any{"yes", 1, []bool{true}, map[string]any{}} {
+		e.fails(400, "bad_type", "POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": bad})
+	}
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": false}, &list)
+	if s := findSetting(t, list, "auth.password.enabled"); string(s.Value) != "false" || !s.Set {
+		t.Fatalf("switch off = %+v", s)
+	}
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": true}, &list)
+	if s := findSetting(t, list, "auth.password.enabled"); string(s.Value) != "true" {
+		t.Fatalf("switch on = %+v", s)
+	}
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": nil}, &list)
+	if s := findSetting(t, list, "auth.password.enabled"); string(s.Value) != "null" || s.Set {
+		t.Fatalf("switch reset = %+v", s)
+	}
+}
+
+// Saving an OAuth login provider pins password sign-in off while the setting has no value, so
+// removing the provider later does not switch the password form on by itself; a tool-server
+// provider (no login) and a value an admin set are left alone.
+func TestSavingALoginProviderPinsPasswordSignInOff(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	value := func() string {
+		var v string
+		err := e.a.DB.QueryRow(ctx, `SELECT value::text FROM config WHERE key = 'auth.password.enabled'`).Scan(&v)
+		if err != nil {
+			return "(unset)"
+		}
+		return v
+	}
+	provider := func(id string, login bool) map[string]any {
+		return map[string]any{"id": id, "login": login, "client_id": "c", "client_secret": "s",
+			"authorization_endpoint": "https://idp.example.com/auth", "token_endpoint": "https://idp.example.com/token"}
+	}
+
+	e.ok("POST", "/api/v1/configs/oauth_providers", provider("mcp:sheets", false), nil)
+	if v := value(); v != "(unset)" {
+		t.Fatalf("a tool-server provider changed the setting: %s", v)
+	}
+	e.ok("POST", "/api/v1/configs/oauth_providers", provider("sso", true), nil)
+	if v := value(); v != "false" {
+		t.Fatalf("after saving a login provider: %s, want false", v)
+	}
+	e.ok("DELETE", "/api/v1/configs/oauth_providers/sso", nil, nil)
+	if v := value(); v != "false" {
+		t.Fatalf("after deleting the provider: %s, the form must stay off", v)
+	}
+
+	// An admin's explicit choice survives saving a provider.
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": true}, nil)
+	e.ok("POST", "/api/v1/configs/oauth_providers", provider("sso", true), nil)
+	if v := value(); v != "true" {
+		t.Fatalf("saving a provider overwrote an explicit true: %s", v)
+	}
+	// Reset to automatic, then a provider pins again.
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": nil}, nil)
+	e.ok("POST", "/api/v1/configs/oauth_providers", provider("sso", true), nil)
+	if v := value(); v != "false" {
+		t.Fatalf("after reset and save: %s", v)
+	}
+}

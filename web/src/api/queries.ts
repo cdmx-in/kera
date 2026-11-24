@@ -3,7 +3,7 @@
 
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { api, setToken } from './client'
-import type { ApiKey, ChatSummary, Folder, Me, Model, ModelFeature, ToolServer } from './types'
+import type { ApiKey, AuthOptions, ChatSummary, Folder, Me, Model, ModelFeature, ToolServer } from './types'
 import { humanizeTool } from '@/features/tools/display'
 import { uiConfig } from '@/lib/ui-config'
 
@@ -20,6 +20,11 @@ export function useMe() {
     },
     staleTime: 5 * 60_000,
   })
+}
+
+/** The sign-in methods on offer (public route; read fresh, an admin may just have changed them). */
+export function useAuthOptions() {
+  return useQuery({ queryKey: ['auth', 'providers'], queryFn: () => api<AuthOptions>('/api/v1/auths/providers'), retry: false, staleTime: 0 })
 }
 
 /**

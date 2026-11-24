@@ -49,6 +49,7 @@ type userOut struct {
 	APIKeyCount     int             `json:"api_key_count"`
 	DisabledAt      *int64          `json:"disabled_at"`
 	Origin          string          `json:"origin"`
+	HasPassword     bool            `json:"has_password"` // never the hash
 }
 
 const userSelect = `SELECT u.id, u.name, u.email, u.role, u.profile_image_url,
@@ -56,12 +57,13 @@ const userSelect = `SELECT u.id, u.name, u.email, u.role, u.profile_image_url,
 	COALESCE((SELECT json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.name)
 		FROM group_member m JOIN "group" g ON g.id = m.group_id WHERE m.user_id = u.id), '[]'),
 	(SELECT count(*) FROM api_key k WHERE k.user_id = u.id),
-	extract(epoch FROM u.disabled_at)::bigint, u.origin
+	extract(epoch FROM u.disabled_at)::bigint, u.origin,
+	EXISTS (SELECT 1 FROM auth_password p WHERE p.user_id = u.id)
 	FROM "user" u `
 
 func scanUser(row pgx.Row) (userOut, error) {
 	var u userOut
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ProfileImageURL, &u.LastActiveAt, &u.CreatedAt, &u.Groups, &u.APIKeyCount, &u.DisabledAt, &u.Origin)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ProfileImageURL, &u.LastActiveAt, &u.CreatedAt, &u.Groups, &u.APIKeyCount, &u.DisabledAt, &u.Origin, &u.HasPassword)
 	return u, err
 }
 

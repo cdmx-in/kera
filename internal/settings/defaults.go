@@ -11,7 +11,7 @@ var Defaults = map[string]json.RawMessage{
 	"site.model_order":    raw(`[]`),
 	"site.suggestions":    raw(`[]`),
 
-	"auth.login_form":            raw(`false`),
+	"auth.login_form":            raw(`false`), // unused: the sign-in form follows auth.password.enabled
 	"auth.signup.oauth":          raw(`true`),
 	"auth.signup.password":       raw(`false`),
 	"auth.signup.default_role":   raw(`"user"`),
@@ -19,6 +19,10 @@ var Defaults = map[string]json.RawMessage{
 	"auth.oauth.merge_by_email":  raw(`true`),
 	"auth.oauth.update_picture":  raw(`true`),
 	"auth.oauth.allowed_domains": raw(`[]`),
+
+	// null = automatic: password sign-in is on while no OAuth login provider exists and off once one does;
+	// true or false overrides that (identity.passwordEnabled).
+	"auth.password.enabled": raw(`null`),
 
 	// Default permissions for every non-admin user; groups can only add.
 	"user.permissions": raw(`{

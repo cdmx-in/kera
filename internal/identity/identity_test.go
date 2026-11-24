@@ -723,24 +723,24 @@ func TestCLI(t *testing.T) {
 	ctx := context.Background()
 	e.mkUser("user", "ann@example.com")
 	var out, warn bytes.Buffer
-	if err := UserCmd(ctx, e.a.DB, []string{"promote", "ANN@example.com"}, &out); err != nil {
+	if err := UserCmd(ctx, e.a.DB, []string{"promote", "ANN@example.com"}, strings.NewReader(""), &out); err != nil {
 		t.Fatal(err)
 	}
-	if err := UserCmd(ctx, e.a.DB, []string{"promote", "nobody@example.com"}, &out); err == nil {
+	if err := UserCmd(ctx, e.a.DB, []string{"promote", "nobody@example.com"}, strings.NewReader(""), &out); err == nil {
 		t.Fatal("promoted a missing user")
 	}
 	out.Reset()
-	if err := UserCmd(ctx, e.a.DB, []string{"list"}, &out); err != nil || !strings.Contains(out.String(), "ann@example.com  admin") {
+	if err := UserCmd(ctx, e.a.DB, []string{"list"}, strings.NewReader(""), &out); err != nil || !strings.Contains(out.String(), "ann@example.com  admin") {
 		t.Fatalf("list: %v %q", err, out.String())
 	}
 	out.Reset()
-	if err := UserCmd(ctx, e.a.DB, []string{"add", "--name", "Bo Lee", "Bo@Example.com"}, &out); err != nil || !strings.Contains(out.String(), "bo@example.com as user") {
+	if err := UserCmd(ctx, e.a.DB, []string{"add", "--name", "Bo Lee", "Bo@Example.com"}, strings.NewReader(""), &out); err != nil || !strings.Contains(out.String(), "bo@example.com as user") {
 		t.Fatalf("add: %v %q", err, out.String())
 	}
-	if err := UserCmd(ctx, e.a.DB, []string{"add", "bo@example.com"}, &out); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := UserCmd(ctx, e.a.DB, []string{"add", "bo@example.com"}, strings.NewReader(""), &out); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("add twice: %v", err)
 	}
-	if err := UserCmd(ctx, e.a.DB, []string{"add", "--admin", "root@example.com"}, &out); err != nil {
+	if err := UserCmd(ctx, e.a.DB, []string{"add", "--admin", "root@example.com"}, strings.NewReader(""), &out); err != nil {
 		t.Fatal(err)
 	}
 	var role, uname string

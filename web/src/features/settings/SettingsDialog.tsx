@@ -14,6 +14,7 @@ import { Dialog, DialogHeader } from '@/ui/Dialog'
 import { Switch } from '@/ui/misc'
 import { Confirm } from '@/features/admin/ui'
 import { Avatar } from '@/features/header/Header'
+import { ChangePassword } from './ChangePassword'
 import { IntegrationSlots, hasSlot } from '@/features/integrations/registry'
 
 const tabCls = 'whitespace-nowrap rounded-lg px-3 py-1.5 text-left text-sm text-muted data-[state=active]:bg-surface-2 data-[state=active]:text-fg hover:text-fg'
@@ -220,6 +221,7 @@ function Account() {
           <p className="truncate text-sm text-muted">{me.email}</p>
         </div>
       </div>
+      {me.has_password && me.password_login && <ChangePassword me={me} keysBelow={allowKeys} />}
       {/* no session-token copy: scripts use revocable API keys, never the browser's sign-in token */}
       {allowKeys && <ApiKeys />}
     </div>

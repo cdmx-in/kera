@@ -1,5 +1,6 @@
 # Kera: the app plus Postgres 18 with pgvector.
-#   ./init.sh              # writes .env with random secrets (or: cp .env.example .env and edit)
+#   KERA_ADMIN_EMAIL=you@example.com ./init.sh   # writes .env with random secrets and your first sign-in password
+#                                                (or: cp .env.example .env and edit)
 #   docker compose up -d
 # Optional profiles, ./init.sh ollama litellm turns them on in .env (docs/deploy.md, docs/litellm.md):
 #   ollama   a model server with a small chat and embedding model, for hosts without Ollama
@@ -27,9 +28,14 @@ services:
       KERA_SECRET_KEY: ${KERA_SECRET_KEY:?KERA_SECRET_KEY is empty, run ./init.sh in deploy/ to create .env with random secrets}
       KERA_URL: ${KERA_URL:-http://localhost:8080}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # The first admin, made at the first start while there are no users (init.sh fills these in); remove them afterwards.
+      KERA_ADMIN_EMAIL: ${KERA_ADMIN_EMAIL:-}
+      KERA_ADMIN_PASSWORD: ${KERA_ADMIN_PASSWORD:-}
+      KERA_TRUSTED_PROXIES: ${KERA_TRUSTED_PROXIES:-}
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: [kera_data:/data]
-    ports: ["${KERA_PORT:-8080}:8080"]
+    # All interfaces by default, so a LAN or VPS user can reach it; KERA_BIND=127.0.0.1 when a proxy on this host fronts it.
+    ports: ["${KERA_BIND:-0.0.0.0}:${KERA_PORT:-8080}:8080"]
     healthcheck:
       test: ["CMD", "kera", "health"]
       interval: 5s
