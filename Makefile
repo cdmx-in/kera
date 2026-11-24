@@ -17,6 +17,11 @@ test: test-go test-web
 test-go:
 	go vet ./... && go test -race ./...
 
+lint:
+	@files="$$(gofmt -l .)"; if [ -n "$$files" ]; then echo "gofmt needed:"; echo "$$files"; exit 1; fi
+	go vet ./...
+	cd web && pnpm typecheck
+
 test-web:
 	cd web && pnpm typecheck && pnpm test
 
