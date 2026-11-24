@@ -168,16 +168,40 @@ func ibanOK(s string) bool {
 	return rem == 1
 }
 
+// trimmed lists the rules whose pattern can swallow the word after a value: a spaced IBAN followed by
+// "to" or "from" is matched as one string with an extra group, and validating the whole match fails.
+var trimmed = map[string]bool{"pii.iban": true}
+
+// shorten drops trailing groups of m (separated by spaces or hyphens) until verify accepts what is left,
+// and returns the dropped tail with its leading separator; ok is false when no shorter value verifies.
+func shorten(m string, verify func(string) bool) (tail string, ok bool) {
+	for {
+		i := strings.LastIndexAny(m, " -")
+		if i < 15 { // the shortest IBAN has 15 characters
+			return "", false
+		}
+		tail = m[i:] + tail
+		m = m[:i]
+		if verify(m) {
+			return tail, true
+		}
+	}
+}
+
 // Scan masks personal data in text and counts hits per rule.
 func Scan(text string) (string, map[string]int) {
 	hits := map[string]int{}
 	for _, r := range piiRules {
 		text = r.Re.ReplaceAllStringFunc(text, func(m string) string {
+			tail := ""
 			if r.Verify != nil && !r.Verify(m) {
-				return m
+				var ok bool
+				if tail, ok = shorten(m, r.Verify); !trimmed[r.ID] || !ok {
+					return m
+				}
 			}
 			hits[r.ID]++
-			return r.Mask
+			return r.Mask + tail
 		})
 	}
 	return text, hits

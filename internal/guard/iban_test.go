@@ -47,3 +47,33 @@ func TestHexHashesAreNotIBANs(t *testing.T) {
 		}
 	}
 }
+
+// A spaced IBAN followed by a short word used to be missed: the pattern takes the word as one more
+// group, the whole match fails the check digits, and no shorter match was tried.
+func TestSpacedIBANFollowedByShortWords(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"Send to ES91 2100 0418 4502 0005 1332 to settle", "Send to [iban] to settle"},
+		{"ES91 2100 0418 4502 0005 1332 from Ana", "[iban] from Ana"},
+		{"BE68 5390 0754 7034 and more", "[iban] and more"},
+		{"AT61 1904 3002 3457 3201 is mine", "[iban] is mine"},
+		{"SA03 8000 0000 6080 1016 7519 x", "[iban] x"},
+		{"PL61 1090 1014 0000 0712 1981 2874 for rent", "[iban] for rent"},
+		{"GB82 WEST 1234 5698 7654 32 confirmed", "[iban] confirmed"},                                // still masked as before
+		{"pay ES91 2100 0418 4502 0005 1332 or GB82 WEST 1234 5698 7654 32", "pay [iban] or [iban]"}, // two in one line
+		{"pay ES91 2100 0418 4502 0005 1332.", "pay [iban]."},
+	} {
+		if got, _ := Scan(c.in); got != c.want {
+			t.Errorf("Scan(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	// a wrong check digit stays unmasked, with or without words after it, and nothing shorter sneaks through
+	for _, in := range []string{
+		"Reference DE12 3456 7890 1234 5678 90 and then more",
+		"ES12 2100 0418 4502 0005 1332 to settle",
+		"order AB12 3456 7890 1234 5678 now",
+	} {
+		if got, hits := Scan(in); hits["pii.iban"] != 0 {
+			t.Errorf("Scan(%q) masked an IBAN: %q", in, got)
+		}
+	}
+}

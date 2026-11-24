@@ -195,3 +195,7 @@ neg	pii.nino	Too many digits AB1234567A ignored.
 neg	pii.nino	Lowercase ref ab123456c not matched.
 neg	pii.iban	Build artifact checksum fb33ba5d3d511ca1e8945b68a4d389bf attached.
 neg	pii.iban	Check digits are right but a German IBAN has 22 characters, not 21: DE9654453079397734495 ignored.
+pos	pii.iban	Send to ES91 2100 0418 4502 0005 1332 to settle.
+pos	pii.iban	BE68 5390 0754 7034 and the rest follow.
+pos	pii.iban	Beneficiary AT61 1904 3002 3457 3201 is mine.
+neg	pii.iban	Reference DE12 3456 7890 1234 5678 90 and then more.
