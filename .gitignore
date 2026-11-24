@@ -9,6 +9,7 @@
 .env.*
 !.env.example
 coverage.out
+coverage.html
 /web/test-results/
 /web/playwright-report/
 web/.vitest/

@@ -26,6 +26,18 @@ jobs:
         with: {node-version: 24, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml}
       - run: make build
       - run: make test
+      # the profile comes from `make test`, which has the Postgres service, so the database tests are in it
+      - name: Go coverage in the job summary
+        run: |
+          go tool cover -html=coverage.out -o coverage.html
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')
+          printf '### Go test coverage\n\nTotal statement coverage: **%s** (the profile and an HTML report are in the `go-coverage` artifact)\n' "$total" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: |
+            coverage.out
+            coverage.html
       - name: known vulnerabilities reachable from our code
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: no tenant strings in core
