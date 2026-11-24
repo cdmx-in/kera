@@ -1,0 +1,17 @@
+# SearXNG settings for the "searxng" profile (docs/deploy.md): its default engines, plus the JSON format Kera asks for.
+# SearXNG answers format=json with 403 unless it is listed here.
+use_default_settings: true
+search:
+  formats: [html, json]
+
+engines:
+  # In the pinned release this engine returns links without a host ("http:///go/v1/..."), which Kera cannot open or
+  # cite. Remove these two lines when a newer SearXNG fixes it.
+  - name: brave
+    disabled: true
+
+# Wikipedia, Wikidata and OpenStreetMap are off (the log says "can't register engine") until SearXNG has a contact
+# address to send them, as their rules ask. To turn them on, remove the "# " below and put your own address in
+# (the Tor engines ahmia and torch stay off either way):
+# general:
+#   contact_url: mailto:you@example.com

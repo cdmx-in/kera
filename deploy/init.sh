@@ -1,7 +1,8 @@
 #!/bin/sh
-# Writes deploy/.env with random secrets, once. Usage: ./init.sh [ollama] [litellm]
+# Writes deploy/.env with random secrets, once. Usage: ./init.sh [ollama] [litellm] [searxng]
 #   ollama   also run a model server in the stack (small chat + embedding model, CPU)
 #   litellm  also run the LiteLLM gateway, wired to Kera with spend tracking
+#   searxng  also run SearXNG for private web search, wired to Kera (no account or API key)
 # Name the first admin to get a password for them, printed once at the end:
 #   KERA_ADMIN_EMAIL=you@example.com ./init.sh
 # Set KERA_URL first when Kera will not be opened at http://localhost:8080:
@@ -20,8 +21,8 @@ password() {
 profiles=""
 for p in "$@"; do
   case "$p" in
-    ollama | litellm) profiles="${profiles:+$profiles,}$p" ;;
-    *) echo "unknown option '$p' (use: ollama, litellm)" >&2; exit 1 ;;
+    ollama | litellm | searxng) profiles="${profiles:+$profiles,}$p" ;;
+    *) echo "unknown option '$p' (use: ollama, litellm, searxng)" >&2; exit 1 ;;
   esac
 done
 admin="${KERA_ADMIN_EMAIL:-}"

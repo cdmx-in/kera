@@ -64,6 +64,13 @@ jobs:
           docker compose config -q
           COMPOSE_PROFILES=litellm,ollama docker compose config -q
           rm .env && ./init.sh litellm ollama && docker compose config -q
+          # the searxng profile adds its two services only when asked for, publishes no port, and uses a dated image tag
+          ! docker compose config --services | grep -qx searxng
+          COMPOSE_PROFILES=litellm,ollama,searxng docker compose config -q
+          COMPOSE_PROFILES=searxng docker compose config --services | grep -qx searxng-setup
+          COMPOSE_PROFILES=searxng docker compose config --format json | jq -e '.services.searxng | has("ports") | not' > /dev/null
+          COMPOSE_PROFILES=searxng docker compose config --images | grep -qE '^searxng/searxng:[0-9]{4}\.[0-9]{2}\.[0-9]{2}-'
+          rm .env && ./init.sh searxng && grep -qx 'COMPOSE_PROFILES=searxng' .env && docker compose config --services | grep -qx searxng
           # a named admin: both variables land in a .env only the owner can read, and reach the kera service
           rm .env && KERA_ADMIN_EMAIL=ci@example.com ./init.sh > /dev/null
           test "$(stat -c %a .env)" = 600
