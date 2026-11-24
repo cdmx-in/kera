@@ -177,6 +177,7 @@ func (f *fixture) settle(t *testing.T) {
 		}
 		f.s.mu.Unlock()
 		if !busy {
+			f.s.e.Wait() // the stored status (done, not still streaming) is written just after the run reports finished
 			return
 		}
 		if time.Now().After(deadline) {
