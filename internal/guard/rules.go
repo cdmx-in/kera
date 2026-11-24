@@ -26,6 +26,7 @@ var piiRules = []rule{
 	{"pii.card", regexp.MustCompile(`\b(?:\d[ -]?){12,18}\d\b`), cardOK, "[card]"},
 	{"pii.aadhaar", regexp.MustCompile(`\b[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?:[ -]?\d+)*\b`), aadhaarOK, "[aadhaar]"},
 	{"pii.ssn", regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`), nil, "[ssn]"},
+	{"pii.nino", regexp.MustCompile(`\b[A-CEGHJ-PR-TW-Z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b`), validNINO, "[nino]"},
 	{"pii.pan", regexp.MustCompile(`\b[A-Z]{5}\d{4}[A-Z]\b`), nil, "[pan]"},
 	// ponytail: phone formats are a heuristic (international +cc, US dashed or
 	// bracketed, trunk-0 national, Indian 10-digit mobile); extend the
@@ -167,4 +168,24 @@ func SafeCut(text string, cut int) int {
 		}
 	}
 	return cut
+}
+
+var ninoInvalidPrefixes = map[string]bool{
+	"BG": true, "GB": true, "NK": true, "KN": true,
+	"TN": true, "NT": true, "ZZ": true,
+}
+
+func validNINO(raw string) bool {
+	s := strings.ReplaceAll(strings.ToUpper(raw), " ", "")
+	if len(s) != 9 {
+		return false
+	}
+	if ninoInvalidPrefixes[s[:2]] {
+		return false
+	}
+	// Second letter cannot be D, F, I, Q, U, V (already excluded by regex except O).
+	if s[1] == 'O' {
+		return false
+	}
+	return true
 }

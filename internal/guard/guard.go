@@ -60,7 +60,7 @@ func WithNotifier(ctx context.Context, fn Notifier) context.Context {
 var nouns = map[string][2]string{
 	"pii.email": {"email address", "email addresses"}, "pii.phone": {"phone number", "phone numbers"},
 	"pii.card": {"card number", "card numbers"}, "pii.pan": {"PAN", "PANs"}, "pii.aadhaar": {"Aadhaar number", "Aadhaar numbers"},
-	"pii.iban": {"IBAN", "IBANs"}, "pii.ssn": {"SSN", "SSNs"},
+	"pii.iban": {"IBAN", "IBANs"}, "pii.ssn": {"SSN", "SSNs"}, "pii.nino": {"NINO", "NINOs"},
 }
 
 // Describe reads a list of events as "1 card number and 2 email addresses".

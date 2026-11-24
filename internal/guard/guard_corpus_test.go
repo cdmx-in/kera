@@ -61,6 +61,7 @@ var pinned = map[string][4]int{
 	"pii.pan":     {8, 2, 0, 6},
 	"pii.phone":   {8, 3, 0, 9},
 	"pii.ssn":     {8, 1, 0, 7},
+	"pii.nino":    {8, 0, 0, 8},
 }
 
 func TestCorpus(t *testing.T) {
