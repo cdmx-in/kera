@@ -54,7 +54,6 @@ export interface UIConfig {
     login?: { wordmark?: string; style?: 'glass-card' | 'plain' }
   }
   features: {
-    spend?: boolean
     memory?: boolean
     codeInterpreter?: boolean
     webSearch?: boolean

@@ -417,7 +417,15 @@ func TestSpend(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
 	q := "/api/v1/analytics/spend?start_date=2026-03-01&end_date=2026-03-31"
-	e.fails(503, "spend_not_configured", "GET", q, nil)
+	var none struct {
+		Configured *bool `json:"configured"`
+		Rows       []spendRow
+		Users      []spendUser
+	}
+	e.ok("GET", q, nil, &none) // no source: an empty state (200), not an error that reads as an outage
+	if none.Configured == nil || *none.Configured || none.Rows == nil || none.Users == nil {
+		t.Fatalf("unconfigured spend = %+v", none)
+	}
 	e.fails(400, "bad_range", "GET", "/api/v1/analytics/spend", nil)
 
 	// A second scratch database stands in for LiteLLM's.
@@ -435,6 +443,10 @@ func TestSpend(t *testing.T) {
 	}
 	e.ok("POST", "/api/v1/configs/settings", map[string]any{"spend.source.kind": "litellm_postgres",
 		"spend.source.dsn": lite.Config().ConnString()}, nil)
+
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"spend.source.dsn": "postgres://x:y@127.0.0.1:1/z?connect_timeout=2"}, nil)
+	e.fails(424, "spend_source_failed", "GET", q, nil) // unreachable source: not a 502/503 outage
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"spend.source.dsn": lite.Config().ConnString()}, nil)
 
 	var out struct {
 		StartDate string `json:"start_date"`

@@ -1,6 +1,6 @@
 // Spend page (ported from the old standalone page): LiteLLM spend per user, day and model.
 import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { CircleDollarSign, Search } from 'lucide-react'
 import { cx } from '@/lib/format'
 import { useAdmin } from './api'
 import { EmptyRow } from './Analytics'
@@ -8,6 +8,33 @@ import { ago, monthRange, num, pageSlice, sortPeople, spendLevel, spendView, usd
 import { Pagination, useUrlPager } from './Pagination'
 import { UserAvatar } from './Users'
 import { Badge, Bar, Card, DateRange, DayBars, inputCls, Kpi, Loading, Page, scrollCls, tdCls, theadCls, thCls } from './ui'
+
+const guide = 'https://github.com/cdmx-in/kera/blob/main/docs/litellm.md'
+
+/** Shown instead of the figures while no spend source is set: what this page is, and how to get it. */
+export function SpendEmpty() {
+  return (
+    <Card>
+      <div className="mx-auto max-w-xl space-y-4 p-8 text-center" data-testid="spend-empty">
+        <CircleDollarSign size={36} className="mx-auto text-muted" aria-hidden />
+        <h3 className="text-base font-semibold">Spend tracking is not set up</h3>
+        <p className="text-sm text-muted">Spend and token figures come from LiteLLM&apos;s spend log. Kera does not meter usage itself, so this page fills in once your models run through LiteLLM.</p>
+        <ol className="list-decimal space-y-1.5 pl-5 text-left text-sm">
+          <li>
+            New install: run <code>docker compose --profile litellm up -d</code> in <code>deploy/</code>. It starts LiteLLM and connects it to Kera and to this page.
+          </li>
+          <li>Own LiteLLM: add it as a connection in Admin &gt; Settings &gt; Connections and forward the user&apos;s email in the X-LiteLLM-Customer-Id header.</li>
+          <li>
+            Then point this page at LiteLLM&apos;s database in Admin &gt; Settings &gt; Spend.
+          </li>
+        </ol>
+        <a href={guide} target="_blank" rel="noreferrer" className="inline-block text-sm font-medium text-accent underline underline-offset-2">
+          Read the LiteLLM setup guide
+        </a>
+      </div>
+    </Card>
+  )
+}
 
 const levels = { high: ['red', 'High'], medium: ['amber', 'Medium'], light: ['green', 'Light'], none: ['grey', 'No usage'] } as const
 
@@ -18,7 +45,8 @@ export function SpendPage() {
   const userPager = useUrlPager()
   const modelPager = useUrlPager('models')
   const data = useAdmin<SpendData>(['spend', ...range], `/api/v1/analytics/spend?start_date=${range[0]}&end_date=${range[1]}`)
-  const view = useMemo(() => (data.data ? spendView(data.data) : null), [data.data])
+  const unconfigured = data.data?.configured === false
+  const view = useMemo(() => (data.data && !unconfigured ? spendView(data.data) : null), [data.data, unconfigured])
   const people = useMemo(() => {
     if (!view) return []
     const needle = q.trim().toLowerCase()
@@ -35,9 +63,10 @@ export function SpendPage() {
   )
 
   return (
-    <Page title="Spend" actions={<DateRange value={range} onChange={setRange} />}>
-      <p className="-mt-3 text-xs text-muted">From the LiteLLM spend logs · days are UTC</p>
+    <Page title="Spend" actions={unconfigured ? undefined : <DateRange value={range} onChange={setRange} />}>
+      {!unconfigured && <p className="-mt-3 text-xs text-muted">From the LiteLLM spend logs · days are UTC</p>}
       <Loading q={data} />
+      {unconfigured && <SpendEmpty />}
       {view && (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

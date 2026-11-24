@@ -119,6 +119,23 @@ export function CodeTab() {
   )
 }
 
+export function SpendSourceTab() {
+  return (
+    <SettingsForm
+      sections={[
+        {
+          title: 'Spend source',
+          hint: 'Admin > Spend reads LiteLLM\'s spend log. Send each user\'s email in the X-LiteLLM-Customer-Id header (Connections > Forward the user as headers) so rows name the person.',
+          fields: [
+            f('spend.source.kind', { select: [['', 'Off'], ['litellm_postgres', 'LiteLLM database (Postgres)']] }, undefined, 'Source'),
+            f('spend.source.dsn', 'secret', "Connection string of LiteLLM's database, e.g. postgres://user:password@litellm-db:5432/litellm (read-only use, write-only field).", 'Database URL'),
+          ],
+        },
+      ]}
+    />
+  )
+}
+
 export function RetrievalTab() {
   return (
     <SettingsForm

@@ -83,6 +83,8 @@ export function parseList(text: string): string[] {
 // ---- spend ---------------------------------------------------------------------
 
 export interface SpendData {
+  /** false when no spend source is set (rows and users are empty then) */
+  configured?: boolean
   start_date: string
   end_date: string
   rows: { end_user: string; model: string; day: string; spend: number; prompt_tokens: number; completion_tokens: number; requests: number }[]
