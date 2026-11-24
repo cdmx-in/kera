@@ -46,7 +46,7 @@ func (s *Service) defaultModelName(ctx context.Context) (conn, model string, err
 	_ = s.settings.Get(ctx, "rag.embedding.connection", &conn)
 	_ = s.settings.Get(ctx, "rag.embedding.model", &model)
 	if model == "" {
-		return "", "", errors.New("no embedding model configured (rag.embedding.model)")
+		return "", "", errors.New("no embedding model is set: choose one in Admin > Settings > Retrieval > Embedding")
 	}
 	if conn == "" {
 		conn = "ollama"
@@ -87,7 +87,7 @@ func (s *Service) batchSize(ctx context.Context) int {
 func (s *Service) embed(ctx context.Context, m *embedModel, texts []string) ([][]float32, error) {
 	cl, err := s.embedder.ConnectionClient(ctx, m.ConnectionID)
 	if err != nil {
-		return nil, fmt.Errorf("embedding connection %s: %w", m.ConnectionID, err)
+		return nil, fmt.Errorf("embedding connection %q is not available (%w): check Admin > Settings > Retrieval > Embedding", m.ConnectionID, err)
 	}
 	n := s.batchSize(ctx)
 	out := make([][]float32, 0, len(texts))

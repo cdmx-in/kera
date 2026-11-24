@@ -101,7 +101,7 @@ var Defaults = map[string]json.RawMessage{
 	"ui.tool_display":              raw(`{}`),
 	"ui.integrations":              raw(`[]`),
 	"rag.embedding.connection":     raw(`""`),
-	"rag.embedding.model":          raw(`""`),
+	"rag.embedding.model":          raw(`"nomic-embed-text"`), // the usual small Ollama embedding model; connection "" means "ollama"
 	"rag.embedding.dim":            raw(`0`),
 	"rag.embedding.batch":          raw(`32`),
 	"rag.reranker.url":             raw(`""`),
