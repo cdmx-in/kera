@@ -64,6 +64,12 @@ jobs:
           docker compose config -q
           COMPOSE_PROFILES=litellm,ollama docker compose config -q
           rm .env && ./init.sh litellm ollama && docker compose config -q
+          # the private-search profile parses, keeps SearXNG off the host and writes its secret
+          rm .env && ./init.sh searxng && docker compose config -q
+          grep -qE '^SEARXNG_SECRET=[0-9a-f]{64}$' .env
+          COMPOSE_PROFILES=searxng docker compose config --services | grep -qx searxng
+          COMPOSE_PROFILES=searxng docker compose config --format json | jq -e '.services.searxng | has("ports") | not' > /dev/null
+          COMPOSE_PROFILES=searxng docker compose config | grep -q 'image: searxng/searxng:2026.11.23-a7163d091' 
           # a named admin: both variables land in a .env only the owner can read, and reach the kera service
           rm .env && KERA_ADMIN_EMAIL=ci@example.com ./init.sh > /dev/null
           test "$(stat -c %a .env)" = 600

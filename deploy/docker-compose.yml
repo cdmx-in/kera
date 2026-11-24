@@ -2,9 +2,10 @@
 #   KERA_ADMIN_EMAIL=you@example.com ./init.sh   # writes .env with random secrets and your first sign-in password
 #                                                (or: cp .env.example .env and edit)
 #   docker compose up -d
-# Optional profiles, ./init.sh ollama litellm turns them on in .env (docs/deploy.md, docs/litellm.md):
+# Optional profiles, ./init.sh ollama litellm searxng turns them on in .env (docs/deploy.md, docs/litellm.md):
 #   ollama   a model server with a small chat and embedding model, for hosts without Ollama
 #   litellm  LiteLLM gateway with spend tracking, wired to Kera
+#   searxng  a private SearXNG instance for built-in web search, wired to Kera
 services:
   kera-db:
     image: pgvector/pgvector:pg18
@@ -90,6 +91,36 @@ services:
     environment:
       OLLAMA_HOST: ollama:11434
     entrypoint: ["/bin/sh", "-c", "ollama pull llama3.2:3b && ollama pull nomic-embed-text"]
+    restart: "no"
+
+  # ---- profile "searxng": private web search and a one-shot wiring step ----
+
+  searxng:
+    profiles: [searxng]
+    image: searxng/searxng:2026.11.23-a7163d091
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
+    volumes: [./searxng/settings.yml:/etc/searxng/settings.yml:ro]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  # Runs `kera apply` once (and again on every `up`): points Kera at SearXNG.
+  searxng-setup:
+    profiles: [searxng]
+    image: ${KERA_IMAGE:-ghcr.io/cdmx-in/kera:latest}
+    command: ["apply", "-f", "/etc/kera/searxng.yaml"]
+    depends_on:
+      kera: {condition: service_healthy}
+      searxng: {condition: service_healthy}
+    environment:
+      KERA_DATABASE_URL: postgres://kera:${KERA_DB_PASSWORD}@kera-db:5432/kera?sslmode=disable
+      KERA_SECRET_KEY: ${KERA_SECRET_KEY:?KERA_SECRET_KEY is empty, run ./init.sh in deploy/ to create .env with random secrets}
+    volumes: [./searxng/kera.yaml:/etc/kera/searxng.yaml:ro]
     restart: "no"
 
   # ---- profile "litellm": gateway, its database and a one-shot wiring step ----

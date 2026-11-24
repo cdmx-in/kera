@@ -1,0 +1,6 @@
+# Wires Kera's built-in web search to the local SearXNG service. Applied by the
+# searxng-setup service on every `docker compose --profile searxng up -d`.
+web:
+  search:
+    engine: searxng
+    url: http://searxng:8080

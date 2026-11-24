@@ -1,0 +1,14 @@
+# Minimal SearXNG settings for Kera's built-in web search.
+# JSON output is required by internal/websearch; the limiter stays off because
+# only the kera container calls this instance, inside the compose network.
+use_default_settings: true
+server:
+  limiter: false
+  image_proxy: false
+  # The secret comes from SEARXNG_SECRET in .env (./init.sh sets one), which the
+  # image exports to SearXNG; an empty value makes SearXNG generate one itself.
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json

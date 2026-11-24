@@ -81,7 +81,20 @@ Pick one:
 | Ollama on this machine | Nothing: `OLLAMA_BASE_URL` points at `host.docker.internal:11434`. On Linux Ollama listens on `127.0.0.1` only, which containers cannot reach: start it with `OLLAMA_HOST=0.0.0.0` (a systemd override for the `ollama` service) and keep the port closed to the network. Pull an embedding model for Knowledge: `ollama pull nomic-embed-text`. |
 | OpenAI, Anthropic, vLLM or a gateway | Add a connection in Admin > Settings > Connections, or run [LiteLLM](litellm.md) with `./init.sh litellm`. |
 
-The profiles add up: `./init.sh ollama litellm`. They are stored as `COMPOSE_PROFILES` in `.env`.
+The profiles add up: `./init.sh ollama litellm searxng`. They are stored as `COMPOSE_PROFILES` in `.env`.
+
+## Private web search
+
+Built-in web search uses DuckDuckGo by default, which means each query leaves your network. The `searxng` profile runs a pinned [SearXNG](https://docs.searxng.org/) instance inside the stack and points Kera at it, so queries stay on the host.
+
+```sh
+./init.sh searxng          # adds COMPOSE_PROFILES=searxng and SEARXNG_SECRET to .env
+docker compose up -d       # starts searxng and the one-shot searxng-setup
+```
+
+`searxng` publishes no port; it is reachable only from the `kera` container at `http://searxng:8080`, and `deploy/searxng/settings.yml` enables the JSON output Kera reads. `searxng-setup` applies `deploy/searxng/kera.yaml` once with `kera apply`, which sets `web.search.engine: searxng` and `web.search.url`; the same file again changes nothing, and the setting shows as managed by the config file in Admin > Settings. To go back to DuckDuckGo, remove `searxng` from `COMPOSE_PROFILES` and delete the `web.search` block in Admin > Settings (or re-apply a file that sets only `web.search.engine: duckduckgo`).
+
+An existing install keeps its current engine: the profile only adds the service, and the wiring happens because `searxng-setup` runs on every `up` while the profile is active.
 
 ## Document extraction
 
@@ -142,7 +155,7 @@ docker compose run --rm -v "$PWD/my.yaml:/etc/kera/my.yaml:ro" kera apply -f /et
 docker compose run --rm -v "$PWD/my.yaml:/etc/kera/my.yaml:ro" kera apply -f /etc/kera/my.yaml
 ```
 
-Applying the same file again changes nothing. `deploy/litellm/kera.yaml` is a working example. What a file sets shows as managed by the config file in the admin console.
+Applying the same file again changes nothing. `deploy/litellm/kera.yaml` and `deploy/searxng/kera.yaml` are working examples. What a file sets shows as managed by the config file in the admin console.
 
 ## Another address, HTTPS
 
