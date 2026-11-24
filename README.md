@@ -150,13 +150,12 @@ The screenshots follow your light or dark theme. They show a demo workspace for 
 With Docker:
 
 ```sh
-cd deploy
-./init.sh                         # writes .env with random secrets
+git clone https://github.com/cdmx-in/kera.git && cd kera/deploy
+KERA_ADMIN_EMAIL=you@example.com ./init.sh    # writes .env with random secrets, prints your password once
 docker compose up -d
-docker compose exec kera kera user login-link you@example.com   # open the printed link
 ```
 
-On an empty install, `login-link` creates that first user as admin. After that, add a Google or OIDC sign-in provider in Admin > Settings. To let your account sign in through it, turn on `auth.oauth.merge_by_email`.
+Open http://localhost:8080 and sign in with that email and the printed password. That is the first admin; add the others in Admin > Users (email, name, role, initial password), and everyone can change their own password under Settings > Account. After the first start, delete the two `KERA_ADMIN_` lines from `.env`: Kera uses them only while it has no users. Lost the password? `docker compose exec kera kera user login-link you@example.com` prints a one-time sign-in link (it needs shell access to the server, so it is safe). For a team, add a Google or OIDC provider in Admin > Settings; password sign-in then switches itself off unless you keep it on. Details and the risks of a password in `.env`: [docs/deploy.md](docs/deploy.md).
 
 The compose file expects Ollama on the host at port 11434. No Ollama? `./init.sh ollama` (before `docker compose up -d`) adds one to the stack with a small chat and embedding model. Want [LiteLLM](docs/litellm.md) in front of your models, with the spend log wired to Admin > Spend? `./init.sh ollama litellm`. HTTPS, backups and troubleshooting: [docs/deploy.md](docs/deploy.md).
 
@@ -194,6 +193,8 @@ Only Postgres is required. The sidecars (document extraction, reranking, code sa
 | `KERA_LISTEN` | Listen address, default `:8080` |
 | `KERA_DATA_DIR` | Where uploaded files live, default `/data` |
 | `OLLAMA_BASE_URL` | Ollama server, default `http://host.docker.internal:11434` in the compose file |
+| `KERA_ADMIN_EMAIL`, `KERA_ADMIN_PASSWORD` | Create the first admin when Kera starts with no users (ignored once any user exists); `deploy/init.sh` writes them |
+| `KERA_TRUSTED_PROXIES` | Reverse proxies (addresses or CIDRs) whose `X-Forwarded-For` is believed for sign-in rate limits, besides private addresses |
 
 Everything else (connections, sign-in providers, branding, guardrails, tool servers) is set in the admin console, or as code with `kera apply -f config.yaml`.
 

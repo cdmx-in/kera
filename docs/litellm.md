@@ -8,7 +8,7 @@ The Docker Compose stack in `deploy/` has an opt-in profile that runs LiteLLM an
 
 ```sh
 cd deploy
-./init.sh litellm          # writes .env with random secrets and turns the profile on
+KERA_ADMIN_EMAIL=you@example.com ./init.sh litellm   # random secrets, the profile on, and your first password
 docker compose up -d
 ```
 
