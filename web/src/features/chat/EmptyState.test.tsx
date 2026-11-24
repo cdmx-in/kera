@@ -8,7 +8,7 @@ describe('NoModels', () => {
     expect(html).toContain('Ask an admin')
     expect(html).not.toContain('Admin &gt; Settings')
   })
-  it('tells an admin where to connect a model and how to share it', () => {
+  it('tells an admin where to check the connection and how to share models', () => {
     const html = renderToStaticMarkup(<NoModels admin />)
     expect(html).toContain('Admin &gt; Settings &gt; Connections')
     expect(html).toContain('Base models public')

@@ -15,7 +15,7 @@ export function NoModels({ admin }: { admin: boolean }) {
   return (
     <p className="mt-4 max-w-md text-pretty text-sm text-muted" data-testid="no-models">
       {admin
-        ? 'No models yet. Connect a model server in Admin > Settings > Connections, or start Ollama on this host, then reload. Other users see no models until you share them (Admin > Settings > Interface > Base models public).'
+        ? 'No models available. In Admin > Settings > Connections, press Test to see whether your model server answers, or add one. Other users see no models until you share them (Admin > Settings > Interface > Base models public).'
         : 'No model is available to you yet. Ask an admin to give you access to one.'}
     </p>
   )
