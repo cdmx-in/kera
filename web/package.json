@@ -11,13 +11,13 @@
   },
   "dependencies": {
     "@novnc/novnc": "1.7.0",
-    "@tanstack/react-query": "5.105.3",
+    "@tanstack/react-query": "5.107.2",
     "cmdk": "1.1.1",
-    "highlight.js": "11.11.2",
-    "katex": "0.18.10",
+    "highlight.js": "11.12.0",
+    "katex": "0.19.1",
     "lowlight": "3.3.0",
-    "lucide-react": "1.61.0",
-    "mermaid": "12.2.0",
+    "lucide-react": "1.74.0",
+    "mermaid": "12.3.0",
     "radix-ui": "1.8.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
@@ -25,17 +25,17 @@
     "react-router": "8.5.1",
     "remark-gfm": "4.0.1",
     "remark-math": "6.0.0",
-    "zustand": "5.0.16"
+    "zustand": "5.1.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "4.3.4",
+    "@tailwindcss/vite": "4.3.5",
     "@types/katex": "0.16.8",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@vitejs/plugin-react": "6.2.1",
-    "tailwindcss": "4.3.4",
+    "@vitejs/plugin-react": "6.3.0",
+    "tailwindcss": "4.3.5",
     "typescript": "7.0.2",
-    "vite": "8.3.5",
+    "vite": "8.3.8",
     "vitest": "5.1.0"
   }
 }
