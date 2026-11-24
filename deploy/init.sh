@@ -63,7 +63,15 @@ if [ -n "$admin" ]; then
   echo
   echo "Shown once here. Open the address in KERA_URL and sign in with them; change the password under Settings > Account."
   echo "Both are also in .env until you delete the two KERA_ADMIN_ lines, which Kera uses only at the first start."
+  echo "Delete them after the first sign-in; the first password is not forced to change, so change it too."
 else
   echo "No admin yet. For one with a password, delete .env and run again before the first start: KERA_ADMIN_EMAIL=you@example.com ./init.sh"
   echo "Or after the first start: docker compose exec kera kera user login-link you@example.com"
 fi
+case "${KERA_URL:-http://localhost:8080}" in
+  https://*) ;;
+  *)
+    echo
+    echo "Heads-up: signing in over plain http is fine on localhost or a trusted LAN. Anywhere else put HTTPS in front (docs/deploy.md), and set KERA_BIND=127.0.0.1 in .env when the proxy runs on this host."
+    ;;
+esac

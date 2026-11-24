@@ -102,13 +102,15 @@ chat.example.com {
 
 With nginx, answers stream, so turn buffering off for the location: `proxy_pass http://127.0.0.1:8080; proxy_buffering off; proxy_read_timeout 3600s;` and pass the usual `Host` and `X-Forwarded-*` headers.
 
+**Plain http and the published port.** The compose file publishes Kera on every network interface, over plain http, so that a LAN or VPS install works the moment it starts. Passwords typed over plain http cross the network readable: that is fine on `localhost` or a LAN you trust, and not anywhere else. For a server other people reach, put HTTPS in front as above and, when the proxy runs on the same host, set `KERA_BIND=127.0.0.1` in `.env` (then `docker compose up -d`) so that Kera listens only to the proxy. Otherwise anyone who can reach port 8080 can bypass the proxy, its HTTPS and its rules, and sign in over plain http. If the proxy runs in the same compose project or on another machine, bind the port to the address the proxy uses, or do not publish it.
+
 ## What it needs
 
 Measured idle: Kera about 15 MB of memory, its Postgres about 50 MB, LiteLLM about 700 MB, Ollama about 3 GB with `llama3.2:3b` loaded (the model sits in memory). Disk: Kera's database starts around 50 MB; the `ollama` profile adds 5 GB for the image and 2.3 GB for the models; LiteLLM's image is 1.4 GB.
 
 ## Ports, data, backup
 
-- Published: Kera on `8080` (change with `KERA_PORT`) and, with the `litellm` profile, LiteLLM on `127.0.0.1:4000` (`LITELLM_PORT`). The databases and Ollama are only reachable inside the stack.
+- Published: Kera on `8080` on every network interface (change the port with `KERA_PORT`, the interface with `KERA_BIND`) and, with the `litellm` profile, LiteLLM on `127.0.0.1:4000` (`LITELLM_PORT`). The databases and Ollama are only reachable inside the stack.
 - Volumes: `kera_pgdata` (the database), `kera_data` (uploaded files), `litellm_pgdata`, `ollama_models`. Compose prefixes them with the project name, `deploy_` by default.
 - `docker compose down` keeps all data. `docker compose down -v` deletes it.
 
