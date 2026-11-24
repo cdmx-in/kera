@@ -57,7 +57,7 @@ var pinned = map[string][4]int{
 	"pii.aadhaar": {8, 1, 0, 7},
 	"pii.card":    {8, 2, 0, 7},
 	"pii.email":   {8, 2, 0, 8},
-	"pii.iban":    {6, 0, 2, 8},
+	"pii.iban":    {12, 0, 0, 12},
 	"pii.pan":     {8, 2, 0, 6},
 	"pii.phone":   {8, 3, 0, 9},
 	"pii.ssn":     {8, 1, 0, 7},

@@ -51,6 +51,14 @@ neg	pii.iban	Product code AB12CDEF3456789012 restocked.
 neg	pii.iban	Product code PK12ABCDEF123456789 restocked.
 neg	pii.iban	Product code SKU XY99LONGCODE00112233 restocked.
 neg	pii.iban	Product code CC42BATCHREF20261122 restocked.
+pos	pii.iban	Wire to lowercase de89370400440532013000 today.
+pos	pii.iban	Account GB82-WEST-1234-5698-7654-32 on file.
+pos	pii.iban	Italian IBAN IT60 X054 2811 1010 0000 0123 456 verified.
+pos	pii.iban	French IBAN FR14 2004 1010 0505 0001 3M02 606 confirmed.
+neg	pii.iban	Bad spaced checksum GB82 WEST 1234 5698 7654 31 rejected.
+neg	pii.iban	Bad lowercase checksum de89370400440532013001 rejected.
+neg	pii.iban	Bad hyphenated checksum ES91-2100-0418-4502-0005-1333 rejected.
+neg	pii.iban	Too short spaced DE89 3704 0044 ignored.
 pos	pii.aadhaar	KYC document number 726018159082 was submitted.
 pos	pii.aadhaar	KYC document number 5016 6131 8603 was submitted.
 pos	pii.aadhaar	KYC document number 3390-9960-3089 was submitted.

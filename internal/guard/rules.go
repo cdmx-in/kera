@@ -22,7 +22,7 @@ type rule struct {
 // number is masked as a card, not as a phone.
 var piiRules = []rule{
 	{"pii.email", regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`), nil, "[email]"},
-	{"pii.iban", regexp.MustCompile(`\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b`), ibanOK, "[iban]"},
+	{"pii.iban", regexp.MustCompile(`\b[A-Za-z]{2}\d{2}(?:[A-Za-z0-9]{11,30}|(?:-[A-Za-z0-9]{4}){2,7}(?:-[A-Za-z0-9]{1,4})?|(?: [A-Za-z0-9]{4}){2,7}(?: [A-Za-z0-9]{1,4})?)\b`), ibanOK, "[iban]"},
 	{"pii.card", regexp.MustCompile(`\b(?:\d[ -]?){12,18}\d\b`), cardOK, "[card]"},
 	{"pii.aadhaar", regexp.MustCompile(`\b[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?:[ -]?\d+)*\b`), aadhaarOK, "[aadhaar]"},
 	{"pii.ssn", regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`), nil, "[ssn]"},
@@ -108,10 +108,23 @@ func phoneOK(s string) bool {
 
 // ibanOK is the ISO 13616 mod-97 check.
 func ibanOK(s string) bool {
-	if len(s) < 15 || len(s) > 34 {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == ' ' || c == '-' {
+			continue
+		}
+		if c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		b.WriteByte(c)
+	}
+	cleaned := b.String()
+	if len(cleaned) < 15 || len(cleaned) > 34 {
 		return false
 	}
-	r := s[4:] + s[:4]
+	r := cleaned[4:] + cleaned[:4]
 	rem := 0
 	for _, c := range r {
 		var v int
