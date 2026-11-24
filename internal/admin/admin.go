@@ -25,6 +25,7 @@ func Mount(a *app.App) error {
 
 	s.Handle("GET /api/v1/configs/settings", admin(h.getSettings))
 	s.Handle("POST /api/v1/configs/settings", admin(h.setSettings))
+	s.Handle("GET /api/v1/configs/extractor/status", admin(h.extractorStatus))
 
 	s.Handle("GET /api/v1/configs/tool_servers", admin(h.listToolServers))
 	s.Handle("POST /api/v1/configs/tool_servers", admin(h.saveToolServer))

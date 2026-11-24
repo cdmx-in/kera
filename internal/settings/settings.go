@@ -25,6 +25,8 @@ type Store struct {
 	mu    sync.Mutex
 	cache map[string]entry
 	gen   atomic.Uint64 // bumped by Invalidate, so derived caches can notice
+	// defaults replace entries of Defaults for this store (SetDefault): a value the environment supplies.
+	defaults map[string]json.RawMessage
 }
 
 type entry struct {
@@ -33,14 +35,38 @@ type entry struct {
 }
 
 // New returns a store over pool.
-func New(pool *pgxpool.Pool) *Store { return &Store{db: pool, cache: map[string]entry{}} }
+func New(pool *pgxpool.Pool) *Store {
+	return &Store{db: pool, cache: map[string]entry{}, defaults: map[string]json.RawMessage{}}
+}
+
+// SetDefault makes v the default of key in this store, in place of the one in Defaults. A stored value
+// still wins, so removing it (Reset in the admin console) brings v back. Call it before serving.
+func (s *Store) SetDefault(key string, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic("bad default for " + key + ": " + err.Error())
+	}
+	s.mu.Lock()
+	s.defaults[key] = b
+	s.mu.Unlock()
+}
+
+// Default returns the value key has while no row exists: what SetDefault gave it, else its entry in Defaults.
+func (s *Store) Default(key string) json.RawMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v, ok := s.defaults[key]; ok {
+		return v
+	}
+	return Defaults[key]
+}
 
 // Raw returns the stored JSON for key, or the registered default, or nil.
 func (s *Store) Raw(ctx context.Context, key string) (json.RawMessage, error) {
 	s.mu.Lock()
 	if e, ok := s.cache[key]; ok && time.Now().Before(e.until) {
 		s.mu.Unlock()
-		return orDefault(key, e.val), nil
+		return s.orDefault(key, e.val), nil
 	}
 	s.mu.Unlock()
 	var v json.RawMessage
@@ -54,7 +80,7 @@ func (s *Store) Raw(ctx context.Context, key string) (json.RawMessage, error) {
 	s.mu.Lock()
 	s.cache[key] = entry{val: v, until: time.Now().Add(ttl)}
 	s.mu.Unlock()
-	return orDefault(key, v), nil
+	return s.orDefault(key, v), nil
 }
 
 // Get decodes key into dst. A missing key with no default leaves dst untouched.
@@ -124,9 +150,9 @@ func (s *Store) Invalidate(keys ...string) {
 // from another process (`kera apply`) still show up after the cache ttl.
 func (s *Store) Gen() uint64 { return s.gen.Load() }
 
-func orDefault(key string, v json.RawMessage) json.RawMessage {
+func (s *Store) orDefault(key string, v json.RawMessage) json.RawMessage {
 	if v != nil {
 		return v
 	}
-	return Defaults[key]
+	return s.Default(key)
 }

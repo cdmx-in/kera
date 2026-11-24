@@ -66,7 +66,7 @@ func (h *handler) getSettings(w http.ResponseWriter, r *http.Request) {
 	out := make([]settingOut, 0, len(known))
 	for _, k := range slices.Sorted(maps.Keys(known)) {
 		s, ok := have[k]
-		o := settingOut{Key: k, Default: settings.Defaults[k], Managed: s.managed, Secret: known[k], Set: ok}
+		o := settingOut{Key: k, Default: h.a.Settings.Default(k), Managed: s.managed, Secret: known[k], Set: ok}
 		if o.Default == nil {
 			o.Default = json.RawMessage(`null`)
 		}

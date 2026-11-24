@@ -390,7 +390,8 @@ func TestIngestionStateMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.req("root", "POST", "/api/v1/knowledge/"+c.ID+"/file/add", map[string]any{"file_id": bad}, 200, nil)
-	if f = e.waitFile(c.ID, bad, "failed"); f.Data.Error != "cannot extract" {
+	// Adding it extracts it again (here with no extractor configured, so it fails again, with the new reason).
+	if f = e.waitFile(c.ID, bad, "failed"); !strings.HasPrefix(f.Data.Error, "no document extractor configured") {
 		t.Fatalf("extraction failure %+v", f)
 	}
 
@@ -707,5 +708,29 @@ func TestDefaultEmbeddingModel(t *testing.T) {
 	}
 	if _, _, err := e.s.defaultModelName(ctx); err == nil || !strings.Contains(err.Error(), "Admin > Settings > Retrieval") {
 		t.Fatalf("cleared model error = %v", err)
+	}
+}
+
+// A PDF uploaded while the extractor was down fails; once the extractor answers, Retry extracts and indexes it.
+func TestRetryExtractionAfterExtractorDown(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	var c coll
+	e.req("root", "POST", "/api/v1/knowledge/create", map[string]any{"name": "Docs"}, 200, &c)
+	fid := e.upload("root", "plan.pdf", "%PDF-1.4")
+	e.req("root", "POST", "/api/v1/knowledge/"+c.ID+"/file/add", map[string]any{"file_id": fid}, 200, nil)
+	if f := e.waitFile(c.ID, fid, "failed"); !strings.Contains(f.Data.Error, "extractor") {
+		t.Fatalf("while the extractor is missing: %+v", f)
+	}
+	ex := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"pages":[{"n":1,"text":"The harbour opens at six."}],"meta":{"pages":1}}`)
+	}))
+	defer ex.Close()
+	if err := e.st.Set(ctx, "rag.extractor.url", ex.URL, false); err != nil {
+		t.Fatal(err)
+	}
+	e.req("root", "POST", "/api/v1/knowledge/"+c.ID+"/file/update", map[string]any{"file_id": fid}, 200, nil)
+	if f := e.waitFile(c.ID, fid, "completed"); f.Data.Error != "" || f.Chunks == 0 {
+		t.Fatalf("after retry: %+v", f)
 	}
 }

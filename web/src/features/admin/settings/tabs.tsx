@@ -6,6 +6,7 @@ import { IconButton } from '@/ui/Dialog'
 import { cx } from '@/lib/format'
 import { move } from '../lib'
 import { Btn, Card, Check, inputCls } from '../ui'
+import { ExtractorStatus } from './ExtractorStatus'
 import { SettingRow, SettingsForm, type Draft, type FieldSpec } from './form'
 import { Select } from '@/ui/Select'
 import { Switch } from '@/ui/misc'
@@ -162,14 +163,19 @@ export function RetrievalTab() {
           fields: [f('rag.embedding.connection', 'connection', undefined, 'Connection'), f('rag.embedding.model', 'text', undefined, 'Model'), f('rag.embedding.dim', 'int', undefined, 'Dimensions'), f('rag.embedding.batch', 'int', undefined, 'Batch size')],
         },
         {
-          title: 'Reranker and extractor',
+          title: 'Document extractor',
+          hint: 'Reads PDF, DOCX, PPTX and ODT uploads and OCRs scanned pages. The Docker Compose stack runs it as the extract service and supplies this address (KERA_EXTRACTOR_URL); Reset returns to that. Saved empty, extraction is off.',
+          fields: [f('rag.extractor.url', 'text', 'Address of the extraction service.', 'Extractor URL')],
+          footer: <ExtractorStatus />,
+        },
+        {
+          title: 'Reranker',
           fields: [
             f('rag.reranker.url', 'text', 'Cohere-style /rerank endpoint: the sidecar or LiteLLM (empty = no reranking).', 'Reranker URL'),
             f('rag.reranker.model', 'text', 'e.g. a Cohere rerank model registered in LiteLLM.', 'Reranker model'),
             f('rag.reranker.api_key', 'secret', 'Bearer token for a hosted reranker (write-only).', 'Reranker API key'),
             f('rag.reranker.local_runs', { select: [['skip', 'Skip (fused order or local URL)'], ['allow', 'Allow']] }, 'Whether chats on local models may send passages to this reranker.', 'Local-model chats'),
             f('rag.reranker.local_url', 'text', 'Reranker used for local-model chats instead (empty = none).', 'Local reranker URL'),
-            f('rag.extractor.url', 'text', 'Document extraction sidecar URL.', 'Extractor URL'),
           ],
         },
       ]}

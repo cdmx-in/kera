@@ -1,4 +1,4 @@
-# Kera: the app plus Postgres 18 with pgvector.
+# Kera: the app, Postgres 18 with pgvector, and the extract service that reads PDF, DOCX, PPTX and ODT uploads.
 #   KERA_ADMIN_EMAIL=you@example.com ./init.sh   # writes .env with random secrets and your first sign-in password
 #                                                (or: cp .env.example .env and edit)
 #   docker compose up -d
@@ -32,6 +32,8 @@ services:
       KERA_ADMIN_EMAIL: ${KERA_ADMIN_EMAIL:-}
       KERA_ADMIN_PASSWORD: ${KERA_ADMIN_PASSWORD:-}
       KERA_TRUSTED_PROXIES: ${KERA_TRUSTED_PROXIES:-}
+      # The default of Admin > Settings > Retrieval > Extractor URL; a value saved there wins. Set it empty in .env to not use the extract service.
+      KERA_EXTRACTOR_URL: ${KERA_EXTRACTOR_URL-http://extract:8000}
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: [kera_data:/data]
     # All interfaces by default, so a LAN or VPS user can reach it; KERA_BIND=127.0.0.1 when a proxy on this host fronts it.
@@ -40,6 +42,29 @@ services:
       test: ["CMD", "kera", "health"]
       interval: 5s
       retries: 20
+    restart: unless-stopped
+
+  # Document extraction (sidecars/extract): text from PDF, DOCX, PPTX and ODT, and OCR of scanned pages. Only Kera reaches it
+  # (no published port). Kera does not wait for it: without it those uploads fail with a message that says how to fix it.
+  extract:
+    image: ${KERA_EXTRACT_IMAGE:-ghcr.io/cdmx-in/kera-extract:latest}
+    # Before the image is published for your version, or on a platform it does not cover, `docker compose up` builds it from this checkout.
+    build: ../sidecars/extract
+    environment:
+      WEB_CONCURRENCY: "1"   # uvicorn workers: about 45 MB each when idle; raise it when many people upload at once
+    read_only: true
+    tmpfs: [/tmp]            # uploads and rendered scan pages, while a file is read
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {memory: 1g}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   # ---- profile "ollama": models on CPU, no account needed. Needs OLLAMA_BASE_URL=http://ollama:11434 in .env ----

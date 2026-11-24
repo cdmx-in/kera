@@ -122,7 +122,7 @@ func (e *env) fails(status int, code, method, path string, body any) {
 func TestAdminOnly(t *testing.T) {
 	e := setup(t)
 	routes := [][2]string{
-		{"GET", "/api/v1/configs/settings"}, {"POST", "/api/v1/configs/settings"},
+		{"GET", "/api/v1/configs/settings"}, {"POST", "/api/v1/configs/settings"}, {"GET", "/api/v1/configs/extractor/status"},
 		{"GET", "/api/v1/configs/tool_servers"}, {"POST", "/api/v1/configs/tool_servers"}, {"DELETE", "/api/v1/configs/tool_servers/x"},
 		{"GET", "/api/v1/configs/hook_servers"}, {"POST", "/api/v1/configs/hook_servers"}, {"DELETE", "/api/v1/configs/hook_servers/x"},
 		{"GET", "/api/v1/configs/oauth_providers"}, {"POST", "/api/v1/configs/oauth_providers"}, {"DELETE", "/api/v1/configs/oauth_providers/x"},

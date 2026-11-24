@@ -619,7 +619,7 @@ func TestDocumentsWithoutExtractor(t *testing.T) {
 	e := setup(t)
 	f := e.upload("alice", "doc.pdf", []byte("%PDF-1.4\n"), "")
 	got := e.wait(f.ID)
-	if got.Status != Failed || got.Error != "no document extractor configured for .pdf" {
+	if got.Status != Failed || !strings.HasPrefix(got.Error, "no document extractor configured for .pdf: ") || !strings.Contains(got.Error, "Settings > Retrieval > Extractor URL") || !strings.Contains(got.Error, "docs/deploy.md") {
 		t.Fatalf("%+v", got)
 	}
 	var fr fileResp

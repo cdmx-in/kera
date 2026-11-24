@@ -72,6 +72,17 @@ jobs:
           # the published port is on all interfaces unless KERA_BIND narrows it
           docker compose config | grep -q 'host_ip: 0.0.0.0'
           KERA_BIND=127.0.0.1 docker compose config | grep -q 'host_ip: 127.0.0.1'
+          # the extract service is in the default stack, reachable only from inside it, and Kera finds it by itself
+          for profiles in "" litellm,ollama; do
+            COMPOSE_PROFILES=$profiles docker compose config --services | grep -qx extract
+            COMPOSE_PROFILES=$profiles docker compose config --format json | jq -e '.services.extract | has("ports") | not' > /dev/null
+          done
+          docker compose config | grep -q 'KERA_EXTRACTOR_URL: http://extract:8000'
+          KERA_EXTRACTOR_URL= docker compose config | grep -q 'KERA_EXTRACTOR_URL: ""'
+          KERA_EXTRACT_IMAGE=example.com/x/extract:1 docker compose config | grep -q 'image: example.com/x/extract:1'
+      # the image people pull (release.yml builds it for amd64 and arm64) must build and have OCR in it
+      - run: docker build -t kera-extract:ci sidecars/extract
+      - run: docker run --rm kera-extract:ci python -c "import main; assert main.ocr_available() and {'.pdf', '.docx', '.pptx', '.odt'} <= set(main.HANDLERS)"
   gitleaks:
     runs-on: ubuntu-latest
     steps:

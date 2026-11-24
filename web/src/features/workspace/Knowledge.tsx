@@ -324,7 +324,11 @@ function FileRow({ f, canEdit, onRemove, onRetry }: { f: KnowledgeFile; canEdit:
         <a href={`/api/v1/files/${f.id}/content`} target="_blank" rel="noreferrer" className="block truncate hover:underline">
           {f.filename}
         </a>
-        {f.data.error && <span className="block truncate text-xs text-red-600 dark:text-red-400">{f.data.error}</span>}
+        {f.data.error && (
+          <span className="block line-clamp-2 break-words text-xs text-red-600 dark:text-red-400" title={f.data.error}>
+            {f.data.error}
+          </span>
+        )}
       </span>
       <span className="hidden text-xs tabular-nums text-muted sm:inline">{formatBytes(f.size)}</span>
       {st === 'completed' && <span className="hidden text-xs tabular-nums text-muted sm:inline">{f.chunks} chunks</span>}

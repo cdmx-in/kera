@@ -343,6 +343,9 @@ func (s *Service) hFileAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) addFile(ctx context.Context, kid, fid string) error {
+	if err := s.files.Retry(ctx, fid); err != nil { // a file whose extraction failed is extracted again
+		return err
+	}
 	if _, err := s.db.Exec(ctx, `INSERT INTO knowledge_file (knowledge_id, file_id) VALUES ($1, $2)
 		ON CONFLICT (knowledge_id, file_id) DO UPDATE SET status = CASE WHEN knowledge_file.status = 'failed'
 			THEN 'pending' ELSE knowledge_file.status END`, kid, fid); err != nil {
@@ -406,6 +409,10 @@ func (s *Service) hFileRemove(w http.ResponseWriter, r *http.Request) {
 func (s *Service) hFileUpdate(w http.ResponseWriter, r *http.Request) {
 	c, fid, ok := s.fileTarget(w, r)
 	if !ok {
+		return
+	}
+	if err := s.files.Retry(r.Context(), fid); err != nil { // a file whose extraction failed is extracted again
+		api.Fail(w, r, err)
 		return
 	}
 	if _, err := s.queue(r.Context(), c.ID, []string{fid}); err != nil {

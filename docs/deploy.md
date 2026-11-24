@@ -10,6 +10,8 @@ docker compose up -d
 
 Open http://localhost:8080 and sign in with that email and the printed password. The first start takes about a minute (Postgres sets itself up); `docker compose ps` shows `healthy` when Kera is ready.
 
+The stack has three services: `kera`, its Postgres `kera-db`, and `extract`, which reads PDF, DOCX, PPTX and ODT uploads and OCRs scanned pages ([Document extraction](#document-extraction)). Kera finds `extract` by itself; there is nothing to set up.
+
 Without `KERA_ADMIN_EMAIL`, `./init.sh` writes the same `.env` and prints how to get an admin. Before the first start you can delete `.env` and run it again with the variable. At any time while Kera has no users, you can add `KERA_ADMIN_EMAIL` and `KERA_ADMIN_PASSWORD` (10 or more characters) to `.env` and run `docker compose up -d`. Or run `docker compose exec kera kera user login-link you@example.com` for a one-time sign-in link.
 
 Without `init.sh`: `cp .env.example .env` and fill in `KERA_DB_PASSWORD` and `KERA_SECRET_KEY` (`openssl rand -hex 32`), and for a first admin `KERA_ADMIN_EMAIL` and `KERA_ADMIN_PASSWORD` (10 or more characters; avoid `$` and `#`, which `.env` files treat specially). `.env` holds the key that encrypts the API keys Kera stores, so keep it with your backups and out of git.
@@ -81,6 +83,56 @@ Pick one:
 
 The profiles add up: `./init.sh ollama litellm`. They are stored as `COMPOSE_PROFILES` in `.env`.
 
+## Document extraction
+
+The `extract` service ([sidecars/extract](../sidecars/extract/README.md)) turns uploads into text for Knowledge collections and chat attachments: PDF, DOCX, PPTX and ODT, and OCR for PDF pages that are scans (English). Kera reads plain text, code, HTML and `.xlsx` files itself. The old binary Word format `.doc` is not read; save it as `.docx`.
+
+**How Kera finds it.** The compose file gives `kera` the variable `KERA_EXTRACTOR_URL=http://extract:8000`. It is the default of Admin > Settings > Retrieval > Extractor URL, so nothing is stored in the database. A value saved there wins over the default (saving it empty switches extraction off), and Reset goes back to the default. Under the field, a card shows the address in effect, whether the service answers, which types it reads and whether OCR is installed; Check again repeats it. An install that has neither the variable nor a saved value, such as one that keeps its old compose file, behaves as before: those uploads fail with "no document extractor configured for .pdf" and what to do.
+
+**Image, memory, disk.** Compose pulls `ghcr.io/cdmx-in/kera-extract` (`KERA_EXTRACT_IMAGE` changes it; amd64 and arm64): about 113 MB to download, 301 MB on disk. The service publishes no port and keeps no data. Idle it uses about 33 MB with its one worker (about 95 MB with two). Reading a 20-page scan peaked at 205 MB, an 80 MB PDF at 390 MB; the compose file caps it at 1 GB (`deploy.resources.limits.memory`), raise that for bigger files. OCR takes about 3 seconds per dense page on one CPU core; a file gets an 8 minute budget, and blank pages left after it stay unread (the file's `ocr_skipped` meta says how many). Uploads are limited by `files.max_mb` (100 MB).
+
+**Before the image is published for your checkout**, or on a platform it does not cover, `docker compose up -d` tries to pull it, prints one `denied` line, and builds it from `sidecars/extract` instead (about a minute, needs internet for apt and pip). `docker compose build extract` does the same on its own. `docker compose pull` stops with an error in that situation; use `docker compose pull --ignore-buildable` then.
+
+**Turn it off.** Set `KERA_EXTRACTOR_URL=` (empty) in `.env`, then `docker compose up -d` and `docker compose stop extract`. `up -d` starts a stopped service again, so to keep it off for good delete the `extract:` block from the compose file, or start the stack with `docker compose up -d --scale extract=0`. Kera then behaves as an install without it.
+
+**More workers.** `WEB_CONCURRENCY` in the `extract` service's `environment` is the number of uvicorn workers (1 in the compose file, about 45 MB each when idle). Raise it when many people upload at once.
+
+**Another OCR language.** The image has English. Build your own on top of it, here with German (`tesseract-ocr-<code>` is the Debian package of each language):
+
+```dockerfile
+# deploy/extract-ocr/Dockerfile
+FROM ghcr.io/cdmx-in/kera-extract:latest
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr-deu && rm -rf /var/lib/apt/lists/*
+USER 10001
+```
+
+```yaml
+# deploy/docker-compose.override.yml (Compose reads it by itself)
+services:
+  extract:
+    image: my-kera-extract
+    build: ./extract-ocr
+    environment:
+      OCR_LANGS: eng+deu
+```
+
+`docker compose up -d --build extract` builds and starts it. The card under Extractor URL then says "OCR of scans on (eng+deu)".
+
+**Your own extractor.** Point Extractor URL at any service with the same contract (see the sidecar README) and switch the bundled one off as above.
+
+**When an upload fails.** The failed file shows the reason in Workspace > Knowledge and has a Retry button; once the service answers again, Retry extracts the file and indexes it, with no new upload.
+
+| The file says | Cause and fix |
+|---|---|
+| `no document extractor configured for .pdf` | No address is set. Update to a compose file that has the `extract` service and run `docker compose up -d`, or set Extractor URL. |
+| `document extractor not reachable (its host name does not resolve ...)` | The service is stopped or the address is wrong. `docker compose ps extract`, then `docker compose up -d extract`, and check Extractor URL. |
+| `document extractor not reachable (connection refused ...)` | The name resolves but nothing listens there: it is still starting, crashed, or the port is wrong. `docker compose logs extract`. |
+| `document extractor not reachable (it closed the connection, it may have run out of memory ...)` | The file needed more than the memory cap and the service was killed (it restarts by itself). Raise the limit, or split the file. |
+| `document extractor not reachable (no answer in time)` | No answer within 10 minutes: a stuck service or a huge file. `docker compose logs extract`. |
+| `extractor: HTTP 422: could not read .pdf file` | The file is damaged or password-protected. |
+| `extractor: HTTP 415: unsupported type .doc` | Save the file as `.docx`. |
+
 ## Config as code
 
 Anything in Admin > Settings can also live in a YAML file. `docker compose exec kera kera export` prints the current configuration (secrets as `${NAME}`). Apply a file, after a dry run:
@@ -108,11 +160,11 @@ With nginx, answers stream, so turn buffering off for the location: `proxy_pass 
 
 ## What it needs
 
-Measured idle: Kera about 15 MB of memory (a burst of sign-ins can take up to 4 x 64 MiB for a moment: each password check holds 64 MiB, and at most 4 run at once, fewer on a machine with fewer cores), its Postgres about 50 MB, LiteLLM about 700 MB, Ollama about 3 GB with `llama3.2:3b` loaded (the model sits in memory). Disk: Kera's database starts around 50 MB; the `ollama` profile adds 5 GB for the image and 2.3 GB for the models; LiteLLM's image is 1.4 GB.
+Measured idle: Kera about 15 MB of memory (a burst of sign-ins can take up to 4 x 64 MiB for a moment: each password check holds 64 MiB, and at most 4 run at once, fewer on a machine with fewer cores), its Postgres about 50 MB, the `extract` service about 33 MB (more while it reads a file, see [Document extraction](#document-extraction)), LiteLLM about 700 MB, Ollama about 3 GB with `llama3.2:3b` loaded (the model sits in memory). Disk: Kera's database starts around 50 MB; the `extract` image is 301 MB (about 113 MB to download); the `ollama` profile adds 5 GB for the image and 2.3 GB for the models; LiteLLM's image is 1.4 GB.
 
 ## Ports, data, backup
 
-- Published: Kera on `8080` on every network interface (change the port with `KERA_PORT`, the interface with `KERA_BIND`) and, with the `litellm` profile, LiteLLM on `127.0.0.1:4000` (`LITELLM_PORT`). The databases and Ollama are only reachable inside the stack.
+- Published: Kera on `8080` on every network interface (change the port with `KERA_PORT`, the interface with `KERA_BIND`) and, with the `litellm` profile, LiteLLM on `127.0.0.1:4000` (`LITELLM_PORT`). The databases, the `extract` service and Ollama are only reachable inside the stack.
 - Volumes: `kera_pgdata` (the database), `kera_data` (uploaded files), `litellm_pgdata`, `ollama_models`. Compose prefixes them with the project name, `deploy_` by default.
 - `docker compose down` keeps all data. `docker compose down -v` deletes it.
 
@@ -123,7 +175,7 @@ docker compose exec -T kera-db pg_dump -U kera kera | gzip > kera-db.sql.gz
 docker run --rm -v deploy_kera_data:/data -v "$PWD":/backup alpine tar czf /backup/kera-data.tgz -C /data .
 ```
 
-Upgrade with `docker compose pull && docker compose up -d`; database migrations run on start.
+Upgrade with `docker compose pull && docker compose up -d`; database migrations run on start. An install from before the `extract` service existed gets it by updating the checkout (`git pull`) and running `docker compose up -d`: Kera uses it with no setting changed, and files that failed earlier have a Retry button.
 
 ## Troubleshooting
 
@@ -138,6 +190,8 @@ Upgrade with `docker compose pull && docker compose up -d`; database migrations 
 | `port is already allocated` | Set `KERA_PORT=8081` (and `KERA_URL=http://localhost:8081`) in `.env`. |
 | Sign-in link or login redirects go to the wrong address | Set `KERA_URL` to the address in the browser's address bar. |
 | No models in the picker | Admin: Admin > Settings > Connections > Test shows why. Other users: see the note on models above. |
+| A PDF, DOCX, PPTX or ODT upload fails, or the card under Admin > Settings > Retrieval > Extractor URL is red | See the table in [Document extraction](#document-extraction): it lists what the file says and what to do. `docker compose logs extract` shows the service's side. |
+| `docker compose pull` stops with `denied` for `kera-extract` | The extractor image is not published for your checkout. `docker compose pull --ignore-buildable`, then `docker compose up -d`, which builds it from `sidecars/extract`. |
 | A Knowledge upload fails with "model not found" | The embedding model is not pulled: `ollama pull nomic-embed-text` (with the `ollama` profile it is downloaded at first start; watch `docker compose logs -f ollama-pull`). |
 
 Logs: `docker compose logs -f kera`.

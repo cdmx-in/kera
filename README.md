@@ -40,14 +40,16 @@ Open http://localhost:8080 and sign in with that email and the printed password.
 
 The compose file expects Ollama on the host at port 11434. No Ollama? Name the profile in the first command, `KERA_ADMIN_EMAIL=you@example.com ./init.sh ollama`, and the stack gets an Ollama server with a small chat and embedding model (about 6 GB to download once). Want [LiteLLM](docs/litellm.md) in front of your models, with the spend log wired to Admin > Spend? `./init.sh ollama litellm`. `init.sh` writes `.env` once and leaves an existing one alone. HTTPS, backups and troubleshooting: [docs/deploy.md](docs/deploy.md).
 
+The stack also runs the [extraction service](sidecars/extract/README.md) next to Kera and points Kera at it, so PDF, DOCX, PPTX and ODT uploads and OCR of scanned pages work with no further step. It costs about 33 MB of memory and an image download of about 113 MB; [docs/deploy.md](docs/deploy.md#document-extraction) says how to turn it off or add OCR languages.
+
 What the quick start gives you, and what needs another service:
 
 | Works after the quick start | Needs a service you start yourself |
 |---|---|
-| Chat with Ollama or any OpenAI-compatible model, Markdown, citations, folders, temporary chats | PDF, DOCX, PPTX and ODT uploads (and OCR of scans): the [extraction sidecar](sidecars/extract/README.md). Without it those uploads fail with "no document extractor configured" |
-| Knowledge from text, HTML and spreadsheet files, hybrid search, groups and access grants, guardrails, config as code | Reranking: the [rerank sidecar](sidecars/rerank/README.md) |
-| Web search (DuckDuckGo by default; SearXNG or Brave in settings), OpenAPI and MCP tool servers, pipelines, directory sync | Code interpreter: a Jupyter server you run, set in `code_interpreter.url` |
-| Spend per user with `./init.sh litellm` | Cowork tasks that drive a desktop: the [desktop sidecar](sidecars/desktop/README.md). Scheduled Cowork tasks are on for admins and off for other users until you turn on `features.cowork_schedule` |
+| Chat with Ollama or any OpenAI-compatible model, Markdown, citations, folders, temporary chats | Reranking: the [rerank sidecar](sidecars/rerank/README.md) |
+| Knowledge from PDF, DOCX, PPTX, ODT, text, HTML and spreadsheet files, OCR of scanned pages (English; more languages are an image rebuild), hybrid search, groups and access grants, guardrails, config as code | Code interpreter: a Jupyter server you run, set in `code_interpreter.url` |
+| Web search (DuckDuckGo by default; SearXNG or Brave in settings), OpenAPI and MCP tool servers, pipelines, directory sync | Cowork tasks that drive a desktop: the [desktop sidecar](sidecars/desktop/README.md). Scheduled Cowork tasks are on for admins and off for other users until you turn on `features.cowork_schedule` |
+| Spend per user with `./init.sh litellm` | |
 
 From source (Go 1.26, Node 24, pnpm):
 
@@ -63,7 +65,7 @@ Run the tests with `make test`. The database tests use the `testdb` container.
 <a id="why-kera"></a>
 ## 💡 Why Kera
 
-- 🪶 **Small to run.** One Go binary and Postgres with pgvector. There is no Redis, vector database, document store or queue to look after, and the binary has nine direct Go dependencies. Measured idle on a small stack: Kera about 15 MB of memory (more for a moment during a burst of sign-ins), its Postgres about 50 MB ([docs/deploy.md](docs/deploy.md#what-it-needs)).
+- 🪶 **Small to run.** One Go binary and Postgres with pgvector, plus a small stateless service that reads documents in the Compose stack. There is no Redis, vector database, document store or queue to look after, and the binary has nine direct Go dependencies. Measured idle on a small stack: Kera about 15 MB of memory (more for a moment during a burst of sign-ins), its Postgres about 50 MB, the document service about 33 MB ([docs/deploy.md](docs/deploy.md#what-it-needs)).
 - 🏠 **Local first.** Ollama models are first-class, and any OpenAI-compatible endpoint works too, including the Responses API.
 - 👥 **Built for teams.** Email and password, Google or any OIDC sign-in, groups, per-resource access grants, personal API keys, and a directory sync from Google Workspace.
 - 🛡️ **Guardrails and spend in the base install.** Every model call passes one guard: personal-data redaction or blocking, prompt-injection and blocklist checks, optional moderation, and an audit trail that never stores the matched text. With the `litellm` profile, Admin > Spend shows one row per person.
@@ -78,7 +80,7 @@ How it differs from Open WebUI, LibreChat, AnythingLLM and Onyx, row by row and 
 - 💬 **Chat.** Streaming Markdown, maths, Mermaid diagrams, token counts, thumbs up/down, Markdown export, folders, archive, temporary chats, slash-command prompts, and dictation that runs on the device.
 - 👥 **Team management.** Email and password, Google or any OIDC sign-in, groups, per-resource access grants, personal API keys, and an OpenAI-compatible API. A subset of the Open WebUI HTTP API is served as well, so existing scripts and clients keep working ([docs/compat](docs/compat/openwebui-api.md)).
 - 🤖 **Assistants.** Model presets with their own prompt, tools, knowledge and skills, managed in a workspace or as config (`kera apply -f config.yaml`).
-- 📚 **Knowledge.** Hybrid search (vectors plus full text) with optional reranking. Uploads are parsed by an extraction sidecar, and scanned PDFs are OCR'd.
+- 📚 **Knowledge.** Hybrid search (vectors plus full text) with optional reranking. Uploads (PDF, DOCX, PPTX, ODT, text, HTML, spreadsheets) are parsed by an extraction service that the Compose stack runs, and scanned PDFs are OCR'd.
 - 🧰 **Tools.** OpenAPI and MCP tool servers, with per-user OAuth for services like Google Sheets, Gmail and Docs. Built-in web search (SearXNG, Brave or DuckDuckGo).
 - 🧪 **Code interpreter.** With a Jupyter server, runs Python, Node.js, TypeScript, Bash, PHP, Ruby, Go, Java and R, and returns the files and images the code creates.
 - 🖥️ **Cowork.** A task mode in which the model drives a sandboxed Linux desktop (browser and shell). You watch it live and can take over at any time.
@@ -186,10 +188,10 @@ The screenshots follow your light or dark theme. They show a demo workspace for 
 ## 🧩 Architecture
 
 <p align="center">
-  <img src="docs/images/architecture.svg" alt="Architecture: clients talk to one Kera binary with guardrails, a chat engine, tools and skills, knowledge search, an admin console and Cowork tasks. Kera uses Postgres with pgvector, model servers, tool servers and optional sidecars for code, desktop and document extraction." width="900">
+  <img src="docs/images/architecture.svg" alt="Architecture: clients talk to one Kera binary with guardrails, a chat engine, tools and skills, knowledge search, an admin console and Cowork tasks. Kera uses Postgres with pgvector, model servers, tool servers and sidecars for code, desktop and document extraction." width="900">
 </p>
 
-Only Postgres is required. The sidecars (document extraction, reranking, code sandbox, Cowork desktop) are optional HTTP services that you start when you need them; the table in [Quick start](#quick-start) says which feature needs which.
+Only Postgres is required. The sidecars (document extraction, reranking, code sandbox, Cowork desktop) are HTTP services: the Compose stack starts the document extraction one for you, and you start the others when you need them; the table in [Quick start](#quick-start) says which feature needs which.
 
 <a id="configuration"></a>
 ## ⚙️ Configuration
@@ -204,6 +206,7 @@ Only Postgres is required. The sidecars (document extraction, reranking, code sa
 | `KERA_DATA_DIR` | Where uploaded files live, default `/data` |
 | `OLLAMA_BASE_URL` | Ollama server, default `http://host.docker.internal:11434` in the compose file |
 | `KERA_ADMIN_EMAIL`, `KERA_ADMIN_PASSWORD` | Create the first admin when Kera starts with no users (ignored once any user exists); `deploy/init.sh` writes them |
+| `KERA_EXTRACTOR_URL` | Default address of the document extraction service, used until one is saved in Admin > Settings > Retrieval; the compose file sets `http://extract:8000`, empty means none |
 | `KERA_TRUSTED_PROXIES` | CDNs (addresses or CIDRs) whose `X-Forwarded-For` is believed for sign-in rate limits; proxies on private addresses are always trusted for it too |
 
 Everything else (connections, sign-in providers, branding, guardrails, tool servers) is set in the admin console, or as code with `kera apply -f config.yaml`.
@@ -231,7 +234,7 @@ Kera is young: v1.0.0 was released on 2026-11-21. Schema migrations run on start
 
 - Sign-in is by email and password, Google or generic OIDC. There is no LDAP, SAML or SCIM.
 - The web interface is in English only. There is no desktop or mobile app.
-- The default stack runs Kera and Postgres. Document extraction, reranking, the code interpreter's Jupyter server and the Cowork desktop are separate services (see [Quick start](#quick-start)).
+- The default stack runs Kera, Postgres and the document extraction service. Reranking, the code interpreter's Jupyter server and the Cowork desktop are separate services (see [Quick start](#quick-start)). OCR reads English until you add languages to the extraction image.
 - Scheduled Cowork tasks are off for non-admin users until you turn on `features.cowork_schedule`.
 - The quick start expects a model server. Small CPU-only models are slow; add a GPU or point Kera at a hosted model.
 
@@ -250,7 +253,7 @@ Found a gap that is not listed here? [Open an issue](https://github.com/cdmx-in/
 | `cmd/kera` | the binary: `serve`, `db`, `apply`, `export`, `user`, `pipeline`, `health`, ... |
 | `internal/` | server packages, one per feature |
 | `web/` | React + Vite app, embedded into the binary |
-| `sidecars/` | optional helper services: document extraction, reranking, Cowork desktop |
+| `sidecars/` | helper services: document extraction (in the Compose stack), reranking, Cowork desktop |
 | `deploy/` | Docker Compose example, with opt-in Ollama and LiteLLM profiles |
 | `docs/` | documentation |
 

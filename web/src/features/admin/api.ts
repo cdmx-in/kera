@@ -154,6 +154,8 @@ export function useSaveSettings() {
     void qc.invalidateQueries({ queryKey: ['models'] })
     // The sign-in page and the Users page read whether password sign-in is on.
     void qc.invalidateQueries({ queryKey: ['auth'] })
+    // The extractor card on Retrieval checks the saved address.
+    void qc.invalidateQueries({ queryKey: ['admin', 'extractor'] })
   }
 }
 

@@ -118,6 +118,19 @@ func (s *Service) MaxBytes(ctx context.Context) int64 {
 	return int64(mb) << 20
 }
 
+// Retry extracts a file again when its extraction failed, for instance while the extractor was down. A file
+// in any other state is left as it is.
+func (s *Service) Retry(ctx context.Context, id string) error {
+	tag, err := s.db.Exec(ctx, `UPDATE file SET status = 'pending', error = '', updated_at = now() WHERE id = $1 AND status = 'failed'`, id)
+	if err != nil {
+		return fmt.Errorf("retry file %s: %w", id, err)
+	}
+	if tag.RowsAffected() > 0 {
+		s.enqueue(id)
+	}
+	return nil
+}
+
 // Create stores r as a new file owned by userID and queues extraction.
 // contentType may be empty; it is then derived from the name and the bytes.
 // meta keys are kept; name, content_type and size are always set.

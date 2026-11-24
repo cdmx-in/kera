@@ -44,6 +44,10 @@ func New(ctx context.Context, env config.Env) (*App, error) {
 		return nil, err
 	}
 	st := settings.New(pool)
+	if env.ExtractorURL != "" {
+		// ponytail: one environment default today; a second one is another line here, a table when there are many.
+		st.SetDefault("rag.extractor.url", env.ExtractorURL) // a stored value still wins
+	}
 	srv, err := api.New(env, pool)
 	if err != nil {
 		pool.Close()

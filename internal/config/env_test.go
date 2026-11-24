@@ -27,3 +27,19 @@ func TestLoadAdminAndProxies(t *testing.T) {
 		t.Fatalf("a bad proxy list gave %v", err)
 	}
 }
+
+func TestLoadExtractorURL(t *testing.T) {
+	t.Setenv("KERA_DATABASE_URL", "postgres://x")
+	for in, want := range map[string]string{"": "", " http://extract:8000/ ": "http://extract:8000", "https://docs.example.com/x": "https://docs.example.com/x"} {
+		t.Setenv("KERA_EXTRACTOR_URL", in)
+		if e, err := Load(false); err != nil || e.ExtractorURL != want {
+			t.Fatalf("KERA_EXTRACTOR_URL=%q gave %q, %v", in, e.ExtractorURL, err)
+		}
+	}
+	for _, bad := range []string{"extract:8000", "ftp://extract", "http://", "not a url"} {
+		t.Setenv("KERA_EXTRACTOR_URL", bad)
+		if _, err := Load(false); err == nil || !strings.Contains(err.Error(), "KERA_EXTRACTOR_URL") {
+			t.Fatalf("KERA_EXTRACTOR_URL=%q gave %v", bad, err)
+		}
+	}
+}

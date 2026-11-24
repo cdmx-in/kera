@@ -5,15 +5,20 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 
 	"github.com/xuri/excelize/v2"
 	"golang.org/x/net/html"
@@ -211,13 +216,40 @@ type extractResp struct {
 	Detail any            `json:"detail"`
 }
 
+// ExtractorCause says in a few words why a request to the extractor failed (err is what http.Client.Do returned).
+func ExtractorCause(err error) string {
+	var dns *net.DNSError
+	var ne net.Error
+	switch {
+	case errors.As(err, &dns):
+		return "its host name does not resolve, so the service is stopped or the address is wrong"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "connection refused, nothing is listening there"
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE), errors.Is(err, net.ErrClosed):
+		return "it closed the connection, it may have run out of memory on this file or been restarted"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &ne) && ne.Timeout():
+		return "no answer in time"
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err // the request URL is the extractor's address, which the person does not need
+	}
+	return err.Error()
+}
+
+// extractorDown is the error of a file whose extractor could not be reached. The text lands in the file's
+// error, which the person who uploaded it reads, so it names the cause and the fix.
+func extractorDown(err error) error {
+	return fmt.Errorf("document extractor not reachable (%s): start the extract service (docker compose up -d extract) and check Admin > Settings > Retrieval > Extractor URL, then retry this file", ExtractorCause(err))
+}
+
 // sidecar posts the file to {rag.extractor.url}/extract.
 func (s *Service) sidecar(ctx context.Context, f File, e string) (string, map[string]any, error) {
 	var base string
 	_ = s.settings.Get(ctx, "rag.extractor.url", &base)
 	base = strings.TrimRight(base, "/")
 	if base == "" {
-		return "", nil, fmt.Errorf("no document extractor configured for %s", e)
+		return "", nil, fmt.Errorf("no document extractor configured for %s: an admin sets Admin > Settings > Retrieval > Extractor URL to an extract service (the Docker Compose stack runs one, see docs/deploy.md)", e)
 	}
 	src, err := os.Open(s.abs(f))
 	if err != nil {
@@ -244,7 +276,8 @@ func (s *Service) sidecar(ctx context.Context, f File, e string) (string, map[st
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("extractor: %w", err)
+		slog.Warn("files: extractor request failed", "url", base, "err", err)
+		return "", nil, extractorDown(err)
 	}
 	defer resp.Body.Close()
 	var out extractResp
@@ -256,6 +289,9 @@ func (s *Service) sidecar(ctx context.Context, f File, e string) (string, map[st
 		msg := fmt.Sprint(out.Detail)
 		if out.Detail == nil {
 			msg = strings.TrimSpace(string(body[:min(len(body), 300)]))
+		}
+		if resp.StatusCode >= 500 {
+			msg += " (see docker compose logs extract)"
 		}
 		return "", nil, fmt.Errorf("extractor: HTTP %d: %s", resp.StatusCode, msg)
 	}

@@ -36,7 +36,9 @@ def post(name, data):
 
 def test_health():
     r = client.get("/health")
-    assert r.status_code == 200 and ".pdf" in r.json()["types"]
+    body = r.json()
+    assert r.status_code == 200 and ".pdf" in body["types"]
+    assert body["ocr"] == main.ocr_available() and body["ocr_langs"] == main.OCR_LANGS
 
 
 def test_pdf_one_page_per_page():

@@ -73,7 +73,7 @@ export function coerce(kind: Kind, v: unknown, key: string): unknown {
   return n
 }
 
-export function SettingsForm({ sections, children, single }: { sections: { title: string; hint?: string; fields: FieldSpec[] }[]; children?: (d: Draft) => ReactNode; single?: boolean }) {
+export function SettingsForm({ sections, children, single }: { sections: { title: string; hint?: string; fields: FieldSpec[]; footer?: ReactNode }[]; children?: (d: Draft) => ReactNode; single?: boolean }) {
   const d = useDraft()
   const kinds = new Map(sections.flatMap((s) => s.fields.map((f) => [f.key, f.kind] as const)))
   if (d.isLoading || d.error) return <Loading q={d} />
@@ -88,6 +88,7 @@ export function SettingsForm({ sections, children, single }: { sections: { title
               {s.fields.map((f) => (
                 <SettingField key={f.key} spec={f} d={d} />
               ))}
+              {s.footer}
             </div>
           </Card>
         ))}

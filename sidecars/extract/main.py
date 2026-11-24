@@ -168,7 +168,7 @@ except ImportError:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "types": sorted(HANDLERS)}
+    return {"status": "ok", "types": sorted(HANDLERS), "ocr": ocr_available(), "ocr_langs": OCR_LANGS}
 
 
 @app.post("/extract")
