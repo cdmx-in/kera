@@ -108,7 +108,7 @@ With nginx, answers stream, so turn buffering off for the location: `proxy_pass 
 
 ## What it needs
 
-Measured idle: Kera about 15 MB of memory, its Postgres about 50 MB, LiteLLM about 700 MB, Ollama about 3 GB with `llama3.2:3b` loaded (the model sits in memory). Disk: Kera's database starts around 50 MB; the `ollama` profile adds 5 GB for the image and 2.3 GB for the models; LiteLLM's image is 1.4 GB.
+Measured idle: Kera about 15 MB of memory (a burst of sign-ins can take up to 4 x 64 MiB for a moment: each password check holds 64 MiB, and at most 4 run at once, fewer on a machine with fewer cores), its Postgres about 50 MB, LiteLLM about 700 MB, Ollama about 3 GB with `llama3.2:3b` loaded (the model sits in memory). Disk: Kera's database starts around 50 MB; the `ollama` profile adds 5 GB for the image and 2.3 GB for the models; LiteLLM's image is 1.4 GB.
 
 ## Ports, data, backup
 
