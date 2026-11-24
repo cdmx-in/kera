@@ -1,0 +1,11 @@
+name: Feature request
+description: Something Kera should do that it does not do today
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes: {label: The problem, description: What are you trying to do, and what gets in the way today?}
+    validations: {required: true}
+  - type: textarea
+    attributes: {label: What you would like, description: "How it could work. A sketch is enough."}
+  - type: textarea
+    attributes: {label: Alternatives, description: Workarounds you tried, or other tools that do this well}
