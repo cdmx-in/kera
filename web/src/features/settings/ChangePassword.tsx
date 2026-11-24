@@ -9,7 +9,8 @@ import { passwordProblem, PASSWORD_MIN } from '@/lib/password'
 import { LField, PasswordInput, noteId } from '@/ui/PasswordInput'
 import { Btn, inputCls } from '@/features/admin/ui'
 
-export function ChangePassword({ me }: { me: Me }) {
+/** keysBelow: the API keys list is on this page (the user may have keys), so the note can point at it. */
+export function ChangePassword({ me, keysBelow }: { me: Me; keysBelow: boolean }) {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [errors, setErrors] = useState<{ current?: string; next?: string; form?: string }>({})
@@ -70,9 +71,11 @@ export function ChangePassword({ me }: { me: Me }) {
             testId="new-password"
           />
         </LField>
-        <p className="text-xs text-muted" data-testid="api-keys-note">
-          API keys are not signed out. If your account may have been compromised, revoke them under API keys, below.
-        </p>
+        {keysBelow && (
+          <p className="text-xs text-muted" data-testid="api-keys-note">
+            API keys are not signed out. If your account may have been compromised, revoke them under API keys, below.
+          </p>
+        )}
         {errors.form && (
           <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400" data-testid="change-password-error">
             {errors.form}

@@ -71,7 +71,8 @@ describe('SetPasswordDialog', () => {
 })
 
 describe('ChangePassword', () => {
-  const html = renderToStaticMarkup(<ChangePassword me={{ id: 'u1', name: 'Ada', email: 'ada@example.com', role: 'user' }} />)
+  const me = { id: 'u1', name: 'Ada', email: 'ada@example.com', role: 'user' } as const
+  const html = renderToStaticMarkup(<ChangePassword me={me} keysBelow />)
   it('has the current and the new password with the right autocomplete values', () => {
     expect(html).toContain('>Current password</label>')
     expect(html).toContain('>New password</label>')
@@ -87,5 +88,8 @@ describe('ChangePassword', () => {
     expect(html).toContain('Signs you out on your other devices.')
     expect(html).toContain('API keys are not signed out')
     expect(html).toContain('revoke them under API keys')
+  })
+  it('leaves the API keys note out when the user has no API keys section', () => {
+    expect(renderToStaticMarkup(<ChangePassword me={me} keysBelow={false} />)).not.toContain('API keys are not signed out')
   })
 })

@@ -221,7 +221,7 @@ function Account() {
           <p className="truncate text-sm text-muted">{me.email}</p>
         </div>
       </div>
-      {me.has_password && me.password_login && <ChangePassword me={me} />}
+      {me.has_password && me.password_login && <ChangePassword me={me} keysBelow={allowKeys} />}
       {/* no session-token copy: scripts use revocable API keys, never the browser's sign-in token */}
       {allowKeys && <ApiKeys />}
     </div>
