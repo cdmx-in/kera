@@ -97,7 +97,7 @@ export function SignInMethods({ options, glass, redirect, onSignedIn }: { option
   if (!form && !providers.length)
     return (
       <p className="mt-6 text-sm text-muted" data-testid="no-sign-in">
-        No sign-in method is set up yet. An administrator can add a provider under Admin &gt; Settings &gt; OAuth providers or turn on password sign-in under Interface.
+        No sign-in method is on. An administrator can turn on password sign-in or add a provider under Admin &gt; Settings, or run kera user login-link on the server.
       </p>
     )
   return (
@@ -144,6 +144,7 @@ export function SignInForm({ glass, autoFocus, onSignedIn }: { glass: boolean; a
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [wrong, setWrong] = useState(false) // the answer was "invalid", not "wait"
   const emailRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
   const uid = useId()
@@ -159,13 +160,17 @@ export function SignInForm({ glass, autoFocus, onSignedIn }: { glass: boolean; a
     if (busy) return
     setBusy(true)
     setError('')
+    setWrong(false)
     try {
       const me = await api<Me>('/api/v1/auths/signin', { method: 'POST', json: { email: email.trim(), password } })
       if (me.token) setToken(me.token)
       onSignedIn()
     } catch (err) {
       setError(signInMessage(err as ApiError))
-      if ((err as ApiError).status === 401) setPassword('') // the email stays; the next try is a new password
+      if ((err as ApiError).status === 401) {
+        setPassword('') // the email stays; the next try is a new password
+        setWrong(true)
+      }
       setBusy(false)
       passwordRef.current?.focus()
     }
@@ -174,7 +179,7 @@ export function SignInForm({ glass, autoFocus, onSignedIn }: { glass: boolean; a
   const input = cx(
     'w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/25',
     glass ? 'bg-surface/70' : 'bg-surface',
-    error ? 'border-red-500' : 'border-line',
+    wrong ? 'border-red-500' : 'border-line',
   )
   return (
     <form onSubmit={submit} className="space-y-4 text-left" data-testid="password-form" aria-label="Sign in with email and password">
@@ -191,7 +196,7 @@ export function SignInForm({ glass, autoFocus, onSignedIn }: { glass: boolean; a
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          aria-invalid={!!error || undefined}
+          aria-invalid={wrong || undefined}
           aria-describedby={error ? errorId : undefined}
           className={input}
           data-testid="login-email"
@@ -205,7 +210,7 @@ export function SignInForm({ glass, autoFocus, onSignedIn }: { glass: boolean; a
           onChange={setPassword}
           autoComplete="current-password"
           required
-          invalid={!!error}
+          invalid={wrong}
           describedBy={error ? errorId : undefined}
           className={input}
           testId="login-password"

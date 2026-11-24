@@ -36,6 +36,7 @@ describe('SignInMethods', () => {
     const html = methods([], false)
     expect(html).toContain('no-sign-in')
     expect(html).toContain('turn on password sign-in')
+    expect(html).toContain('kera user login-link')
   })
   it('keeps the glass-card look: pill buttons that glow', () => {
     const html = methods([google], true, true)

@@ -228,11 +228,18 @@ export function InterfaceTab() {
 /** The switch for auth.password.enabled. Until it holds a value the server decides (on while there is no OAuth login provider), so the page shows that effective state. */
 function PasswordSwitch({ d }: { d: Draft }) {
   const key = 'auth.password.enabled'
-  const effective = useAuthOptions().data?.login_form ?? false
+  const options = useAuthOptions().data
   const v = d.get(key)
+  const on = typeof v === 'boolean' ? v : (options?.login_form ?? false)
+  const noWay = !on && options?.providers.length === 0
   return (
-    <SettingRow k={key} label="Password sign-in" hint="Let people sign in with email and password. On until you add an OAuth login provider; the switch overrides that." d={d}>
-      <Switch checked={typeof v === 'boolean' ? v : effective} onChange={(on) => d.set(key, on)} label="Password sign-in" testId="password-signin-switch" />
+    <SettingRow
+      k={key}
+      label="Password sign-in"
+      hint={noWay ? 'Off, and no OAuth login provider is set up: nobody can sign in except with kera user login-link on the server.' : 'Email and password sign-in. On by default until you add an OAuth login provider.'}
+      d={d}
+    >
+      <Switch checked={on} onChange={(x) => d.set(key, x)} label="Password sign-in" testId="password-signin-switch" />
     </SettingRow>
   )
 }
