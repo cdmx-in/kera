@@ -24,7 +24,8 @@ import (
 const CLIUsage = `  kera user list                                  list users
   kera user add [--name N] [--admin] [--password-stdin] <email>
                                                   create a user; with --password-stdin the first line of stdin is their password
-  kera user passwd [--stdin] <email>              set or reset a user's password and sign them out (asks twice without echo; --stdin reads one line, for scripts)
+  kera user passwd [--stdin] [--revoke-api-keys] <email>
+                                                  set or reset a user's password and sign them out (asks twice without echo; --stdin reads one line, for scripts; API keys stay unless asked)
   kera user promote <email>                       make a user an admin
   kera user login-link [--ttl 12h] <email>        print a sign-in link (no password needed, recovery; creates the first admin on an empty install)
   kera apikey create --user <email> --name <n>    create an API key (printed once)
@@ -128,11 +129,12 @@ func addUserCLI(ctx context.Context, db *pgxpool.Pool, args []string, in io.Read
 func passwdCLI(ctx context.Context, db *pgxpool.Pool, args []string, in io.Reader, out io.Writer) error {
 	fs := flag.NewFlagSet("user passwd", flag.ContinueOnError)
 	stdin := fs.Bool("stdin", false, "read the password from the first line of standard input instead of asking")
+	revoke := fs.Bool("revoke-api-keys", false, "also delete the user's API keys (a password change signs sessions out, not keys)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: kera user passwd [--stdin] <email>")
+		return errors.New("usage: kera user passwd [--stdin] [--revoke-api-keys] <email>")
 	}
 	var id, email string
 	err := db.QueryRow(ctx, `SELECT id, email FROM "user" WHERE lower(email) = lower($1)`, strings.TrimSpace(fs.Arg(0))).Scan(&id, &email)
@@ -154,10 +156,15 @@ func passwdCLI(ctx context.Context, db *pgxpool.Pool, args []string, in io.Reade
 	if err := auth.CheckPassword(pw, email); err != nil {
 		return fmt.Errorf("password: %w", err)
 	}
-	if _, err := storePassword(ctx, db, id, pw); err != nil {
+	if _, err := storePassword(ctx, db, id, pw, *revoke); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "password set for %s; their other sessions are signed out\n", email)
+	if *revoke {
+		fmt.Fprintln(out, "their API keys are deleted")
+	} else {
+		fmt.Fprintln(out, "their API keys still work; if the account may be compromised, rerun with --revoke-api-keys")
+	}
 	// The server counts failed tries in memory and this is another process, so it cannot clear a lock.
 	fmt.Fprintln(out, "if they are locked out by too many tries, the lock ends within 15 minutes, when the server restarts, or at once when an admin sets a password in Admin > Users")
 	return nil

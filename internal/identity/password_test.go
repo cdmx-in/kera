@@ -949,3 +949,71 @@ func TestWeakPasswordsAreRefusedEverywhere(t *testing.T) {
 		t.Fatalf("a good password: %d %s", r.Code, r.Body)
 	}
 }
+
+// A password change signs sessions out; API keys are separate credentials and stay, unless the
+// admin (or the CLI) asks for them to go too.
+func TestAPIKeysSurviveAPasswordChangeUnlessRevoked(t *testing.T) {
+	e := community(t)
+	ctx := context.Background()
+	_, admin := e.mkUser("admin", "root@example.com")
+	annID := e.withPassword("admin", "ann@example.com", pwAnn) // an admin, so her key authenticates without extra permissions
+	_, key, err := CreateAPIKey(ctx, e.a.DB, annID, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := func() int { return e.count(`SELECT count(*) FROM api_key WHERE user_id = $1`, annID) }
+	set := func(body map[string]any) {
+		t.Helper()
+		if r := e.send("POST", "/api/v1/users/"+annID+"/password", admin, "", body); r.Code != http.StatusOK {
+			t.Fatalf("set password: %d %s", r.Code, r.Body)
+		}
+	}
+
+	set(map[string]any{"password": pwNew})
+	if keys() != 1 {
+		t.Fatal("setting a password deleted an API key")
+	}
+	e.status(http.StatusOK, "GET", "/api/v1/auths/", key, nil)
+
+	// ann changes her own password: her keys stay too.
+	var s struct{ Token string }
+	e.signinAs("ann@example.com", pwNew, "").json(t, &s)
+	if r := e.send("POST", "/api/v1/auths/update/password", s.Token, "", map[string]string{"password": pwNew, "new_password": "ann-third-password"}); r.Code != http.StatusOK {
+		t.Fatalf("change: %d %s", r.Code, r.Body)
+	}
+	if keys() != 1 {
+		t.Fatal("changing a password deleted an API key")
+	}
+
+	set(map[string]any{"password": "ann-fourth-password", "revoke_api_keys": false})
+	if keys() != 1 {
+		t.Fatal("revoke_api_keys:false deleted an API key")
+	}
+	set(map[string]any{"password": "ann-fifth-password", "revoke_api_keys": true})
+	if keys() != 0 {
+		t.Fatal("revoke_api_keys:true left a key")
+	}
+	e.status(http.StatusUnauthorized, "GET", "/api/v1/auths/", key, nil)
+	// another user's keys are not touched
+	bobID, _ := e.mkUser("admin", "bob@example.com")
+	if _, _, err := CreateAPIKey(ctx, e.a.DB, bobID, "k"); err != nil {
+		t.Fatal(err)
+	}
+	set(map[string]any{"password": "ann-sixth-password", "revoke_api_keys": true})
+	if e.count(`SELECT count(*) FROM api_key WHERE user_id = $1`, bobID) != 1 {
+		t.Fatal("another user's key was deleted")
+	}
+
+	// the CLI: keys stay unless asked, and it says which
+	var out bytes.Buffer
+	if _, _, err := CreateAPIKey(ctx, e.a.DB, annID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	if err := UserCmd(ctx, e.a.DB, []string{"passwd", "--stdin", "ann@example.com"}, strings.NewReader("ann-seventh-password\n"), &out); err != nil || keys() != 1 || !strings.Contains(out.String(), "still work") {
+		t.Fatalf("CLI without the flag: %v keys=%d %q", err, keys(), out.String())
+	}
+	out.Reset()
+	if err := UserCmd(ctx, e.a.DB, []string{"passwd", "--stdin", "--revoke-api-keys", "ann@example.com"}, strings.NewReader("ann-eighth-password\n"), &out); err != nil || keys() != 0 || !strings.Contains(out.String(), "deleted") {
+		t.Fatalf("CLI with the flag: %v keys=%d %q", err, keys(), out.String())
+	}
+}

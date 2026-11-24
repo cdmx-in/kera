@@ -30,6 +30,8 @@ Out of the box people sign in with an email and a password. There is no sign-up 
 - The key button on a user's row sets a new password and signs them out everywhere.
 - Everyone changes their own under Settings > Account (the current password is asked for; their other devices are signed out).
 - Admins cannot read anyone's password: Kera keeps only a salted argon2id hash (64 MiB, 3 passes), and no screen or API answer shows it.
+- A new password signs the user out of every browser, but **API keys keep working**: they are separate credentials. If an account may have been compromised, tick "Also revoke their API keys" in the Set password dialog, run `kera user passwd --revoke-api-keys <email>`, or have the user revoke them under Settings > Account. Nothing deletes keys unless you ask.
+- A password an admin sets, and the one from `KERA_ADMIN_PASSWORD`, is not forced to change at first sign-in. Pass it on once and ask the person to change it under Settings > Account (for the first admin: do it yourself after the first sign-in).
 
 On the command line, for scripts or when no admin can get in:
 

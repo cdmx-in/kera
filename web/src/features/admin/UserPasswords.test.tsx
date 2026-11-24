@@ -58,6 +58,13 @@ describe('SetPasswordDialog', () => {
     expect(html).toContain('type="password"')
     expect(html).toContain('value=""')
   })
+  it('says that API keys keep working and offers to revoke them, off by default', () => {
+    const html = renderToStaticMarkup(<SetPasswordDialog user={{ ...user, api_key_count: 2 }} onClose={none} onSaved={none} />)
+    expect(html).toContain('API keys keep working after a password change')
+    expect(html).toContain('Also revoke their API keys (2)')
+    expect(html).toMatch(/type="checkbox"(?![^>]*checked)/)
+    expect(renderToStaticMarkup(<SetPasswordDialog user={user} onClose={none} onSaved={none} />)).toContain('Also revoke their API keys<')
+  })
   it('says Reset when the user already has one', () => {
     expect(renderToStaticMarkup(<SetPasswordDialog user={{ ...user, has_password: true }} onClose={none} onSaved={none} />)).toContain('Reset password for Ada Lovelace')
   })
@@ -76,7 +83,9 @@ describe('ChangePassword', () => {
     expect(html).toContain('tabindex="-1"')
     expect(html).toContain('sr-only')
   })
-  it('says the other devices are signed out', () => {
+  it('says the other devices are signed out, and that API keys are not', () => {
     expect(html).toContain('Signs you out on your other devices.')
+    expect(html).toContain('API keys are not signed out')
+    expect(html).toContain('revoke them under API keys')
   })
 })

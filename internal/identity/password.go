@@ -266,7 +266,7 @@ func (h *handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, api.FieldErr("new_password", "same_password", "Choose a password you have not used just now."))
 		return
 	}
-	epoch, err := storePassword(ctx, h.a.DB, u.ID, body.NewPassword)
+	epoch, err := storePassword(ctx, h.a.DB, u.ID, body.NewPassword, false)
 	if err != nil {
 		api.Fail(w, r, err)
 		return
@@ -299,7 +299,8 @@ func (h *handler) setUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Password string `json:"password"`
+		Password      string `json:"password"`
+		RevokeAPIKeys bool   `json:"revoke_api_keys"` // off by default: keys are separate credentials
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, signinBodyMax)
 	if err := api.Decode(r, &body); err != nil {
@@ -320,20 +321,21 @@ func (h *handler) setUserPassword(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, api.FieldErr("password", "bad_password", err.Error()))
 		return
 	}
-	if _, err := storePassword(ctx, h.a.DB, id, body.Password); err != nil {
+	if _, err := storePassword(ctx, h.a.DB, id, body.Password, body.RevokeAPIKeys); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
 	h.attempts.ResetPrefix("email+ip", strings.ToLower(email)+"\x00") // every address it was tried from
 	h.attempts.Reset(auth.Key{Kind: "email", Value: strings.ToLower(email)})
 	h.attempts.Reset(auth.Key{Kind: "change-password", Value: id})
-	slog.Info("password set by an admin", "admin", me.ID, "user", id)
+	slog.Info("password set by an admin", "admin", me.ID, "user", id, "api_keys_revoked", body.RevokeAPIKeys)
 	api.JSON(w, http.StatusOK, map[string]any{"status": true})
 }
 
 // storePassword hashes and saves a password, adds one to the user's session
-// epoch and returns it. The hash is made before the transaction opens.
-func storePassword(ctx context.Context, db *pgxpool.Pool, userID, password string) (epoch int64, err error) {
+// epoch and returns it. The hash is made before the transaction opens. Sessions end with the
+// epoch; API keys are separate credentials and stay unless revokeKeys asks for them to go too.
+func storePassword(ctx context.Context, db *pgxpool.Pool, userID, password string, revokeKeys bool) (epoch int64, err error) {
 	hash, err := auth.HashPassword(ctx, password)
 	if err != nil {
 		return 0, fmt.Errorf("hash password: %w", err)
@@ -349,6 +351,11 @@ func storePassword(ctx context.Context, db *pgxpool.Pool, userID, password strin
 	}
 	if err := tx.QueryRow(ctx, `UPDATE "user" SET session_epoch = session_epoch + 1, updated_at = now() WHERE id = $1 RETURNING session_epoch`, userID).Scan(&epoch); err != nil {
 		return 0, fmt.Errorf("end sessions: %w", err)
+	}
+	if revokeKeys {
+		if _, err := tx.Exec(ctx, `DELETE FROM api_key WHERE user_id = $1`, userID); err != nil {
+			return 0, fmt.Errorf("revoke api keys: %w", err)
+		}
 	}
 	return epoch, tx.Commit(ctx)
 }

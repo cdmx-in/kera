@@ -11,7 +11,7 @@ import { copyText } from '@/lib/format'
 import { generatePassword, passwordProblem, PASSWORD_MIN } from '@/lib/password'
 import { enc, type AdminUser, type RoleName } from './api'
 import { NAME_MAX } from './lib'
-import { Btn, inputCls } from './ui'
+import { Btn, Check, inputCls } from './ui'
 
 type Errors = Partial<Record<'email' | 'name' | 'role' | 'password', string>>
 
@@ -153,6 +153,7 @@ export function AddUserDialog({ passwordRequired, onClose, onAdded }: { password
 
 export function SetPasswordDialog({ user, onClose, onSaved }: { user: AdminUser; onClose: () => void; onSaved: () => void }) {
   const [password, setPassword] = useState('')
+  const [revoke, setRevoke] = useState(false)
   const [error, setError] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
   const submit = async (e: React.FormEvent) => {
@@ -161,12 +162,12 @@ export function SetPasswordDialog({ user, onClose, onSaved }: { user: AdminUser;
     if (problem) return setError(problem)
     setBusy(true)
     try {
-      await api(`/api/v1/users/${enc(user.id)}/password`, { method: 'POST', json: { password } })
+      await api(`/api/v1/users/${enc(user.id)}/password`, { method: 'POST', json: { password, revoke_api_keys: revoke } })
     } catch (err) {
       setBusy(false)
       return showError(err, (e) => setError(e.password))
     }
-    toast(`Password set for ${user.email}`)
+    toast(`Password set for ${user.email}${revoke ? '; API keys revoked' : ''}`)
     onSaved()
     onClose()
   }
@@ -185,6 +186,12 @@ export function SetPasswordDialog({ user, onClose, onSaved }: { user: AdminUser;
           error={error}
           hint={`At least ${PASSWORD_MIN} characters. Pass it on once; they can change it under Settings > Account.`}
         />
+        <div className="space-y-1" data-testid="api-keys-note">
+          <Check checked={revoke} onChange={setRevoke}>
+            Also revoke their API keys{user.api_key_count > 0 ? ` (${user.api_key_count})` : ''}
+          </Check>
+          <p className="text-xs text-muted">API keys keep working after a password change. Tick this if the account may have been compromised; otherwise they stay.</p>
+        </div>
         <div className="flex justify-end gap-2">
           <Btn onClick={onClose}>Cancel</Btn>
           <Btn type="submit" variant="primary" disabled={busy} data-testid="set-password-submit">
