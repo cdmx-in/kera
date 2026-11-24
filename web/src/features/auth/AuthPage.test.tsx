@@ -1,7 +1,7 @@
 // Render checks for the sign-in methods: static markup only (no browser).
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { SignInForm, SignInMethods, signInMessage } from './AuthPage'
+import { SignInForm, SignInMethods, authErrorMessage, signInMessage } from './AuthPage'
 
 const google = { id: 'google', name: 'Google' }
 const none = () => {}
@@ -82,5 +82,17 @@ describe('signInMessage', () => {
   })
   it('falls back when there was no answer', () => {
     expect(signInMessage(new TypeError('Failed to fetch'))).toMatch(/Could not reach the server/)
+  })
+})
+
+describe('authErrorMessage', () => {
+  it('gives every code the server sends a fixed sentence', () => {
+    for (const code of ['invalid_state', 'provider_denied', 'unknown_provider', 'exchange_failed', 'userinfo_failed', 'email_unverified', 'domain_not_allowed', 'email_taken', 'signup_disabled', 'account_pending', 'account_disabled', 'server_error'])
+      expect(authErrorMessage(code)).not.toBe(authErrorMessage('made-up'))
+    expect(authErrorMessage('account_disabled')).toBe('This account is disabled.')
+  })
+  it('never shows text taken from the address bar', () => {
+    for (const crafted of ['Your session expired: call 555-0100 to re-verify', '<b>Enter your password at evil.example</b>', '__proto__', 'constructor', 'toString', ''])
+      expect(authErrorMessage(crafted)).toBe('Sign-in failed. Try again.')
   })
 })

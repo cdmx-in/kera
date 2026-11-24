@@ -11,6 +11,26 @@ import { Spinner } from '@/ui/misc'
 import { LField, PasswordInput } from '@/ui/PasswordInput'
 import { Aurora, brandMark } from '@/features/brand/Splash'
 
+/** What /auth?error=<code> says. The code comes from the address bar, so anyone can craft a link to this page: only codes the server sends have a message, and any other value gets a neutral one, never its own text. */
+const AUTH_ERRORS = new Map<string, string>([
+  ['invalid_state', 'The sign-in took too long or was started in another tab. Try again.'],
+  ['provider_denied', 'The provider cancelled or refused the sign-in.'],
+  ['unknown_provider', 'That sign-in provider is not set up.'],
+  ['exchange_failed', 'The provider did not complete the sign-in. Try again.'],
+  ['userinfo_failed', 'The provider did not complete the sign-in. Try again.'],
+  ['email_unverified', 'The provider says this email address is not verified.'],
+  ['domain_not_allowed', 'Accounts from this email domain cannot sign in here.'],
+  ['email_taken', 'This email already belongs to another account. Ask an administrator.'],
+  ['signup_disabled', 'New accounts are not created automatically. Ask an administrator to add you.'],
+  ['account_pending', "Your account is waiting for an administrator's approval."],
+  ['account_disabled', 'This account is disabled.'],
+  ['server_error', 'Something went wrong on the server. Try again.'],
+])
+
+export function authErrorMessage(code: string): string {
+  return AUTH_ERRORS.get(code) ?? 'Sign-in failed. Try again.'
+}
+
 export default function AuthPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
@@ -40,7 +60,7 @@ export default function AuthPage() {
   const mark = brandMark()
   const alert = error && (
     <p role="alert" className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600">
-      {error}
+      {authErrorMessage(error)}
     </p>
   )
   const body = checking || options.isPending ? (
