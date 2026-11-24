@@ -61,9 +61,9 @@ const (
 )
 
 // Bounds for a stored hash's parameters, so a damaged or hostile row cannot
-// ask for gigabytes or minutes.
+// ask for more than 256 MiB or minutes of work.
 const (
-	maxMemKiB = 1 << 20
+	maxMemKiB = 256 * 1024
 	maxPasses = 20
 	maxLanes  = 32
 )
@@ -159,6 +159,9 @@ func VerifyPassword(ctx context.Context, password, encoded string) (match, rehas
 	}
 	p, err := parsePHC(encoded)
 	if err != nil {
+		if known { // a damaged row costs as much as a wrong password: the caller answers the same either way
+			_, _, _ = VerifyPassword(ctx, password, "")
+		}
 		return false, false, err
 	}
 	release, err := acquire(ctx)

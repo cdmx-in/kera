@@ -84,18 +84,19 @@ func TestVerifyRejectsDamagedHashes(t *testing.T) {
 	ctx := context.Background()
 	good, _ := HashPassword(ctx, "whatever it is")
 	for name, enc := range map[string]string{
-		"plain text":       "hunter2",
-		"other algorithm":  strings.Replace(good, "argon2id", "argon2i", 1),
-		"old version":      strings.Replace(good, "v=19", "v=16", 1),
-		"huge memory":      strings.Replace(good, "m=65536", "m=4194304", 1),
-		"zero passes":      strings.Replace(good, "t=3", "t=0", 1),
-		"too many lanes":   strings.Replace(good, "p=2", "p=200", 1),
-		"missing field":    "$argon2id$v=19$m=65536,t=3,p=2$c2FsdHNhbHQ",
-		"bad salt":         strings.Replace(good, "$", "$!!", 3),
-		"truncated hash":   good[:len(good)-30],
-		"junk parameter":   strings.Replace(good, "t=3", "t=x", 1),
-		"negative lanes":   strings.Replace(good, "p=2", "p=-2", 1),
-		"empty salt field": "$argon2id$v=19$m=65536,t=3,p=2$$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"plain text":        "hunter2",
+		"other algorithm":   strings.Replace(good, "argon2id", "argon2i", 1),
+		"old version":       strings.Replace(good, "v=19", "v=16", 1),
+		"huge memory":       strings.Replace(good, "m=65536", "m=4194304", 1),
+		"just over 256 MiB": strings.Replace(good, "m=65536", "m=262145", 1),
+		"zero passes":       strings.Replace(good, "t=3", "t=0", 1),
+		"too many lanes":    strings.Replace(good, "p=2", "p=200", 1),
+		"missing field":     "$argon2id$v=19$m=65536,t=3,p=2$c2FsdHNhbHQ",
+		"bad salt":          strings.Replace(good, "$", "$!!", 3),
+		"truncated hash":    good[:len(good)-30],
+		"junk parameter":    strings.Replace(good, "t=3", "t=x", 1),
+		"negative lanes":    strings.Replace(good, "p=2", "p=-2", 1),
+		"empty salt field":  "$argon2id$v=19$m=65536,t=3,p=2$$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 	} {
 		if match, _, err := VerifyPassword(ctx, "whatever it is", enc); match || err == nil {
 			t.Errorf("%s: match=%v err=%v", name, match, err)
@@ -153,4 +154,35 @@ func TestHashSlots(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// A stored hash that does not parse is answered after the same work as a wrong password, so its
+// time does not mark the account (the handler treats both as an ordinary failure).
+func TestDamagedHashCostsAsMuchAsAWrongPassword(t *testing.T) {
+	ctx := context.Background()
+	good, _ := HashPassword(ctx, "whatever it is")
+	_, _, _ = VerifyPassword(ctx, "x", "") // makes the throwaway hash
+	best := func(enc string) time.Duration {
+		d := time.Hour
+		for range 3 {
+			start := time.Now()
+			_, _, _ = VerifyPassword(ctx, "not the password", enc)
+			d = min(d, time.Since(start))
+		}
+		return d
+	}
+	damaged, wrong := best("$2b$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234"), best(good)
+	if damaged < wrong/3 {
+		t.Fatalf("a damaged hash took %v, a wrong password %v: it returns early", damaged, wrong)
+	}
+	if _, _, err := VerifyPassword(ctx, "x", "$2b$12$abc"); err == nil {
+		t.Fatal("a damaged hash gave no error")
+	}
+	// the limit itself: 256 MiB still parses, one KiB more does not
+	for m, ok := range map[string]bool{"262144": true, "262145": false} {
+		_, err := parsePHC(strings.Replace(good, "m=65536", "m="+m, 1))
+		if (err == nil) != ok {
+			t.Errorf("m=%s: err = %v", m, err)
+		}
+	}
 }
