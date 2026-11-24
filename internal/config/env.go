@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"strings"
 )
@@ -19,6 +20,14 @@ type Env struct {
 	ConfigFile  string // KERA_CONFIG, optional YAML applied by `kera apply`
 	Listen      string // KERA_LISTEN, default :8080
 	OllamaURL   string // OLLAMA_BASE_URL, default connection when no config declares one
+
+	// AdminEmail and AdminPassword (KERA_ADMIN_EMAIL, KERA_ADMIN_PASSWORD) create the first
+	// admin when the user table is empty at startup; they change nothing once any user exists.
+	AdminEmail, AdminPassword string
+	// TrustedProxies (KERA_TRUSTED_PROXIES, comma-separated addresses or CIDRs) are reverse
+	// proxies whose X-Forwarded-For / CF-Connecting-IP headers are believed, besides the
+	// loopback and private addresses that are always trusted. Used for sign-in rate limits.
+	TrustedProxies []netip.Prefix
 }
 
 // Load reads the environment. requireSecret is false for commands that never
@@ -38,6 +47,12 @@ func Load(requireSecret bool) (Env, error) {
 		e.CallbackURL = e.PublicURL
 	}
 	var errs []error
+	e.AdminEmail = strings.TrimSpace(os.Getenv("KERA_ADMIN_EMAIL"))
+	e.AdminPassword = os.Getenv("KERA_ADMIN_PASSWORD") // exactly as given: spaces can be part of a password
+	var err error
+	if e.TrustedProxies, err = parsePrefixes(os.Getenv("KERA_TRUSTED_PROXIES")); err != nil {
+		errs = append(errs, fmt.Errorf("KERA_TRUSTED_PROXIES: %w", err))
+	}
 	if e.DatabaseURL == "" {
 		errs = append(errs, errors.New("KERA_DATABASE_URL is required"))
 	}
@@ -45,6 +60,21 @@ func Load(requireSecret bool) (Env, error) {
 		errs = append(errs, fmt.Errorf("KERA_SECRET_KEY must be at least 32 bytes (got %d); generate one with: openssl rand -hex 32", len(e.SecretKey)))
 	}
 	return e, errors.Join(errs...)
+}
+
+// parsePrefixes reads "10.0.0.5, 173.245.48.0/20, 2400:cb00::/32"; a bare address is a /32 or /128.
+func parsePrefixes(list string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, f := range strings.FieldsFunc(list, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
+		if p, err := netip.ParsePrefix(f); err == nil {
+			out = append(out, p.Masked())
+		} else if a, err := netip.ParseAddr(f); err == nil {
+			out = append(out, netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen()))
+		} else {
+			return nil, fmt.Errorf("%q is not an address or CIDR", f)
+		}
+	}
+	return out, nil
 }
 
 func getenv(k, def string) string {
