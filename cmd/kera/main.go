@@ -223,7 +223,7 @@ func loginLink(ctx context.Context, pool *pgxpool.Pool, args []string) error {
 			SELECT $1, split_part($2, '@', 1), lower($2), 'admin' WHERE NOT EXISTS (SELECT 1 FROM "user")
 			RETURNING id, role`, ids.New(), fs.Arg(0)).Scan(&id, &role)
 		if errors.Is(err, pgx.ErrNoRows) {
-			err = errors.New("no such user (only the first user can be created with login-link)")
+			err = errors.New("no such user: login-link creates only the very first user; add others with: kera user add <email>")
 		}
 	}
 	if err != nil {
