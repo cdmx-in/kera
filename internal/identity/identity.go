@@ -6,15 +6,21 @@ import (
 	"net/http"
 
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/auth"
 )
 
 func init() { app.Register("identity", Mount) }
 
-type handler struct{ a *app.App }
+type handler struct {
+	a        *app.App
+	attempts *auth.Attempts // password sign-in and change-password tries
+}
+
+func newHandler(a *app.App) *handler { return &handler{a: a, attempts: auth.NewAttempts()} }
 
 // Mount registers the identity routes.
 func Mount(a *app.App) error {
-	h := &handler{a: a}
+	h := newHandler(a)
 	s, au := a.Server, a.Auth
 	admin := func(f http.HandlerFunc) http.Handler { return au.Admin(f) }
 	user := func(f http.HandlerFunc) http.Handler { return au.Required(f) }
@@ -27,6 +33,9 @@ func Mount(a *app.App) error {
 	s.HandleFunc("POST /api/v1/auths/signout", h.signout)
 	s.HandleFunc("GET /api/v1/auths/signout", h.signout) // Open WebUI clients sign out with GET
 	s.HandleFunc("GET /api/v1/auths/providers", h.providers)
+	s.HandleFunc("POST /api/v1/auths/signin", h.signin)
+	s.Handle("POST /api/v1/auths/update/password", user(h.changePassword))
+	s.Handle("POST /api/v1/auths/add", admin(h.addUser))
 	s.Handle("GET /api/v1/auths/api_keys", keys(h.listKeys))
 	s.Handle("POST /api/v1/auths/api_keys", keys(h.createKey))
 	s.Handle("DELETE /api/v1/auths/api_keys/{id}", keys(h.deleteKey))
@@ -37,6 +46,7 @@ func Mount(a *app.App) error {
 	s.Handle("GET /api/v1/users/{$}", admin(h.listUsers))
 	s.Handle("GET /api/v1/users/{id}", admin(h.getUser))
 	s.Handle("POST /api/v1/users/{id}/update", admin(h.updateUser))
+	s.Handle("POST /api/v1/users/{id}/password", admin(h.setUserPassword))
 	s.Handle("DELETE /api/v1/users/{id}", admin(h.deleteUser))
 	s.Handle("GET /api/v1/users/default/permissions", admin(h.getDefaultPerms))
 	s.Handle("POST /api/v1/users/default/permissions", admin(h.setDefaultPerms))

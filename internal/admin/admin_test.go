@@ -477,3 +477,29 @@ func TestSpend(t *testing.T) {
 		t.Fatal("spend pool can write")
 	}
 }
+
+// auth.password.enabled has no value until an admin sets one (then the sign-in
+// form follows the OAuth providers); it takes true or false and nothing else.
+func TestPasswordSwitchSetting(t *testing.T) {
+	e := setup(t)
+	var list []settingOut
+	e.ok("GET", "/api/v1/configs/settings", nil, &list)
+	if s := findSetting(t, list, "auth.password.enabled"); string(s.Value) != "null" || string(s.Default) != "null" || s.Set {
+		t.Fatalf("unset switch = %+v", s)
+	}
+	for _, bad := range []any{"yes", 1, []bool{true}, map[string]any{}} {
+		e.fails(400, "bad_type", "POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": bad})
+	}
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": false}, &list)
+	if s := findSetting(t, list, "auth.password.enabled"); string(s.Value) != "false" || !s.Set {
+		t.Fatalf("switch off = %+v", s)
+	}
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": true}, &list)
+	if s := findSetting(t, list, "auth.password.enabled"); string(s.Value) != "true" {
+		t.Fatalf("switch on = %+v", s)
+	}
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": nil}, &list)
+	if s := findSetting(t, list, "auth.password.enabled"); string(s.Value) != "null" || s.Set {
+		t.Fatalf("switch reset = %+v", s)
+	}
+}

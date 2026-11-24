@@ -115,10 +115,17 @@ type ToolDisplay struct {
 }
 
 type Auth struct {
-	OAuth          *AuthOAuth `yaml:"oauth,omitempty" apply:"-"`
-	LoginForm      *bool      `yaml:"login_form,omitempty"`
-	Signup         *Signup    `yaml:"signup,omitempty"`
-	JWTExpiryHours *int       `yaml:"jwt_expiry_hours,omitempty"`
+	OAuth          *AuthOAuth     `yaml:"oauth,omitempty" apply:"-"`
+	LoginForm      *bool          `yaml:"login_form,omitempty"`
+	Password       *PasswordLogin `yaml:"password,omitempty"`
+	Signup         *Signup        `yaml:"signup,omitempty"`
+	JWTExpiryHours *int           `yaml:"jwt_expiry_hours,omitempty"`
+}
+
+// PasswordLogin is email and password sign-in. Absent, it is on while there is
+// no OAuth login provider and off once there is one.
+type PasswordLogin struct {
+	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
 type AuthOAuth struct {

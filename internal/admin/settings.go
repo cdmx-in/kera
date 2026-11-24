@@ -153,7 +153,11 @@ func (h *handler) settingValue(key string, v json.RawMessage, secret bool) (json
 	if !ok {
 		return v, nil // a key apply writes without a built-in default: any JSON
 	}
-	if want := jsonType(def); got != want {
+	if want := jsonType(def); want == "null" { // a switch with no value until someone sets it (auth.password.enabled)
+		if got != "boolean" {
+			return nil, api.Errf(http.StatusBadRequest, "bad_type", fmt.Sprintf("%s must be true or false, got %s", key, got))
+		}
+	} else if got != want {
 		return nil, api.Errf(http.StatusBadRequest, "bad_type", fmt.Sprintf("%s must be a %s, got %s", key, want, got))
 	}
 	if key == "ui.brand" {

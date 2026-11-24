@@ -30,6 +30,7 @@ auth:
       update_picture: true
       allowed_domains: [example.com]
   login_form: false
+  password: {enabled: true}
   signup: {oauth: true, default_role: user}
   jwt_expiry_hours: 168
 

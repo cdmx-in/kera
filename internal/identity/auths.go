@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -20,8 +21,7 @@ import (
 // and cookie, so long-lived tabs (and cookie-authenticated iframes) stay in.
 func (h *handler) me(w http.ResponseWriter, r *http.Request) {
 	u := auth.FromContext(r.Context())
-	out := map[string]any{"id": u.ID, "email": u.Email, "name": u.Name, "role": u.Role,
-		"profile_image_url": u.ProfileImageURL, "permissions": u.Permissions, "groups": nonNil(u.Groups)}
+	out := h.meBody(r.Context(), u)
 	if !u.ViaAPIKey {
 		ttl := h.a.Auth.SessionTTL(r.Context())
 		tok, err := auth.IssueSession(h.a.Keys, u.ID, u.SessionEpoch, ttl)
@@ -33,6 +33,19 @@ func (h *handler) me(w http.ResponseWriter, r *http.Request) {
 		out["token"], out["token_type"], out["expires_at"] = tok, "Bearer", time.Now().Add(ttl).Unix()
 	}
 	api.JSON(w, http.StatusOK, out)
+}
+
+// meBody is the user as GET /api/v1/auths/ and the sign-in routes show them.
+// has_password and password_login tell the settings page whether to offer a
+// password change.
+func (h *handler) meBody(ctx context.Context, u *auth.User) map[string]any {
+	var has bool
+	if err := h.a.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_password WHERE user_id = $1)`, u.ID).Scan(&has); err != nil {
+		slog.Warn("read has_password", "err", err)
+	}
+	return map[string]any{"id": u.ID, "email": u.Email, "name": u.Name, "role": u.Role,
+		"profile_image_url": u.ProfileImageURL, "permissions": u.Permissions, "groups": nonNil(u.Groups),
+		"has_password": has, "password_login": h.passwordEnabled(ctx)}
 }
 
 func (h *handler) signout(w http.ResponseWriter, r *http.Request) {
@@ -62,8 +75,7 @@ func (h *handler) providers(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
-	// ponytail: password login is not built yet (post-cutover), so the form is always off.
-	api.JSON(w, http.StatusOK, map[string]any{"providers": list, "login_form": false})
+	api.JSON(w, http.StatusOK, map[string]any{"providers": list, "login_form": h.passwordEnabled(r.Context())})
 }
 
 func providerName(id string, opts map[string]any) string {
