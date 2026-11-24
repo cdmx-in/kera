@@ -52,7 +52,7 @@ describe('admin lib', () => {
       ],
     })
     expect(v.total).toBeCloseTo(11.01)
-    expect([v.users, v.active, v.idle]).toEqual([2, 2, 1])
+    expect([v.users, v.active, v.idle]).toEqual([2, 1, 1]) // the unattributed row is not counted as a person
     expect(v.people.map((p) => [p.name, p.spend, p.tokens])).toEqual([
       ['Ada', 11, 165],
       ['Bob', 0, 0],

@@ -143,12 +143,14 @@ export function spendView(d: SpendData): SpendView {
   }
   const total = people.reduce((a, p) => a + p.spend, 0)
   // free models (Ollama) cost nothing, so someone who used them is active all the same
-  const active = people.filter((p) => p.spend > 0 || p.requests > 0).length
+  // the unattributed row (embeddings, calls without a user) is not a person
+  const counted = people.filter((p) => p.email !== '')
+  const active = counted.filter((p) => p.spend > 0 || p.requests > 0).length
   return {
     total,
     users: d.users.length,
     active,
-    idle: people.length - active,
+    idle: counted.length - active,
     people,
     days: eachDay(d.start_date, d.end_date).map((day) => ({ day, ...(byDay.get(day) ?? { spend: 0, requests: 0 }) })),
     models: [...byModel].map(([model, m]) => ({ model, ...m })).sort((a, b) => b.spend - a.spend),
