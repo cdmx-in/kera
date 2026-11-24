@@ -39,7 +39,7 @@ docker compose exec kera kera user passwd ada@example.com                       
 printf '%s\n' "$PASSWORD" | docker compose exec -T kera kera user passwd --stdin ada@example.com
 ```
 
-The password is never a command-line argument, so it stays out of the process list and the shell history. Passwords need 10 characters or more (at most 1024 bytes) and may not be the person's email address; there are no rules about digits or symbols.
+The password is never a command-line argument, so it stays out of the process list and the shell history. Passwords need 10 characters or more (at most 1024 bytes). Beyond length Kera refuses only what attackers try first: the person's email address, one of a short built-in list of very common passwords and base words (`1234567890`, `password123`, `Welcome2024!`, `P@ssw0rd`), a repeated character or a plain run (`aaaaaaaaaa`, `abababababab`, `qwertyuiop`, `abcdefghij`), and the word `kera` or the email's name with digits around it. There are no rules about digits or symbols, and no breach list: a long phrase of unrelated words is the best choice. `KERA_ADMIN_PASSWORD` has to pass the same rules, or Kera refuses to start and says which rule.
 
 **Wrong guesses are slowed down.** Kera counts tries three ways and refuses further tries for 30 seconds, then 1 minute, 2, 4, 8 and at most 15 minutes, telling the person how long to wait:
 

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { generatePassword, passwordProblem } from './password'
+import vectors from './passwordVectors.json'
 
 describe('passwordProblem', () => {
   it('accepts ten characters and no composition rule', () => {
     expect(passwordProblem('alllowercase')).toBe('')
-    expect(passwordProblem('0123456789')).toBe('')
+    expect(passwordProblem('7391528640')).toBe('')
   })
   it('counts characters, not bytes', () => {
     expect(passwordProblem('日本語のパスワードです')).toBe('')
@@ -14,8 +15,14 @@ describe('passwordProblem', () => {
     expect(passwordProblem('short')).toMatch(/at least 10/)
     expect(passwordProblem('          ')).toMatch(/only spaces/)
     expect(passwordProblem('x'.repeat(1025))).toMatch(/at most 1024/)
-    expect(passwordProblem('x'.repeat(1024))).toBe('')
-    expect(passwordProblem('Ann@Example.com', 'ann@example.com')).toMatch(/not the email/)
+    expect(passwordProblem('x'.repeat(1023) + 'y')).toBe('')
+    expect(passwordProblem('Ann@Example.com', 'ann@example.com')).toMatch(/not your email/)
+  })
+})
+
+describe('the same rules as the server', () => {
+  it.each(vectors)('$name', (v) => {
+    expect(passwordProblem(v.password, v.email)).toBe(v.message)
   })
 })
 

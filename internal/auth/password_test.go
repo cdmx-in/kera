@@ -109,16 +109,16 @@ func TestCheckPassword(t *testing.T) {
 		want      error
 	}{
 		{"correct horse", "a@example.com", nil},
-		{"0123456789", "", nil}, // exactly the minimum
+		{"7391528640", "", nil}, // exactly the minimum
 		{"short", "", ErrPasswordShort},
 		{"ninechars", "", ErrPasswordShort},
 		{"日本語のパスワードです", "", nil}, // ten characters, more than ten bytes
 		{"日本語のパス", "", ErrPasswordShort},
 		{"          ", "", ErrPasswordBlank},
 		{"Ann@Example.com", "ann@example.com", ErrPasswordEmail},
-		{strings.Repeat("a", PasswordMaxBytes), "", nil},
+		{strings.Repeat("a", PasswordMaxBytes-1) + "b", "", nil},
 		{strings.Repeat("a", PasswordMaxBytes+1), "", ErrPasswordLong},
-		{"alllowercase", "", nil}, // no composition rules
+		{"alllowercaseletters", "", nil}, // no composition rules
 	} {
 		if got := CheckPassword(tc.pw, tc.email); !errors.Is(got, tc.want) {
 			t.Errorf("CheckPassword(%.20q, %q) = %v, want %v", tc.pw, tc.email, got, tc.want)

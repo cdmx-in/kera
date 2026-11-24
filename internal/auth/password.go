@@ -16,7 +16,8 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// Password rules. Length only: no composition rules ("one digit, one symbol"),
+// Password rules: length, not the address, and (weak.go) not a very common password,
+// a repeated character or a plain run. No composition rules ("one digit, one symbol"),
 // which make people pick worse passwords.
 const (
 	PasswordMinChars = 10   // characters, not bytes
@@ -30,7 +31,7 @@ var (
 	ErrPasswordBlank = errors.New("The password cannot be only spaces.")
 )
 
-// CheckPassword applies the rules above. email may be empty.
+// CheckPassword applies the rules above; the messages are fit to show. email may be empty.
 func CheckPassword(password, email string) error {
 	switch {
 	case len(password) > PasswordMaxBytes:
@@ -42,7 +43,7 @@ func CheckPassword(password, email string) error {
 	case email != "" && strings.EqualFold(password, email):
 		return ErrPasswordEmail
 	}
-	return nil
+	return weakness(password, email)
 }
 
 // argon2id cost for new hashes: 64 MiB, 3 passes, 2 lanes (RFC 9106's

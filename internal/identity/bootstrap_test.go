@@ -87,6 +87,10 @@ func TestBootstrapAdminNeedsBothAndGoodValues(t *testing.T) {
 		{"not an email", pwRoot, "KERA_ADMIN_EMAIL"},
 		{"root@example.com", "short", "KERA_ADMIN_PASSWORD"},
 		{"root@example.com", "root@example.com", "KERA_ADMIN_PASSWORD"},
+		{"root@example.com", "1234567890", "KERA_ADMIN_PASSWORD"}, // too common: the bootstrap password obeys the same rules
+		{"root@example.com", "Password2024!", "KERA_ADMIN_PASSWORD"},
+		{"root@example.com", "aaaaaaaaaaaa", "KERA_ADMIN_PASSWORD"},
+		{"root@example.com", "root20242024", "KERA_ADMIN_PASSWORD"}, // built from the email name
 	} {
 		e.a.Env.AdminEmail, e.a.Env.AdminPassword = c.email, c.pw
 		err := bootstrapAdmin(ctx, e.a)

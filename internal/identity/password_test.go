@@ -914,3 +914,38 @@ func TestLoggable(t *testing.T) {
 		}
 	}
 }
+
+// Passwords that are long enough but easy to guess are refused wherever one is set: the admin
+// dialog, adding a user, changing your own, and the CLI.
+func TestWeakPasswordsAreRefusedEverywhere(t *testing.T) {
+	e := community(t)
+	_, admin := e.mkUser("admin", "root@example.com")
+	annID := e.withPassword("user", "ann@example.com", pwAnn)
+	var s struct{ Token string }
+	e.signinAs("ann@example.com", pwAnn, "").json(t, &s)
+
+	for _, weak := range []string{"1234567890", "qwertyuiop", "Password123", "Welcome2024!", "aaaaaaaaaaaa", "abababababab", "kera20242024", "kera-kera-2024"} {
+		for name, r := range map[string]reply{
+			"set":    e.send("POST", "/api/v1/users/"+annID+"/password", admin, "", map[string]string{"password": weak}),
+			"add":    e.send("POST", "/api/v1/auths/add", admin, "", map[string]string{"email": "new@example.com", "password": weak}),
+			"change": e.send("POST", "/api/v1/auths/update/password", s.Token, "", map[string]string{"password": pwAnn, "new_password": weak}),
+		} {
+			var f struct{ Field, Detail string }
+			r.json(t, &f)
+			if r.Code != http.StatusBadRequest || f.Field == "" || f.Detail == "" {
+				t.Errorf("%s with %q: %d %s", name, weak, r.Code, r.Body)
+			}
+		}
+		var out bytes.Buffer
+		if err := UserCmd(context.Background(), e.a.DB, []string{"passwd", "--stdin", "ann@example.com"}, strings.NewReader(weak+"\n"), &out); err == nil {
+			t.Errorf("the CLI accepted %q", weak)
+		}
+	}
+	if e.signinAs("ann@example.com", pwAnn, "").Code != http.StatusOK || e.count(`SELECT count(*) FROM "user" WHERE email = 'new@example.com'`) != 0 {
+		t.Fatal("a refused weak password changed something")
+	}
+	// A plain phrase of the same length is fine.
+	if r := e.send("POST", "/api/v1/users/"+annID+"/password", admin, "", map[string]string{"password": "correct horse battery"}); r.Code != http.StatusOK {
+		t.Fatalf("a good password: %d %s", r.Code, r.Body)
+	}
+}
