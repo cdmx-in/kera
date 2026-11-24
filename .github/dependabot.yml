@@ -1,0 +1,51 @@
+# Weekly version updates. Minor and patch updates of an ecosystem arrive together in one PR;
+# a major update gets its own PR. A new release waits 7 days before it is proposed, and at most
+# 3 PRs per ecosystem are open at a time. Security updates are separate and are not delayed.
+# One block per ecosystem on purpose: Dependabot does not read YAML anchors.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    open-pull-requests-limit: 3
+    commit-message: {prefix: build, include: scope}
+    groups:
+      go-minor-patch: {patterns: ["*"], update-types: [minor, patch]}
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    open-pull-requests-limit: 3
+    commit-message: {prefix: build, include: scope}
+    groups:
+      web-minor-patch: {patterns: ["*"], update-types: [minor, patch]}
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    open-pull-requests-limit: 3
+    commit-message: {prefix: ci, include: scope}
+    groups:
+      actions-minor-patch: {patterns: ["*"], update-types: [minor, patch]}
+
+  # the root Dockerfile and one per sidecar
+  - package-ecosystem: docker
+    directories: [/, /sidecars/extract, /sidecars/rerank, /sidecars/desktop]
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    open-pull-requests-limit: 3
+    commit-message: {prefix: build, include: scope}
+    groups:
+      docker-minor-patch: {patterns: ["*"], update-types: [minor, patch]}
+
+  - package-ecosystem: pip
+    directories: [/sidecars/extract, /sidecars/rerank, /sidecars/desktop]
+    schedule: {interval: weekly, day: monday}
+    cooldown: {default-days: 7}
+    open-pull-requests-limit: 3
+    commit-message: {prefix: build, include: scope}
+    groups:
+      python-minor-patch: {patterns: ["*"], update-types: [minor, patch]}

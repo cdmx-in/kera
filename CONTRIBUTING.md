@@ -33,4 +33,5 @@ Kera serves a subset of the Open WebUI HTTP API, so existing scripts and clients
 - Look for issues labelled [`good first issue`](https://github.com/cdmx-in/kera/labels/good%20first%20issue) or [`help wanted`](https://github.com/cdmx-in/kera/labels/help%20wanted).
 - Documentation fixes are welcome: a wrong command, a missing step in a troubleshooting table, an out-of-date row in [docs/comparison.md](docs/comparison.md) (include a link to the source).
 - Set up: `make testdb` starts the test Postgres, `make build` builds the web app and the binary, `make test` runs the Go and web tests. [AGENTS.md](AGENTS.md) describes the code layout: each feature is one package under `internal/`.
+- Dependabot opens grouped dependency update pull requests every week (`.github/dependabot.yml`); a review of one is welcome: read the release notes of what changed and check that CI passes.
 - For a larger change, open an issue or a [discussion](https://github.com/cdmx-in/kera/discussions) first so the approach can be agreed before you write it.
