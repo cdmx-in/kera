@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Pencil, Search, Trash2 } from 'lucide-react'
+import { ChevronDown, KeyRound, Pencil, Search, Trash2, UserPlus } from 'lucide-react'
 import { api, type ApiError } from '@/api/client'
 import { toast } from '@/stores/toast'
-import { useMe } from '@/api/queries'
+import { useAuthOptions, useMe } from '@/api/queries'
 import { Dialog, DialogHeader, IconButton } from '@/ui/Dialog'
 import { Tip } from '@/ui/misc'
 import { cx } from '@/lib/format'
 import { enc, useGroups, useSettings, useSaveSettings, type AdminUser, type RoleName } from './api'
 import { ago, errorField, NAME_MAX, validateUser, type FieldErrors, type Perms } from './lib'
 import { PermSwitches } from './Perms'
+import { AddUserDialog, SetPasswordDialog } from './UserPasswords'
 import { Pagination, useUrlPager } from './Pagination'
 import { attempt, Badge, Btn, Card, Confirm, Field, inputCls, Loading, ManagedBadge, managedWarning, Page, scrollCls, tdCls, theadCls, thCls } from './ui'
 import { Select } from '@/ui/Select'
@@ -61,6 +62,9 @@ export function UsersPage() {
   const qc = useQueryClient()
   const [editing, setEditing] = useState<AdminUser | null>(null)
   const [deleting, setDeleting] = useState<AdminUser | null>(null)
+  const [passwordFor, setPasswordFor] = useState<AdminUser | null>(null)
+  const [adding, setAdding] = useState(false)
+  const passwordLogin = useAuthOptions().data?.login_form === true
   const refresh = () => qc.invalidateQueries({ queryKey: ['admin', 'users'] })
 
   const setRole = (u: AdminUser, role: RoleName) =>
@@ -88,18 +92,23 @@ export function UsersPage() {
     <Page
       title="Users"
       actions={
-        <label className="relative w-full sm:w-72">
-          <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => (setQ(e.target.value), pager.setPage(1, true))}
-            placeholder="Search name or email"
-            aria-label="Search users"
-            className={cx(inputCls, 'pl-8')}
-            data-testid="user-search"
-          />
-        </label>
+        <>
+          <label className="relative w-full sm:w-72">
+            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              type="search"
+              value={q}
+              onChange={(e) => (setQ(e.target.value), pager.setPage(1, true))}
+              placeholder="Search name or email"
+              aria-label="Search users"
+              className={cx(inputCls, 'pl-8')}
+              data-testid="user-search"
+            />
+          </label>
+          <Btn variant="primary" onClick={() => setAdding(true)} data-testid="add-user-button">
+            <UserPlus size={15} aria-hidden /> Add user
+          </Btn>
+        </>
       }
     >
       <Card>
@@ -188,6 +197,14 @@ export function UsersPage() {
                         <IconButton label={`Edit ${u.email}`} onClick={() => setEditing(u)}>
                           <Pencil size={15} />
                         </IconButton>
+                        <IconButton
+                          label={self ? 'Change your own password under Settings > Account' : `${u.has_password ? 'Reset' : 'Set'} password for ${u.email}`}
+                          disabled={self}
+                          onClick={() => setPasswordFor(u)}
+                          data-testid="set-password-button"
+                        >
+                          <KeyRound size={15} />
+                        </IconButton>
                         <IconButton label={self ? 'You cannot delete yourself' : `Delete ${u.email}`} disabled={self} onClick={() => setDeleting(u)} className="hover:text-red-600">
                           <Trash2 size={15} />
                         </IconButton>
@@ -210,6 +227,8 @@ export function UsersPage() {
       </Card>
       <DefaultPermissions />
       {editing && <EditUser user={editing} self={editing.id === me?.id} onClose={() => setEditing(null)} onSaved={refresh} />}
+      {passwordFor && <SetPasswordDialog user={passwordFor} onClose={() => setPasswordFor(null)} onSaved={refresh} />}
+      {adding && <AddUserDialog passwordRequired={passwordLogin} onClose={() => setAdding(false)} onAdded={refresh} />}
       <Confirm
         open={!!deleting}
         title="Delete user"

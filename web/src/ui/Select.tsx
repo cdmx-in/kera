@@ -34,6 +34,7 @@ export function Select({
   variant = 'field',
   tone = 'grey',
   className,
+  id,
   'aria-label': ariaLabel,
   ...data
 }: {
@@ -48,6 +49,8 @@ export function Select({
   /** Pill colour. */
   tone?: keyof typeof tones
   className?: string
+  /** For a <label htmlFor>. */
+  id?: string
   'aria-label'?: string
   [data: `data-${string}`]: string | undefined
 }) {
@@ -58,6 +61,7 @@ export function Select({
     <RSelect.Root value={toRadix(value, options)} onValueChange={(v) => onChange(fromRadix(v))} disabled={disabled} required={required}>
       <RSelect.Trigger
         ref={findDialog}
+        id={id}
         aria-label={ariaLabel}
         {...data}
         className={cx(

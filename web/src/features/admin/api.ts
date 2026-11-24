@@ -17,6 +17,8 @@ export interface AdminUser {
   api_key_count: number
   disabled_at: number | null
   origin: string
+  /** has a password (the hash is never sent) */
+  has_password?: boolean
 }
 
 export interface Group {
@@ -150,6 +152,8 @@ export function useSaveSettings() {
     qc.setQueryData(['admin', 'settings'], new Map(list.map((s) => [s.key, s])))
     // Interface settings feed /api/models ordering and the UI config.
     void qc.invalidateQueries({ queryKey: ['models'] })
+    // The sign-in page and the Users page read whether password sign-in is on.
+    void qc.invalidateQueries({ queryKey: ['auth'] })
   }
 }
 

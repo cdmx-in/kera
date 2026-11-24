@@ -127,6 +127,16 @@ export interface Me {
   profile_image_url?: string
   token?: string
   permissions?: Record<string, Record<string, boolean>>
+  /** the account has a password (never the password) */
+  has_password?: boolean
+  /** password sign-in is on */
+  password_login?: boolean
+}
+
+/** GET /api/v1/auths/providers (public): the SSO buttons, and whether the email and password form is on. */
+export interface AuthOptions {
+  providers: { id: string; name: string }[]
+  login_form: boolean
 }
 
 export interface ChatSummary {

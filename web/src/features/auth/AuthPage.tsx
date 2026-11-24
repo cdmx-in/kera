@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { api, setToken } from '@/api/client'
-import type { Me } from '@/api/types'
+import { KeyRound } from 'lucide-react'
+import { api, setToken, type ApiError } from '@/api/client'
+import { useAuthOptions } from '@/api/queries'
+import type { AuthOptions, Me } from '@/api/types'
 import { uiConfig } from '@/lib/ui-config'
+import { cx } from '@/lib/format'
 import { safeRedirect } from '@/app/search-params'
 import { Spinner } from '@/ui/misc'
+import { LField, PasswordInput } from '@/ui/PasswordInput'
 import { Aurora, brandMark } from '@/features/brand/Splash'
 
 export default function AuthPage() {
@@ -13,6 +17,7 @@ export default function AuthPage() {
   const [checking, setChecking] = useState(true)
   const redirect = safeRedirect(params.get('redirect'))
   const brand = uiConfig().brand
+  const options = useAuthOptions()
 
   useEffect(() => {
     const hash = new URLSearchParams(location.hash.slice(1))
@@ -24,7 +29,7 @@ export default function AuthPage() {
       navigate(safeRedirect(hash.get('next') ?? redirect), { replace: true })
       return
     }
-    // Already signed in (cookie or stored token)? Skip the button.
+    // Already signed in (cookie or stored token)? Skip the sign-in methods.
     api<Me>('/api/v1/auths/')
       .then(() => navigate(redirect, { replace: true }))
       .catch(() => setChecking(false))
@@ -33,28 +38,24 @@ export default function AuthPage() {
   const error = params.get('error')
   const glass = brand.login?.style === 'glass-card'
   const mark = brandMark()
-  const button = checking ? (
-    <div className="mt-8 flex justify-center text-muted">
-      <Spinner size={20} />
-    </div>
-  ) : (
-    <a
-      href={`/oauth/google/login?next=${encodeURIComponent(redirect)}`}
-      data-testid="google-login"
-      className={
-        glass
-          ? 'login-btn flex w-full items-center justify-center gap-3 rounded-full bg-surface-2 px-4 py-3 text-sm font-medium'
-          : 'mt-8 flex w-full items-center justify-center gap-3 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-surface-2'
-      }
-    >
-      <GoogleIcon />
-      Continue with Google
-    </a>
-  )
   const alert = error && (
     <p role="alert" className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600">
       {error}
     </p>
+  )
+  const body = checking || options.isPending ? (
+    <div className="mt-8 flex justify-center text-muted">
+      <Spinner size={20} />
+    </div>
+  ) : options.isError ? (
+    <p role="alert" className="mt-6 text-sm text-red-600">
+      Could not load the sign-in options.{' '}
+      <button type="button" className="underline" onClick={() => location.reload()}>
+        Reload
+      </button>
+    </p>
+  ) : (
+    <SignInMethods options={options.data} glass={glass} redirect={redirect} onSignedIn={(to) => navigate(to, { replace: true })} />
   )
 
   if (glass)
@@ -71,7 +72,7 @@ export default function AuthPage() {
           {brand.tagline && <p className="mt-1.5 text-sm text-muted">{brand.tagline}</p>}
           {alert}
           <hr className="mx-auto mb-4 mt-10 w-3/5 border-line" />
-          {button}
+          {body}
         </div>
         {brand.login?.wordmark && <div className="brand-wordmark absolute bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap">{brand.login.wordmark}</div>}
       </main>
@@ -84,9 +85,150 @@ export default function AuthPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{brand.name}</h1>
         {brand.tagline && <p className="mt-1 text-sm text-muted">{brand.tagline}</p>}
         {alert}
-        {button}
+        {body}
       </div>
     </main>
+  )
+}
+
+/** The form (when on), a quiet "or", and one button per SSO provider. */
+export function SignInMethods({ options, glass, redirect, onSignedIn }: { options: AuthOptions; glass: boolean; redirect: string; onSignedIn: (to: string) => void }) {
+  const { providers, login_form: form } = options
+  if (!form && !providers.length)
+    return (
+      <p className="mt-6 text-sm text-muted" data-testid="no-sign-in">
+        No sign-in method is set up yet. An administrator can add a provider under Admin &gt; Settings &gt; OAuth providers or turn on password sign-in under Interface.
+      </p>
+    )
+  return (
+    <div className={cx(!glass && 'mt-8')}>
+      {form && <SignInForm glass={glass} autoFocus={!providers.length} onSignedIn={() => onSignedIn(redirect)} />}
+      {form && providers.length > 0 && (
+        <div aria-hidden className="my-5 flex items-center gap-3 text-xs text-muted" data-testid="or-divider">
+          <span className="h-px flex-1 bg-line" />
+          or
+          <span className="h-px flex-1 bg-line" />
+        </div>
+      )}
+      {providers.length > 0 && (
+        <div className="space-y-3">
+          {providers.map((p) => (
+            <a
+              key={p.id}
+              href={`/oauth/${encodeURIComponent(p.id)}/login?next=${encodeURIComponent(redirect)}`}
+              data-testid={`${p.id}-login`}
+              className={
+                glass
+                  ? 'login-btn flex w-full items-center justify-center gap-3 rounded-full bg-surface-2 px-4 py-3 text-sm font-medium'
+                  : 'flex w-full items-center justify-center gap-3 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-surface-2'
+              }
+            >
+              {p.id === 'google' ? <GoogleIcon /> : <KeyRound size={16} aria-hidden />}
+              Continue with {p.name}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The line under the form: the server's own words (it says "Invalid email or password" or how long to wait), or a network fallback. */
+export function signInMessage(e: { status?: number; message?: string }): string {
+  return e.status && e.message ? e.message : 'Could not reach the server. Try again in a moment.'
+}
+
+/** Email and password. Every failure is one line under the fields; Enter submits. */
+export function SignInForm({ glass, autoFocus, onSignedIn }: { glass: boolean; autoFocus?: boolean; onSignedIn: () => void }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const emailRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
+  const uid = useId()
+  const emailId = `${uid}-email`
+  const passwordId = `${uid}-password`
+  const errorId = `${uid}-error`
+  useEffect(() => {
+    if (autoFocus) emailRef.current?.focus()
+  }, [autoFocus])
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const me = await api<Me>('/api/v1/auths/signin', { method: 'POST', json: { email: email.trim(), password } })
+      if (me.token) setToken(me.token)
+      onSignedIn()
+    } catch (err) {
+      setError(signInMessage(err as ApiError))
+      if ((err as ApiError).status === 401) setPassword('') // the email stays; the next try is a new password
+      setBusy(false)
+      passwordRef.current?.focus()
+    }
+  }
+
+  const input = cx(
+    'w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/25',
+    glass ? 'bg-surface/70' : 'bg-surface',
+    error ? 'border-red-500' : 'border-line',
+  )
+  return (
+    <form onSubmit={submit} className="space-y-4 text-left" data-testid="password-form" aria-label="Sign in with email and password">
+      <LField id={emailId} label="Email">
+        <input
+          ref={emailRef}
+          id={emailId}
+          name="email"
+          type="email"
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          inputMode="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          aria-invalid={!!error || undefined}
+          aria-describedby={error ? errorId : undefined}
+          className={input}
+          data-testid="login-email"
+        />
+      </LField>
+      <LField id={passwordId} label="Password">
+        <PasswordInput
+          id={passwordId}
+          inputRef={passwordRef}
+          value={password}
+          onChange={setPassword}
+          autoComplete="current-password"
+          required
+          invalid={!!error}
+          describedBy={error ? errorId : undefined}
+          className={input}
+          testId="login-password"
+        />
+      </LField>
+      {error && (
+        <p id={errorId} role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600" data-testid="login-error">
+          {error}
+        </p>
+      )}
+      <button
+        type="submit"
+        disabled={busy}
+        data-testid="login-submit"
+        className={cx(
+          'flex w-full items-center justify-center gap-2 bg-accent text-sm font-medium text-white disabled:opacity-70',
+          glass ? 'login-btn rounded-full px-4 py-3' : 'rounded-xl px-4 py-2.5 hover:opacity-90',
+        )}
+      >
+        {busy && <Spinner size={14} />}
+        {busy ? 'Signing in…' : 'Sign in'}
+      </button>
+    </form>
   )
 }
 

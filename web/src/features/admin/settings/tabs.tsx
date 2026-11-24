@@ -1,13 +1,14 @@
 // Settings tabs that are plain forms over settings keys.
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, GripVertical, Plus, X } from 'lucide-react'
-import { useModels } from '@/api/queries'
+import { useAuthOptions, useModels } from '@/api/queries'
 import { IconButton } from '@/ui/Dialog'
 import { cx } from '@/lib/format'
 import { move } from '../lib'
 import { Btn, Card, Check, inputCls } from '../ui'
 import { SettingRow, SettingsForm, type Draft, type FieldSpec } from './form'
 import { Select } from '@/ui/Select'
+import { Switch } from '@/ui/misc'
 
 const f = (key: string, kind: FieldSpec['kind'], hint?: string, label?: string): FieldSpec => ({ key, kind, hint, label })
 
@@ -199,21 +200,40 @@ export function InterfaceTab() {
       ]}
     >
       {(d) => (
-        <Card title="Models and suggestions" hint="What a new chat starts with.">
-          <div className="divide-y divide-line">
-            <SettingRow k="site.default_models" label="Default models" hint="Selected in a new chat (the first that a user may use)." d={d} wide>
-              <DefaultModels d={d} />
-            </SettingRow>
-            <SettingRow k="site.model_order" label="Model order" hint="Drag to reorder the model picker. Models not listed follow by name." d={d} wide>
-              <ModelOrder d={d} />
-            </SettingRow>
-            <SettingRow k="site.suggestions" label="Prompt suggestions" hint="Cards on the empty chat screen (a model's own suggestions win)." d={d} wide>
-              <Suggestions d={d} />
-            </SettingRow>
-          </div>
-        </Card>
+        <>
+          <Card title="Sign-in" hint="How people get in.">
+            <div className="divide-y divide-line">
+              <PasswordSwitch d={d} />
+            </div>
+          </Card>
+          <Card title="Models and suggestions" hint="What a new chat starts with.">
+            <div className="divide-y divide-line">
+              <SettingRow k="site.default_models" label="Default models" hint="Selected in a new chat (the first that a user may use)." d={d} wide>
+                <DefaultModels d={d} />
+              </SettingRow>
+              <SettingRow k="site.model_order" label="Model order" hint="Drag to reorder the model picker. Models not listed follow by name." d={d} wide>
+                <ModelOrder d={d} />
+              </SettingRow>
+              <SettingRow k="site.suggestions" label="Prompt suggestions" hint="Cards on the empty chat screen (a model's own suggestions win)." d={d} wide>
+                <Suggestions d={d} />
+              </SettingRow>
+            </div>
+          </Card>
+        </>
       )}
     </SettingsForm>
+  )
+}
+
+/** The switch for auth.password.enabled. Until it holds a value the server decides (on while there is no OAuth login provider), so the page shows that effective state. */
+function PasswordSwitch({ d }: { d: Draft }) {
+  const key = 'auth.password.enabled'
+  const effective = useAuthOptions().data?.login_form ?? false
+  const v = d.get(key)
+  return (
+    <SettingRow k={key} label="Password sign-in" hint="Let people sign in with email and password. On until you add an OAuth login provider; the switch overrides that." d={d}>
+      <Switch checked={typeof v === 'boolean' ? v : effective} onChange={(on) => d.set(key, on)} label="Password sign-in" testId="password-signin-switch" />
+    </SettingRow>
   )
 }
 
