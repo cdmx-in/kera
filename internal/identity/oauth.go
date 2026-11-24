@@ -170,7 +170,8 @@ func (h *handler) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var disabled bool
-	if err := h.a.DB.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM "user" WHERE id = $1`, userID).Scan(&disabled); err != nil {
+	var epoch int64
+	if err := h.a.DB.QueryRow(ctx, `SELECT disabled_at IS NOT NULL, session_epoch FROM "user" WHERE id = $1`, userID).Scan(&disabled, &epoch); err != nil {
 		h.fail(w, r, "server_error", err)
 		return
 	}
@@ -179,7 +180,7 @@ func (h *handler) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ttl := h.a.Auth.SessionTTL(ctx)
-	session, err := auth.IssueToken(h.a.Keys, userID, ttl)
+	session, err := auth.IssueSession(h.a.Keys, userID, epoch, ttl)
 	if err != nil {
 		h.fail(w, r, "server_error", err)
 		return

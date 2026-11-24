@@ -216,7 +216,8 @@ func loginLink(ctx context.Context, pool *pgxpool.Pool, args []string) error {
 		return err
 	}
 	var id, role string
-	err = pool.QueryRow(ctx, `SELECT id, role FROM "user" WHERE lower(email) = lower($1)`, fs.Arg(0)).Scan(&id, &role)
+	var epoch int64
+	err = pool.QueryRow(ctx, `SELECT id, role, session_epoch FROM "user" WHERE lower(email) = lower($1)`, fs.Arg(0)).Scan(&id, &role, &epoch)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A fresh install has no OAuth provider yet: the first user can be created here, as admin.
 		err = pool.QueryRow(ctx, `INSERT INTO "user" (id, name, email, role)
@@ -232,7 +233,7 @@ func loginLink(ctx context.Context, pool *pgxpool.Pool, args []string) error {
 	if role == "pending" {
 		return errors.New("user is pending approval")
 	}
-	tok, err := auth.IssueToken(keys, id, *ttl)
+	tok, err := auth.IssueSession(keys, id, epoch, *ttl)
 	if err != nil {
 		return err
 	}

@@ -24,7 +24,7 @@ func (h *handler) me(w http.ResponseWriter, r *http.Request) {
 		"profile_image_url": u.ProfileImageURL, "permissions": u.Permissions, "groups": nonNil(u.Groups)}
 	if !u.ViaAPIKey {
 		ttl := h.a.Auth.SessionTTL(r.Context())
-		tok, err := auth.IssueToken(h.a.Keys, u.ID, ttl)
+		tok, err := auth.IssueSession(h.a.Keys, u.ID, u.SessionEpoch, ttl)
 		if err != nil {
 			api.Fail(w, r, err)
 			return

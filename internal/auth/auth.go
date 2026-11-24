@@ -67,6 +67,7 @@ func (a *Authenticator) Resolve(r *http.Request) (*User, error) {
 	ctx := r.Context()
 	var userID string
 	viaKey := IsAPIKey(cred)
+	var epoch int64
 	if viaKey {
 		err := a.DB.QueryRow(ctx, `UPDATE api_key SET last_used_at = now() WHERE key_hash = $1 RETURNING user_id`,
 			HashAPIKey(cred)).Scan(&userID)
@@ -81,11 +82,16 @@ func (a *Authenticator) Resolve(r *http.Request) (*User, error) {
 		if err != nil {
 			return nil, ErrUnauthenticated
 		}
-		userID = c.Sub
+		userID, epoch = c.Sub, c.Epoch
 	}
 	u, err := a.LoadUser(ctx, userID)
 	if err != nil {
 		return nil, err
+	}
+	// A password change adds one to the user's epoch, which ends every older session.
+	// API keys are separate credentials and stay (revoke them under Settings > Account).
+	if !viaKey && epoch != u.SessionEpoch {
+		return nil, ErrUnauthenticated
 	}
 	u.ViaAPIKey = viaKey
 	if viaKey && !u.Can("features.api_keys") {
@@ -99,8 +105,8 @@ func (a *Authenticator) Resolve(r *http.Request) (*User, error) {
 func (a *Authenticator) LoadUser(ctx context.Context, id string) (*User, error) {
 	u := &User{}
 	var disabled bool
-	err := a.DB.QueryRow(ctx, `SELECT id, name, email, role, profile_image_url, disabled_at IS NOT NULL FROM "user" WHERE id = $1`, id).
-		Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ProfileImageURL, &disabled)
+	err := a.DB.QueryRow(ctx, `SELECT id, name, email, role, profile_image_url, disabled_at IS NOT NULL, session_epoch FROM "user" WHERE id = $1`, id).
+		Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ProfileImageURL, &disabled, &u.SessionEpoch)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUnauthenticated
 	}

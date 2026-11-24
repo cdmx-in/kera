@@ -13,19 +13,29 @@ import (
 
 // Claims are the session token contents.
 type Claims struct {
-	Sub string `json:"sub"`
-	Iat int64  `json:"iat"`
-	Exp int64  `json:"exp"`
+	Sub   string `json:"sub"`
+	Iat   int64  `json:"iat"`
+	Exp   int64  `json:"exp"`
+	Epoch int64  `json:"ep,omitempty"` // the user's session_epoch when the token was issued
 }
 
 var b64 = base64.RawURLEncoding
 
 const jwtHeader = `{"alg":"HS256","typ":"JWT"}`
 
-// IssueToken returns an HS256 JWT for userID valid for ttl.
+// IssueToken returns an HS256 JWT for userID valid for ttl, for a user whose
+// session epoch is 0 (nobody has reset their sessions). Code that signs a user
+// in uses IssueSession with the epoch it read.
 func IssueToken(keys *secret.Keys, userID string, ttl time.Duration) (string, error) {
+	return IssueSession(keys, userID, 0, ttl)
+}
+
+// IssueSession is IssueToken for a user whose session_epoch is epoch. A token
+// with another epoch than the user's current one is refused, so a stale epoch
+// here yields a token that fails at once rather than one that outlives a reset.
+func IssueSession(keys *secret.Keys, userID string, epoch int64, ttl time.Duration) (string, error) {
 	now := time.Now()
-	payload, err := json.Marshal(Claims{Sub: userID, Iat: now.Unix(), Exp: now.Add(ttl).Unix()})
+	payload, err := json.Marshal(Claims{Sub: userID, Iat: now.Unix(), Exp: now.Add(ttl).Unix(), Epoch: epoch})
 	if err != nil {
 		return "", err
 	}
