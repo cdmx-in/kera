@@ -1,0 +1,4 @@
+# Points Kera's web search at the SearXNG of the "searxng" profile. Applied by the searxng-setup service on
+# every `docker compose up -d`; safe to repeat.
+web:
+  search: {engine: searxng, url: http://searxng:8080}

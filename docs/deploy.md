@@ -81,7 +81,26 @@ Pick one:
 | Ollama on this machine | Nothing: `OLLAMA_BASE_URL` points at `host.docker.internal:11434`. On Linux Ollama listens on `127.0.0.1` only, which containers cannot reach: start it with `OLLAMA_HOST=0.0.0.0` (a systemd override for the `ollama` service) and keep the port closed to the network. Pull an embedding model for Knowledge: `ollama pull nomic-embed-text`. |
 | OpenAI, Anthropic, vLLM or a gateway | Add a connection in Admin > Settings > Connections, or run [LiteLLM](litellm.md) with `./init.sh litellm`. |
 
-The profiles add up: `./init.sh ollama litellm`. They are stored as `COMPOSE_PROFILES` in `.env`.
+The profiles add up: `./init.sh ollama litellm searxng`. They are stored as `COMPOSE_PROFILES` in `.env`.
+
+## Web search with SearXNG
+
+Web search uses DuckDuckGo until you choose another engine. The `searxng` profile runs your own [SearXNG](https://docs.searxng.org) next to Kera and points Kera at it. SearXNG is a metasearch service: it asks several search engines and returns one list, with no account or API key, so you choose which engines see the searches and can drop the ones you do not trust. The searches still reach those engines over the internet, from this server and without any user's name; it does not keep them inside your network.
+
+```sh
+cd deploy
+./init.sh searxng       # random secrets and the profile on; or add searxng to COMPOSE_PROFILES in an existing .env
+docker compose up -d
+```
+
+| Piece | What it does |
+|---|---|
+| `searxng` | The service, pinned to one release of `searxng/searxng` (276 MB image, 100 to 150 MB of memory). It reads `deploy/searxng/settings.yml`: its default engines, the JSON format Kera asks for (SearXNG answers 403 to it otherwise) and the `brave` engine switched off, because this release gives links without a host. It publishes no port; only Kera reaches it, at `http://searxng:8080`. It starts with a random secret key each time (nothing it signs outlives it); set `SEARXNG_SECRET` in `.env` to keep one. |
+| `searxng-setup` | Runs `kera apply -f deploy/searxng/kera.yaml` on every `docker compose up -d`, then exits: it sets `web.search.engine` to `searxng` and `web.search.url` to that address. Running it again changes nothing. |
+
+Those two settings show as managed by the config file in Admin > Settings > Web search (the console has no field for the URL, so it comes from the file). An edit made there is undone by the next `docker compose up -d`, which applies the file again. To go back to DuckDuckGo: delete `searxng` from `COMPOSE_PROFILES` in `.env`, run `docker compose rm -s -f searxng searxng-setup` (taking the profile out does not stop containers that run), and reset Engine in Admin > Settings > Web search.
+
+Search is a model feature: in Workspace > Models set Web search to "Kera web tools" for the model (and tick it under "On by default in new chats"), and the chat has a Web search switch. To change the engines, edit `deploy/searxng/settings.yml` (see the [SearXNG settings](https://docs.searxng.org/admin/settings/index.html)) and run `docker compose restart searxng`. A line there explains how to switch on Wikipedia, Wikidata and OpenStreetMap, which SearXNG enables only when it has a contact address. Engines are rate-limited or answer with a CAPTCHA now and then, DuckDuckGo most often when many searches leave one address; the others still answer.
 
 ## Document extraction
 
@@ -225,6 +244,8 @@ Upgrade with `docker compose pull && docker compose up -d`; database migrations 
 | No models in the picker | Admin: Admin > Settings > Connections > Test shows why. Other users: see the note on models above. |
 | A PDF, DOCX, PPTX or ODT upload fails, or the card under Admin > Settings > Retrieval > Extractor URL is red | See the table in [Document extraction](#document-extraction): it lists what the file says and what to do. `docker compose logs extract` shows the service's side. |
 | `docker compose pull` stops with `denied` for `kera-extract` | The extractor image is not published for your checkout. `docker compose pull --ignore-buildable`, then `docker compose up -d`, which builds it from `sidecars/extract`. |
+| Web search fails with `search engine answered HTTP 403` | The SearXNG that Kera asks does not allow the JSON format. The `searxng` profile turns it on in `deploy/searxng/settings.yml`; for a SearXNG of your own add `json` to its `search.formats`. |
+| Web search fails with `no such host` or `connection refused` for `searxng` | The service is not running: `docker compose ps searxng` (it needs `searxng` in `COMPOSE_PROFILES`, see [Web search with SearXNG](#web-search-with-searxng)) and `docker compose logs searxng`. |
 | A Knowledge upload fails with "model not found" | The embedding model is not pulled: `ollama pull nomic-embed-text` (with the `ollama` profile it is downloaded at first start; watch `docker compose logs -f ollama-pull`). |
 
 Logs: `docker compose logs -f kera`.

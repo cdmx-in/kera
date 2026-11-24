@@ -2,9 +2,10 @@
 #   KERA_ADMIN_EMAIL=you@example.com ./init.sh   # writes .env with random secrets and your first sign-in password
 #                                                (or: cp .env.example .env and edit)
 #   docker compose up -d
-# Optional profiles, ./init.sh ollama litellm turns them on in .env (docs/deploy.md, docs/litellm.md):
+# Optional profiles, ./init.sh ollama litellm searxng turns them on in .env (docs/deploy.md, docs/litellm.md):
 #   ollama   a model server with a small chat and embedding model, for hosts without Ollama
 #   litellm  LiteLLM gateway with spend tracking, wired to Kera
+#   searxng  private web search (SearXNG), wired to Kera, no account or API key
 services:
   kera-db:
     image: pgvector/pgvector:pg18
@@ -153,6 +154,53 @@ services:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
       LITELLM_DB_PASSWORD: ${LITELLM_DB_PASSWORD:-}
     volumes: [./litellm/kera.yaml:/etc/kera/litellm.yaml:ro]
+    restart: "no"
+
+  # ---- profile "searxng": private web search, wired to Kera ----
+
+  # SearXNG asks the search engines on Kera's behalf, so the words people search for leave this server, not their
+  # browsers, and no account or API key is needed. No published port: only Kera reaches it. It runs the pinned image
+  # with ./searxng/settings.yml, which turns on the JSON format Kera reads.
+  searxng:
+    profiles: [searxng]
+    image: searxng/searxng:2026.11.15-2d500cb6b
+    # SearXNG will not start with its sample secret. Nothing it signs outlives the container here (no limiter, no image
+    # proxy), so a new random one at every start is enough; set SEARXNG_SECRET in .env to keep one.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        export SEARXNG_SECRET="$${SEARXNG_SECRET:-$$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9')}"
+        exec /usr/local/searxng/entrypoint.sh
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
+    volumes: [./searxng/settings.yml:/etc/searxng/settings.yml:ro]
+    user: "977:977"          # the image's own "searxng" user
+    read_only: true
+    tmpfs: ["/tmp", "/var/cache/searxng:uid=977,gid=977"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # Runs `kera apply` once (and again on every `up`): sets web.search.engine and web.search.url to this SearXNG.
+  # Safe to repeat; exits when done.
+  searxng-setup:
+    profiles: [searxng]
+    image: ${KERA_IMAGE:-ghcr.io/cdmx-in/kera:latest}
+    command: ["apply", "-f", "/etc/kera/searxng.yaml"]
+    depends_on:
+      kera: {condition: service_healthy}
+      searxng: {condition: service_healthy}
+    environment:
+      KERA_DATABASE_URL: postgres://kera:${KERA_DB_PASSWORD}@kera-db:5432/kera?sslmode=disable
+      KERA_SECRET_KEY: ${KERA_SECRET_KEY:?KERA_SECRET_KEY is empty, run ./init.sh in deploy/ to create .env with random secrets}
+    volumes: [./searxng/kera.yaml:/etc/kera/searxng.yaml:ro]
     restart: "no"
 
 volumes:

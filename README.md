@@ -48,7 +48,7 @@ What the quick start gives you, and what needs another service:
 |---|---|
 | Chat with Ollama or any OpenAI-compatible model, Markdown, citations, folders, temporary chats | Reranking: the [rerank sidecar](sidecars/rerank/README.md) |
 | Knowledge from PDF, DOCX, PPTX, ODT, text, HTML and spreadsheet files, OCR of scanned pages (English; more languages are an image rebuild), hybrid search, groups and access grants, guardrails, config as code | Code interpreter: a Jupyter server you run, set in `code_interpreter.url` |
-| Web search (DuckDuckGo by default; SearXNG or Brave in settings), OpenAPI and MCP tool servers, pipelines, directory sync | Cowork tasks that drive a desktop: the [desktop sidecar](sidecars/desktop/README.md). Scheduled Cowork tasks are on for admins and off for other users until you turn on `features.cowork_schedule` |
+| Web search (DuckDuckGo by default; SearXNG with `./init.sh searxng`, or Brave, in settings), OpenAPI and MCP tool servers, pipelines, directory sync | Cowork tasks that drive a desktop: the [desktop sidecar](sidecars/desktop/README.md). Scheduled Cowork tasks are on for admins and off for other users until you turn on `features.cowork_schedule` |
 | Spend per user with `./init.sh litellm` | |
 
 From source (Go 1.26, Node 24, pnpm):
