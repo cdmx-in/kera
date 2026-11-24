@@ -16,6 +16,7 @@ import (
 	"github.com/cdmx-in/kera/internal/access"
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/apply"
+	"github.com/cdmx-in/kera/internal/settings"
 )
 
 // Rows saved here become managed=false: the UI now owns them, although a
@@ -620,6 +621,10 @@ func (h *handler) saveProvider(w http.ResponseWriter, r *http.Request) {
 		if enc, err = h.a.Keys.EncryptString(*f.ClientSecret); err == nil {
 			_, err = h.a.DB.Exec(ctx, `UPDATE oauth_provider SET client_secret_enc = $2 WHERE id = $1`, f.ID, enc)
 		}
+	}
+	if err == nil && f.Login { // password sign-in stays as it is when this provider is later removed
+		err = settings.PinPasswordSignInOff(ctx, h.a.DB)
+		h.a.Settings.Invalidate("auth.password.enabled")
 	}
 	if err != nil {
 		api.Fail(w, r, fmt.Errorf("save oauth provider: %w", err))

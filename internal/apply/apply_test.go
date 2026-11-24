@@ -549,3 +549,107 @@ func TestSkillsMappingOrList(t *testing.T) {
 		t.Fatalf("unknown key not reported: %v", err)
 	}
 }
+
+// Applying a login provider pins password sign-in off, so dropping the provider from the file
+// later does not switch the form on; an explicit value in the same file wins, and a second apply
+// changes nothing.
+func TestApplyPinsPasswordSignInOffWithALoginProvider(t *testing.T) {
+	fx := setup(t)
+	ctx := context.Background()
+	stored := func() string {
+		var v string
+		if err := fx.db.QueryRow(ctx, `SELECT value::text FROM config WHERE key = 'auth.password.enabled'`).Scan(&v); err != nil {
+			return "(unset)"
+		}
+		return v
+	}
+	load := func(yaml string) *File {
+		t.Helper()
+		f, err := Parse([]byte(yaml), "testdata", lookup(testEnv))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	provider := "oauth_providers:\n  - {id: sso, login: true, client_id: c, client_secret: s, authorization_endpoint: https://idp.example.com/a, token_endpoint: https://idp.example.com/t}\n"
+	tool := "oauth_providers:\n  - {id: sheets, client_id: c, client_secret: s, authorization_endpoint: https://idp.example.com/a, token_endpoint: https://idp.example.com/t}\n"
+
+	mustApply(t, fx, load(tool), Options{})
+	if v := stored(); v != "(unset)" {
+		t.Fatalf("a tool-server provider pinned the setting: %s", v)
+	}
+	mustApply(t, fx, load(provider), Options{})
+	if v := stored(); v != "false" {
+		t.Fatalf("after applying a login provider: %s, want false", v)
+	}
+	mustApply(t, fx, load("oauth_providers: []\n"), Options{Prune: true})
+	if v := stored(); v != "false" {
+		t.Fatalf("after the provider left the file: %s, the form must stay off", v)
+	}
+
+	// An explicit true in the same file wins over the pin, whatever the order inside the run.
+	fx2 := setup(t)
+	mustApply(t, fx2, load("auth: {password: {enabled: true}}\n"+provider), Options{})
+	var v string
+	if err := fx2.db.QueryRow(ctx, `SELECT value::text FROM config WHERE key = 'auth.password.enabled'`).Scan(&v); err != nil || v != "true" {
+		t.Fatalf("explicit true with a login provider: %q %v", v, err)
+	}
+}
+
+// A login provider written by apply pins password sign-in off (unless the file says otherwise),
+// so removing the provider later does not switch the password form on.
+func TestApplyPinsPasswordSignInOffForALoginProvider(t *testing.T) {
+	parse := func(extra string) *File {
+		t.Helper()
+		f, err := Parse([]byte("auth:\n  oauth:\n    google:\n      client_id: cid.example.com\n      client_secret: ${SECRET}\n"+extra), ".", lookup(map[string]string{"SECRET": "s3cret"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	pinned := func(fx fixture) string {
+		var v string
+		_ = fx.db.QueryRow(context.Background(), `SELECT value::text FROM config WHERE key = 'auth.password.enabled'`).Scan(&v)
+		return v
+	}
+
+	fx := setup(t)
+	mustApply(t, fx, parse(""), Options{})
+	if got := pinned(fx); got != "false" {
+		t.Fatalf("after applying a login provider the setting is %q, want false", got)
+	}
+	mustExec(t, fx.db, `DELETE FROM oauth_provider`)
+	if got := pinned(fx); got != "false" {
+		t.Fatalf("after the provider is gone the setting is %q, want it to stay false", got)
+	}
+	// applying the same file again changes nothing visible and keeps the pin
+	mustApply(t, fx, parse(""), Options{})
+	assertNoChanges(t, mustApply(t, fx, parse(""), Options{}))
+	if got := pinned(fx); got != "false" {
+		t.Fatalf("after a second apply: %q", got)
+	}
+
+	// a value the file sets itself wins, whichever is written first
+	fx = setup(t)
+	mustApply(t, fx, parse("  password: {enabled: true}\n"), Options{})
+	if got := pinned(fx); got != "true" {
+		t.Fatalf("file says true, setting is %q", got)
+	}
+	// a value an admin set is not overwritten by a later apply of a provider
+	fx = setup(t)
+	mustExec(t, fx.db, `INSERT INTO config (key, value) VALUES ('auth.password.enabled', 'true')`)
+	mustApply(t, fx, parse(""), Options{})
+	if got := pinned(fx); got != "true" {
+		t.Fatalf("an admin's value was replaced: %q", got)
+	}
+	// a provider that is not a login provider pins nothing
+	fx = setup(t)
+	f, err := Parse([]byte("oauth_providers:\n  - {id: tool, client_id: c, client_secret: x, authorization_endpoint: https://a.example.com/auth, token_endpoint: https://a.example.com/token}\n"), ".", lookup(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustApply(t, fx, f, Options{})
+	if got := pinned(fx); got != "" {
+		t.Fatalf("a tool-server provider pinned the setting: %q", got)
+	}
+}

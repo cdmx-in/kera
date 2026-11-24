@@ -503,3 +503,83 @@ func TestPasswordSwitchSetting(t *testing.T) {
 		t.Fatalf("switch reset = %+v", s)
 	}
 }
+
+// Saving an OAuth login provider pins password sign-in off while the setting has no value, so
+// removing the provider later does not switch the password form on by itself; a tool-server
+// provider (no login) and a value an admin set are left alone.
+func TestSavingALoginProviderPinsPasswordSignInOff(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	value := func() string {
+		var v string
+		err := e.a.DB.QueryRow(ctx, `SELECT value::text FROM config WHERE key = 'auth.password.enabled'`).Scan(&v)
+		if err != nil {
+			return "(unset)"
+		}
+		return v
+	}
+	provider := func(id string, login bool) map[string]any {
+		return map[string]any{"id": id, "login": login, "client_id": "c", "client_secret": "s",
+			"authorization_endpoint": "https://idp.example.com/auth", "token_endpoint": "https://idp.example.com/token"}
+	}
+
+	e.ok("POST", "/api/v1/configs/oauth_providers", provider("mcp:sheets", false), nil)
+	if v := value(); v != "(unset)" {
+		t.Fatalf("a tool-server provider changed the setting: %s", v)
+	}
+	e.ok("POST", "/api/v1/configs/oauth_providers", provider("sso", true), nil)
+	if v := value(); v != "false" {
+		t.Fatalf("after saving a login provider: %s, want false", v)
+	}
+	e.ok("DELETE", "/api/v1/configs/oauth_providers/sso", nil, nil)
+	if v := value(); v != "false" {
+		t.Fatalf("after deleting the provider: %s, the form must stay off", v)
+	}
+
+	// An admin's explicit choice survives saving a provider.
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": true}, nil)
+	e.ok("POST", "/api/v1/configs/oauth_providers", provider("sso", true), nil)
+	if v := value(); v != "true" {
+		t.Fatalf("saving a provider overwrote an explicit true: %s", v)
+	}
+	// Reset to automatic, then a provider pins again.
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": nil}, nil)
+	e.ok("POST", "/api/v1/configs/oauth_providers", provider("sso", true), nil)
+	if v := value(); v != "false" {
+		t.Fatalf("after reset and save: %s", v)
+	}
+}
+
+// Saving a login provider pins password sign-in off while the setting holds no value, so removing
+// the provider later does not switch the password form on; nothing else touches the setting.
+func TestSaveLoginProviderPinsPasswordSignInOff(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	pinned := func() string {
+		var v string
+		_ = e.a.DB.QueryRow(ctx, `SELECT value::text FROM config WHERE key = 'auth.password.enabled'`).Scan(&v)
+		return v
+	}
+	var p provider
+	// A tool-server provider (no login) leaves it alone.
+	e.ok("POST", "/api/v1/configs/oauth_providers", map[string]any{"id": "mcp:sheets", "authorization_endpoint": "https://a.example.com/auth",
+		"token_endpoint": "https://a.example.com/token", "client_id": "c2"}, &p)
+	if got := pinned(); got != "" {
+		t.Fatalf("a tool provider pinned the setting: %q", got)
+	}
+	// A login provider pins it, and deleting the provider keeps the pin.
+	e.ok("POST", "/api/v1/configs/oauth_providers", map[string]any{"id": "google", "login": true, "client_id": "cid", "client_secret": "cs"}, &p)
+	if got := pinned(); got != "false" {
+		t.Fatalf("after saving a login provider the setting is %q", got)
+	}
+	e.ok("DELETE", "/api/v1/configs/oauth_providers/google", nil, nil)
+	if got := pinned(); got != "false" {
+		t.Fatalf("after deleting it the setting is %q", got)
+	}
+	// An admin's explicit choice survives saving a login provider again.
+	e.ok("POST", "/api/v1/configs/settings", map[string]any{"auth.password.enabled": true}, nil)
+	e.ok("POST", "/api/v1/configs/oauth_providers", map[string]any{"id": "google", "login": true, "client_id": "cid", "client_secret": "cs"}, &p)
+	if got := pinned(); got != "true" {
+		t.Fatalf("an explicit true was replaced: %q", got)
+	}
+}
