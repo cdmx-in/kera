@@ -49,6 +49,8 @@ A pipeline owns the files it uploaded (`knowledge_file.origin = pipeline:<id>`).
 
    or, with a `kera` binary: `kera pipeline push --collection "Product docs" --dir ./docs`.
 
+   When you opened Kera on `localhost`, a container cannot reach it there: the command the token dialog prints adds `--add-host host.docker.internal:host-gateway -e KERA_URL=http://host.docker.internal:PORT` to reach the host. Use the same if you write the command yourself.
+
 `kera pipeline push --collection NAME --dir DIR [--wait 15m] [--dry-run]`:
 
 - walks the folder; skips names that start with a dot, symbolic links and files whose type Kera cannot read (it lists what it skipped); folders are flattened: `guides/setup.md` becomes `guides--setup.md`. Two files that flatten to the same name are an error;

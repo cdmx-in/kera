@@ -200,6 +200,14 @@ export function runCommand(p: Pick<Pipeline, 'name' | 'targets'>, origin: string
   return `KERA_URL=${shq(origin)} KERA_PIPELINE=${p.name} KERA_PIPELINE_TOKEN=${token} \\\nkera pipeline push${t ? ` --collection ${shq(t.name)}` : ''} --dir ./docs`
 }
 
+/** The docker command that pushes ./docs. A container cannot reach the host's localhost, so for a loopback address it is pointed at the host instead. */
+export function dockerPush(p: Pick<Pipeline, 'targets'>, origin: string): string {
+  const u = new URL(origin)
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)
+  const host = loopback ? ` \\\n  --add-host host.docker.internal:host-gateway -e KERA_URL=${u.protocol}//host.docker.internal${u.port ? `:${u.port}` : ''}` : ''
+  return `docker run --rm --env-file kera.env${host} -v "$PWD/docs:/docs:ro" \\\n  ghcr.io/cdmx-in/kera pipeline push${p.targets[0] ? ` --collection ${shq(p.targets[0].name)}` : ''} --dir /docs`
+}
+
 /** The env file a script or cron job reads (kera.env). */
 export const envFile = (name: string, origin: string, token: string) => `KERA_URL=${origin}\nKERA_PIPELINE=${name}\nKERA_PIPELINE_TOKEN=${token}`
 

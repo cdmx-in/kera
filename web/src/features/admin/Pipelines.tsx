@@ -13,7 +13,7 @@ import { attempt, Badge, Btn, Card, Confirm, inputCls, Loading, Page, tdCls, thC
 import { UserPicker } from './UserPicker'
 import { bad, EditorDialog, useFormErrors, VField } from './settings/dialogKit'
 import { relative, when } from './settings/Integrations'
-import { byAttention, envFile, everyText, lines, runSummary, shq, stateOf, statusLabel, toneOf, usePipelineApi, usePipelines, validatePipeline, type Pipeline, type State, type StepStatus } from './pipelines'
+import { byAttention, dockerPush, envFile, everyText, lines, runSummary, stateOf, statusLabel, toneOf, usePipelineApi, usePipelines, validatePipeline, type Pipeline, type State, type StepStatus } from './pipelines'
 
 export const pipelinesBase = '/admin/pipelines'
 
@@ -67,7 +67,7 @@ export function TokenDialog({ pipeline, token, onClose }: { pipeline: Pipeline; 
           <CopyBlock text={envFile(pipeline.name, origin, token)} label="env file" />
         </Section>
         <Section icon={Terminal} tone="violet" title="3. Push a folder" hint="From cron, CI or by hand. Every run then shows up here.">
-          <CopyBlock text={`docker run --rm --env-file kera.env -v "$PWD/docs:/docs:ro" \\\n  ghcr.io/cdmx-in/kera pipeline push${pipeline.targets[0] ? ` --collection ${shq(pipeline.targets[0].name)}` : ''} --dir /docs`} label="docker command" />
+          <CopyBlock text={dockerPush(pipeline, origin)} label="docker command" />
         </Section>
         <div className="flex justify-end">
           <Btn variant="primary" onClick={onClose} data-testid="token-done">
