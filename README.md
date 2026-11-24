@@ -4,8 +4,8 @@
 
 <br>
 
-**Chat with your models, search your knowledge, run tools and tasks, and keep your data.**<br>
-Built for Ollama and any OpenAI-compatible model. One Go binary and Postgres.
+**Self-hosted AI chat for teams.**<br>
+One Go binary and Postgres. Ollama or any OpenAI-compatible model, knowledge search, MCP tools, guardrails and per-user spend. Apache-2.0.
 
 [![ci](https://github.com/cdmx-in/kera/actions/workflows/ci.yml/badge.svg)](https://github.com/cdmx-in/kera/actions/workflows/ci.yml)
 [![License: Apache-2.0](docs/images/badge-license.svg)](LICENSE)
@@ -13,7 +13,7 @@ Built for Ollama and any OpenAI-compatible model. One Go binary and Postgres.
 [![Postgres](docs/images/badge-postgres.svg)](https://github.com/pgvector/pgvector)
 [![Docker image](docs/images/badge-docker.svg)](https://github.com/cdmx-in/kera/pkgs/container/kera)
 
-[🚀 Quick start](#quick-start) · [✨ Features](#features) · [📸 Screenshots](#screenshots) · [🧩 Architecture](#architecture) · [⚙️ Configuration](#configuration) · [🛡️ Guardrails](#guardrails) · [💬 Discussions](https://github.com/cdmx-in/kera/discussions)
+[Quick start](#quick-start) · [Why Kera](#why-kera) · [Comparison](docs/comparison.md) · [Features](#features) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Docs](docs/README.md) · [Discussions](https://github.com/cdmx-in/kera/discussions)
 
 </div>
 
@@ -21,38 +21,74 @@ Built for Ollama and any OpenAI-compatible model. One Go binary and Postgres.
   <img src="docs/images/demo.gif" alt="Animated demo: an assistant searches a knowledge collection and answers with cited sources, then the Cowork task list with a finished task and its output file, the scheduled tasks with one failed run, and the admin settings tabs" width="860">
 </p>
 
-Kera runs CodeMax's own internal AI workspace in production every day. It gives a team one place to chat with local and hosted models, search company knowledge, run tools and code, and keep control of the data.
+Kera is a self-hosted AI chat for a team or a company. People get one place to chat with local and hosted models, search company knowledge, run tools and scheduled tasks, and the data stays in your own Postgres. It runs CodeMax's own internal AI workspace in production every day.
 
-<a id="why-kera"></a>
+It is for a team that wants its own AI chat on its own server, with sign-in, groups, access control, an audit trail and spend per person. It is not a desktop or mobile app, and the interface is in English only (see [Status and limits](#status-and-limits)).
 
-## 💡 Why Kera
+## Quick start
 
-- 🪶 **Simple to run.** One binary and Postgres. There is no Redis, vector database or queue to look after.
-- 🏠 **Local first.** Ollama models are first-class, and any OpenAI-compatible endpoint works too, including the Responses API.
-- 🔌 **Plugins in any language.** Hooks and tools are HTTP services (OpenAPI or MCP), not code loaded into the server.
-- 🔒 **Your data stays yours.** Guardrails on every model call, per-resource access grants and an audit trail, all in your own Postgres.
+With Docker (Compose v2):
 
-<a id="features"></a>
+```sh
+git clone https://github.com/cdmx-in/kera.git && cd kera/deploy
+KERA_ADMIN_EMAIL=you@example.com ./init.sh    # writes .env with random secrets, prints your password once
+docker compose up -d
+```
 
-## ✨ Features
+Open http://localhost:8080 and sign in with that email and the printed password. That is the first admin; add the others in Admin > Users (email, name, role, initial password), and everyone can change their own password under Settings > Account. After the first start, delete the two `KERA_ADMIN_` lines from `.env`: Kera uses them only while it has no users. Lost the password? `docker compose exec kera kera user login-link you@example.com` prints a one-time sign-in link (it needs shell access to the server, so it is safe). For a team, add a Google or OIDC provider in Admin > Settings; password sign-in then switches itself off unless you keep it on. Details and the risks of a password in `.env`: [docs/deploy.md](docs/deploy.md).
 
-- 💬 **Chat.** Streaming Markdown, maths, Mermaid diagrams, token counts, thumbs up/down, Markdown export, folders, archive, temporary chats, slash-command prompts, and dictation that runs on the device.
-- 👥 **Team management.** Google or any OIDC sign-in, groups, per-resource access grants, personal API keys, and an OpenAI-compatible API.
-- 🤖 **Assistants.** Model presets with their own prompt, tools, knowledge and skills, managed in a workspace or as config (`kera apply -f config.yaml`).
-- 📚 **Knowledge.** Hybrid search (vectors plus full text) with optional reranking. Uploads are parsed by an extraction sidecar, and scanned PDFs are OCR'd.
-- 🧰 **Tools.** OpenAPI and MCP tool servers, with per-user OAuth for services like Google Sheets, Gmail and Docs. Built-in web search (SearXNG, Brave or DuckDuckGo).
-- 🧪 **Code interpreter.** Runs Python, Node.js, TypeScript, Bash, PHP, Ruby, Go, Java and R in a Jupyter sandbox, and returns the files and images the code creates.
-- 🖥️ **Cowork.** A task mode in which the model drives a sandboxed Linux desktop (browser and shell). You watch it live and can take over at any time.
-- ⏰ **Scheduled tasks.** Save a Cowork task with a timetable (hourly, daily, weekdays, weekly) and the server runs it by itself as you, with your connected apps. Each run is a normal task, and the task keeps notes from run to run.
-- 🧠 **Memory.** Automatic memory capture, which users manage in Settings.
-- 🛡️ **Guardrails.** Personal-data redaction or blocking, prompt-injection and blocklist checks, and optional moderation on every model call, with an audit trail (see below).
-- 🔗 **Integrations.** Scheduled directory sync from Google Workspace: users come in, departments become groups, and suspended or deleted users are disabled (see [docs/integrations.md](docs/integrations.md)).
-- 🔄 **Pipelines.** Keep a knowledge collection in sync with a source on a schedule, from your own script or with one command. A flow view shows each run step by step, with its logs and errors (see [docs/pipelines.md](docs/pipelines.md)).
-- 🎨 **Branding.** Your own name, logos and colours, set from the admin console.
+The compose file expects Ollama on the host at port 11434. No Ollama? Name the profile in the first command, `KERA_ADMIN_EMAIL=you@example.com ./init.sh ollama`, and the stack gets an Ollama server with a small chat and embedding model (about 6 GB to download once). Want [LiteLLM](docs/litellm.md) in front of your models, with the spend log wired to Admin > Spend? `./init.sh ollama litellm`. `init.sh` writes `.env` once and leaves an existing one alone. HTTPS, backups and troubleshooting: [docs/deploy.md](docs/deploy.md).
+
+What the quick start gives you, and what needs another service:
+
+| Works after the quick start | Needs a service you start yourself |
+|---|---|
+| Chat with Ollama or any OpenAI-compatible model, Markdown, citations, folders, temporary chats | PDF, DOCX, PPTX and ODT uploads (and OCR of scans): the [extraction sidecar](sidecars/extract/README.md). Without it those uploads fail with "no document extractor configured" |
+| Knowledge from text, HTML and spreadsheet files, hybrid search, groups and access grants, guardrails, config as code | Reranking: the [rerank sidecar](sidecars/rerank/README.md) |
+| Web search (DuckDuckGo by default; SearXNG or Brave in settings), OpenAPI and MCP tool servers, pipelines, directory sync | Code interpreter: a Jupyter server you run, set in `code_interpreter.url` |
+| Spend per user with `./init.sh litellm` | Cowork tasks that drive a desktop: the [desktop sidecar](sidecars/desktop/README.md). Scheduled Cowork tasks are on for admins and off for other users until you turn on `features.cowork_schedule` |
+
+From source (Go 1.26, Node 24, pnpm):
+
+```sh
+make testdb                       # Postgres 18 + pgvector on 127.0.0.1:55432
+export KERA_DATABASE_URL=postgres://kera:kera-test@127.0.0.1:55432/kera?sslmode=disable
+export KERA_SECRET_KEY=$(openssl rand -hex 32)
+make build && ./kera serve        # http://localhost:8080
+```
+
+Run the tests with `make test`. The database tests use the `testdb` container.
+
+## Why Kera
+
+- **Small to run.** One Go binary and Postgres with pgvector. There is no Redis, vector database, document store or queue to look after, and the binary has nine direct Go dependencies. Measured idle on a small stack: Kera about 15 MB of memory (more for a moment during a burst of sign-ins), its Postgres about 50 MB ([docs/deploy.md](docs/deploy.md#what-it-needs)).
+- **Local first.** Ollama models are first-class, and any OpenAI-compatible endpoint works too, including the Responses API.
+- **Built for teams.** Email and password, Google or any OIDC sign-in, groups, per-resource access grants, personal API keys, and a directory sync from Google Workspace.
+- **Guardrails and spend in the base install.** Every model call passes one guard: personal-data redaction or blocking, prompt-injection and blocklist checks, optional moderation, and an audit trail that never stores the matched text. With the `litellm` profile, Admin > Spend shows one row per person.
+- **Knowledge that stays current.** Pipelines keep a knowledge collection equal to a folder that lives somewhere else, on your schedule, and show every run as a flow of steps with logs and errors. A file is replaced only after its new version is indexed.
+- **Open.** Apache-2.0 with no branding clause and no tenant limits. Plugins and tools are HTTP services (OpenAPI or MCP), not code loaded into the server.
+
+How it differs from Open WebUI, LibreChat, AnythingLLM and Onyx, row by row and with sources, is in [docs/comparison.md](docs/comparison.md). Most of the features below exist in those projects too; the difference is the footprint, the licence, and having guardrails, spend and knowledge sync in the base install. If you want one container and no database, some of them start with less than Kera does.
+
+## Features
+
+- **Chat.** Streaming Markdown, maths, Mermaid diagrams, token counts, thumbs up/down, Markdown export, folders, archive, temporary chats, slash-command prompts, and dictation that runs on the device.
+- **Team management.** Email and password, Google or any OIDC sign-in, groups, per-resource access grants, personal API keys, and an OpenAI-compatible API. A subset of the Open WebUI HTTP API is served as well, so existing scripts and clients keep working ([docs/compat](docs/compat/openwebui-api.md)).
+- **Assistants.** Model presets with their own prompt, tools, knowledge and skills, managed in a workspace or as config (`kera apply -f config.yaml`).
+- **Knowledge.** Hybrid search (vectors plus full text) with optional reranking. Uploads are parsed by an extraction sidecar, and scanned PDFs are OCR'd.
+- **Tools.** OpenAPI and MCP tool servers, with per-user OAuth for services like Google Sheets, Gmail and Docs. Built-in web search (SearXNG, Brave or DuckDuckGo).
+- **Code interpreter.** With a Jupyter server, runs Python, Node.js, TypeScript, Bash, PHP, Ruby, Go, Java and R, and returns the files and images the code creates.
+- **Cowork.** A task mode in which the model drives a sandboxed Linux desktop (browser and shell). You watch it live and can take over at any time.
+- **Scheduled tasks.** Save a Cowork task with a timetable (hourly, daily, weekdays, weekly) and the server runs it by itself as you, with your connected apps. Each run is a normal task, and the task keeps notes from run to run.
+- **Memory.** Automatic memory capture, which users manage in Settings.
+- **Guardrails.** Personal-data redaction or blocking, prompt-injection and blocklist checks, and optional moderation on every model call, with an audit trail (see below).
+- **Integrations.** Scheduled directory sync from Google Workspace: users come in, departments become groups, and suspended or deleted users are disabled (see [docs/integrations.md](docs/integrations.md)).
+- **Pipelines.** Keep a knowledge collection in sync with a source on a schedule, from your own script or with one command. A flow view shows each run step by step, with its logs and errors (see [docs/pipelines.md](docs/pipelines.md)).
+- **Branding.** Your own name, logos and colours, set from the admin console.
 
 <a id="screenshots"></a>
 
-## 📸 Screenshots
+## Screenshots
 
 The screenshots follow your light or dark theme. They show a demo workspace for a made-up company.
 
@@ -142,46 +178,15 @@ The screenshots follow your light or dark theme. They show a demo workspace for 
   </tr>
 </table>
 
-<a id="quick-start"></a>
-
-## 🚀 Quick start
-
-With Docker:
-
-```sh
-git clone https://github.com/cdmx-in/kera.git && cd kera/deploy
-KERA_ADMIN_EMAIL=you@example.com ./init.sh    # writes .env with random secrets, prints your password once
-docker compose up -d
-```
-
-Open http://localhost:8080 and sign in with that email and the printed password. That is the first admin; add the others in Admin > Users (email, name, role, initial password), and everyone can change their own password under Settings > Account. After the first start, delete the two `KERA_ADMIN_` lines from `.env`: Kera uses them only while it has no users. Lost the password? `docker compose exec kera kera user login-link you@example.com` prints a one-time sign-in link (it needs shell access to the server, so it is safe). For a team, add a Google or OIDC provider in Admin > Settings; password sign-in then switches itself off unless you keep it on. Details and the risks of a password in `.env`: [docs/deploy.md](docs/deploy.md).
-
-The compose file expects Ollama on the host at port 11434. No Ollama? `./init.sh ollama` (before `docker compose up -d`) adds one to the stack with a small chat and embedding model. Want [LiteLLM](docs/litellm.md) in front of your models, with the spend log wired to Admin > Spend? `./init.sh ollama litellm`. HTTPS, backups and troubleshooting: [docs/deploy.md](docs/deploy.md).
-
-From source (Go 1.26, Node 24, pnpm):
-
-```sh
-make testdb                       # Postgres 18 + pgvector on 127.0.0.1:55432
-export KERA_DATABASE_URL=postgres://kera:kera-test@127.0.0.1:55432/kera?sslmode=disable
-export KERA_SECRET_KEY=$(openssl rand -hex 32)
-make build && ./kera serve        # http://localhost:8080
-```
-
-Run the tests with `make test`. The database tests use the `testdb` container.
-
-<a id="architecture"></a>
-
-## 🧩 Architecture
+## Architecture
 
 <p align="center">
   <img src="docs/images/architecture.svg" alt="Architecture: clients talk to one Kera binary with guardrails, a chat engine, tools and skills, knowledge search, an admin console and Cowork tasks. Kera uses Postgres with pgvector, model servers, tool servers and optional sidecars for code, desktop and document extraction." width="900">
 </p>
 
-Only Postgres is required. The sidecars (document extraction, reranking, code sandbox, Cowork desktop) are optional HTTP services that you start when you need them.
+Only Postgres is required. The sidecars (document extraction, reranking, code sandbox, Cowork desktop) are optional HTTP services that you start when you need them; the table in [Quick start](#quick-start) says which feature needs which.
 
-<a id="configuration"></a>
-
-## ⚙️ Configuration
+## Configuration
 
 | Variable | Purpose |
 |---|---|
@@ -197,9 +202,7 @@ Only Postgres is required. The sidecars (document extraction, reranking, code sa
 
 Everything else (connections, sign-in providers, branding, guardrails, tool servers) is set in the admin console, or as code with `kera apply -f config.yaml`.
 
-<a id="guardrails"></a>
-
-## 🛡️ Guardrails
+## Guardrails
 
 Every call to a model server (chats, background tasks, memory, embeddings) goes through one guard. Its settings live under `guardrails.*`, set in Admin > Settings > Guardrails or in the `guardrails:` section of a config file:
 
@@ -214,28 +217,44 @@ Every call to a model server (chats, background tasks, memory, embeddings) goes 
 
 A blocked call fails with HTTP 400 and the code `guardrail_blocked`. Each event records the rule, action, count, user and model, never the matched text. Events are listed in the admin console and in the `guardrail_event` table. A model preset can override any key with `features: {guardrails: {pii: off}}`. For custom checks, use a hook server.
 
-## 🗂️ Layout
+## Status and limits
+
+Kera is young: v1.0.0 was released on 2026-11-21. Schema migrations run on start and only move forward, so keep a `pg_dump` before upgrading ([docs/deploy.md](docs/deploy.md#ports-data-backup)). Things to know before you choose it:
+
+- Sign-in is by email and password, Google or generic OIDC. There is no LDAP, SAML or SCIM.
+- The web interface is in English only. There is no desktop or mobile app.
+- The default stack runs Kera and Postgres. Document extraction, reranking, the code interpreter's Jupyter server and the Cowork desktop are separate services (see [Quick start](#quick-start)).
+- Scheduled Cowork tasks are off for non-admin users until you turn on `features.cowork_schedule`.
+- The quick start expects a model server. Small CPU-only models are slow; add a GPU or point Kera at a hosted model.
+
+Found a gap that is not listed here? [Open an issue](https://github.com/cdmx-in/kera/issues/new/choose) or start a [discussion](https://github.com/cdmx-in/kera/discussions).
+
+## Documentation
+
+[docs/README.md](docs/README.md) is the index. The main pages: [deploy](docs/deploy.md) (Compose, HTTPS, backups, troubleshooting), [LiteLLM and spend](docs/litellm.md), [pipelines](docs/pipelines.md), [integrations](docs/integrations.md), [comparison with other projects](docs/comparison.md), and the [Open WebUI API compatibility notes](docs/compat/openwebui-api.md).
+
+## Layout
 
 | Path | What |
 |---|---|
-| `cmd/kera` | the binary: `serve`, `db`, `migrate`, `apply`, `health`, ... |
+| `cmd/kera` | the binary: `serve`, `db`, `apply`, `export`, `user`, `pipeline`, `health`, ... |
 | `internal/` | server packages, one per feature |
 | `web/` | React + Vite app, embedded into the binary |
 | `sidecars/` | optional helper services: document extraction, reranking, Cowork desktop |
-| `deploy/` | Docker Compose example |
+| `deploy/` | Docker Compose example, with opt-in Ollama and LiteLLM profiles |
 | `docs/` | documentation |
 
-## 🤝 Community
+## Community
 
 - Questions and ideas: [GitHub Discussions](https://github.com/cdmx-in/kera/discussions)
 - Bugs: [open an issue](https://github.com/cdmx-in/kera/issues/new/choose)
 - If Kera is useful to you, a star helps others find it.
 
-## 🛠️ Contributing
+## Contributing
 
-Issues and pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first (DCO sign-off, clean-room rule). Report security problems privately as described in [SECURITY.md](SECURITY.md).
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has the rules (DCO sign-off, clean-room rule) and a list of places to start. Report security problems privately as described in [SECURITY.md](SECURITY.md).
 
-## 📄 License
+## License
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
