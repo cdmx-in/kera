@@ -65,7 +65,7 @@ Run the tests with `make test`. The database tests use the `testdb` container.
 <a id="why-kera"></a>
 ## 💡 Why Kera
 
-- 🪶 **Small to run.** One Go binary and Postgres with pgvector, plus a small stateless service that reads documents in the Compose stack. There is no Redis, vector database, document store or queue to look after, and the binary has nine direct Go dependencies. Measured idle on a small stack: Kera about 15 MB of memory (more for a moment during a burst of sign-ins), its Postgres about 50 MB, the document service about 33 MB ([docs/deploy.md](docs/deploy.md#what-it-needs)).
+- 🪶 **Small to run.** One Go binary and Postgres with pgvector, plus a small stateless service that reads documents in the Compose stack. There is no Redis, vector database, document store or queue to look after, and the binary has nine direct Go dependencies. Measured idle on a small stack: Kera about 20 MB of memory (more for a moment during a burst of sign-ins), its Postgres about 50 MB, the document service about 33 MB ([docs/deploy.md](docs/deploy.md#what-it-needs)).
 - 🏠 **Local first.** Ollama models are first-class, and any OpenAI-compatible endpoint works too, including the Responses API.
 - 👥 **Built for teams.** Email and password, Google or any OIDC sign-in, groups, per-resource access grants, personal API keys, and a directory sync from Google Workspace.
 - 🛡️ **Guardrails and spend in the base install.** Every model call passes one guard: personal-data redaction or blocking, prompt-injection and blocklist checks, optional moderation, and an audit trail that never stores the matched text. With the `litellm` profile, Admin > Spend shows one row per person.
