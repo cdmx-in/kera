@@ -153,6 +153,9 @@ export function EditorDialog(props: {
   title: string
   managed?: boolean
   wide?: boolean
+  /** a full width class, for a two-pane form */
+  width?: string
+  saveLabel?: string
   form: FormErrors
   fields: string[]
   onClose: () => void
@@ -184,7 +187,7 @@ export function EditorDialog(props: {
   const running = test?.state?.state === 'running'
   const nameOf = (t: EventTarget) => (t as HTMLInputElement).name ?? ''
   return (
-    <Dialog open onClose={props.onClose} label={props.title} className={props.wide ? 'w-[min(48rem,calc(100vw-2rem))]' : 'w-[min(40rem,calc(100vw-2rem))]'}>
+    <Dialog open onClose={props.onClose} label={props.title} className={props.width ?? (props.wide ? 'w-[min(48rem,calc(100vw-2rem))]' : 'w-[min(40rem,calc(100vw-2rem))]')}>
       <DialogHeader title={props.title} onClose={props.onClose} />
       <form
         noValidate
@@ -205,7 +208,7 @@ export function EditorDialog(props: {
         {props.managed && <p className="text-xs text-amber-700 dark:text-amber-400">{managedWarning}</p>}
         {props.children}
         {test?.state?.state === 'done' && <TestPanel r={test.state.r} />}
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line pt-3">
+        <div className="sticky -bottom-4 z-10 -mx-4 -mb-4 flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface px-4 py-3">
           {props.onTest && (
             <Btn onClick={runTest} disabled={running} className="mr-auto" data-testid="test-draft" title="Try the unsaved settings">
               {running ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Test
@@ -214,7 +217,7 @@ export function EditorDialog(props: {
           {!form.valid && form.hidden && <span className="text-xs text-muted">Fill in the required fields</span>}
           <Btn onClick={props.onClose}>Cancel</Btn>
           <Btn type="submit" variant="primary" disabled={!form.valid || saving} data-testid="save-server">
-            {saving && <Loader2 size={14} className="animate-spin" />} Save
+            {saving && <Loader2 size={14} className="animate-spin" />} {props.saveLabel ?? 'Save'}
           </Btn>
         </div>
       </form>
