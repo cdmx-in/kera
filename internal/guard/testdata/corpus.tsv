@@ -193,3 +193,5 @@ neg	pii.nino	Invalid suffix AB123456E rejected.
 neg	pii.nino	Too short AB12345A ignored.
 neg	pii.nino	Too many digits AB1234567A ignored.
 neg	pii.nino	Lowercase ref ab123456c not matched.
+neg	pii.iban	Build artifact checksum fb33ba5d3d511ca1e8945b68a4d389bf attached.
+neg	pii.iban	Check digits are right but a German IBAN has 22 characters, not 21: DE9654453079397734495 ignored.
