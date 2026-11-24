@@ -133,3 +133,23 @@ func TestAttemptsStayBounded(t *testing.T) {
 		t.Fatalf("all-locked map grew to %d", len(b.m))
 	}
 }
+
+func TestAttemptsResetPrefix(t *testing.T) {
+	a, _ := clock()
+	pair := func(email, ip string) Key { return Key{"email+ip", email + "\x00" + ip, 1} }
+	for _, k := range []Key{pair("ann@example.com", "203.0.113.1"), pair("ann@example.com", "203.0.113.2"), pair("bob@example.com", "203.0.113.1"), {"email", "ann@example.com", 1}} {
+		a.Begin(k) // one try locks each of them
+	}
+	a.ResetPrefix("email+ip", "ann@example.com\x00")
+	for _, k := range []Key{pair("ann@example.com", "203.0.113.1"), pair("ann@example.com", "203.0.113.2")} {
+		if _, ok := a.Begin(k); !ok {
+			t.Errorf("%q still locked", k.Value)
+		}
+	}
+	if _, ok := a.Begin(pair("bob@example.com", "203.0.113.1")); ok {
+		t.Error("another user's pair was cleared")
+	}
+	if _, ok := a.Begin(Key{"email", "ann@example.com", 1}); ok {
+		t.Error("a key of another kind was cleared")
+	}
+}

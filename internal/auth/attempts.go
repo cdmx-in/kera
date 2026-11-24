@@ -2,12 +2,14 @@ package auth
 
 import (
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
 
 // Key is one thing sign-in attempts are counted against: an email, a client
-// address. Free is how many attempts it gets in a row before the first lock.
+// address, an email from one address (Value joins the two with a NUL byte).
+// Free is how many attempts it gets in a row before the first lock.
 type Key struct {
 	Kind, Value string
 	Free        int
@@ -76,7 +78,7 @@ func (a *Attempts) Begin(keys ...Key) (wait time.Duration, ok bool) {
 		if t.n >= k.Free {
 			d := lockBase << min(t.n-k.Free, 10)
 			t.until = now.Add(min(d, lockMax))
-			slog.Warn("sign-in locked", "kind", k.Kind, "key", k.Value, "attempts", t.n, "seconds", int(min(d, lockMax).Seconds()))
+			slog.Warn("sign-in locked", "kind", k.Kind, "key", strings.ReplaceAll(k.Value, "\x00", " from "), "attempts", t.n, "seconds", int(min(d, lockMax).Seconds()))
 		}
 	}
 	return 0, true
@@ -87,6 +89,19 @@ func (a *Attempts) Reset(k Key) {
 	a.mu.Lock()
 	delete(a.m, k.id())
 	a.mu.Unlock()
+}
+
+// ResetPrefix forgets every key of a kind whose value starts with prefix: all the
+// addresses an email was tried from, when an admin gives the user a new password.
+func (a *Attempts) ResetPrefix(kind, prefix string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	start := kind + "\x00" + prefix
+	for id := range a.m {
+		if strings.HasPrefix(id, start) {
+			delete(a.m, id)
+		}
+	}
 }
 
 // Refund gives back the attempt Begin counted, for a key that a good sign-in

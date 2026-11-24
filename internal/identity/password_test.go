@@ -343,16 +343,16 @@ func TestSigninRateLimit(t *testing.T) {
 	e.withPassword("user", "ann@example.com", pwAnn)
 	_, admin := e.mkUser("admin", "root@example.com")
 
-	// Five wrong tries from five addresses (the lock follows the email, not the address) ...
-	for i := range emailFree {
-		if r := e.signinAs("ann@example.com", pwEve, fmt.Sprintf("203.0.113.%d", 10+i)); r.Code != http.StatusUnauthorized {
+	// Five wrong tries for one email from one address ...
+	for i := range pairFree {
+		if r := e.signinAs("ann@example.com", pwEve, "203.0.113.10"); r.Code != http.StatusUnauthorized {
 			t.Fatalf("try %d: %d %s", i+1, r.Code, r.Body)
 		}
 	}
-	// ... then even the right password from a fresh address is refused, with a way to know when to come back.
-	r := e.signinAs("ann@example.com", pwAnn, "203.0.113.99")
+	// ... then even the right password from that address is refused, with a way to know when to come back.
+	r := e.signinAs("ann@example.com", pwAnn, "203.0.113.10")
 	if r.Code != http.StatusTooManyRequests {
-		t.Fatalf("after %d wrong tries: %d %s", emailFree, r.Code, r.Body)
+		t.Fatalf("after %d wrong tries: %d %s", pairFree, r.Code, r.Body)
 	}
 	var body struct {
 		Detail, Code string
@@ -367,22 +367,106 @@ func TestSigninRateLimit(t *testing.T) {
 	}
 	// Someone else is not locked out by it, and an unknown email is locked the same way (no tell).
 	e.withPassword("user", "bob@example.com", pwBob)
-	if r := e.signinAs("bob@example.com", pwBob, "203.0.113.98"); r.Code != http.StatusOK {
-		t.Fatalf("another user: %d %s", r.Code, r.Body)
+	if r := e.signinAs("bob@example.com", pwBob, "203.0.113.10"); r.Code != http.StatusOK {
+		t.Fatalf("another user from the same address: %d %s", r.Code, r.Body)
 	}
-	for range emailFree {
+	for range pairFree {
 		e.signinAs("ghost@example.com", pwEve, "203.0.113.97")
 	}
-	if g := e.signinAs("ghost@example.com", pwEve, "203.0.113.96"); g.Code != http.StatusTooManyRequests || g.Head.Get("Retry-After") != "30" {
-		t.Fatalf("unknown email after %d tries: %d (%q)", emailFree, g.Code, g.Head.Get("Retry-After"))
+	if g := e.signinAs("ghost@example.com", pwEve, "203.0.113.97"); g.Code != http.StatusTooManyRequests || g.Head.Get("Retry-After") != "30" {
+		t.Fatalf("unknown email after %d tries: %d (%q)", pairFree, g.Code, g.Head.Get("Retry-After"))
 	}
-	// An admin setting a new password clears the lock (and ends their sessions).
+	// An admin setting a new password clears the lock for every address (and ends their sessions).
 	annID := e.idOf("ann@example.com")
 	if r := e.send("POST", "/api/v1/users/"+annID+"/password", admin, "", map[string]string{"password": pwNew}); r.Code != http.StatusOK {
 		t.Fatalf("admin set password: %d %s", r.Code, r.Body)
 	}
-	if r := e.signinAs("ann@example.com", pwNew, "203.0.113.95"); r.Code != http.StatusOK {
-		t.Fatalf("after the admin reset: %d %s", r.Code, r.Body)
+	if r := e.signinAs("ann@example.com", pwNew, "203.0.113.10"); r.Code != http.StatusOK {
+		t.Fatalf("after the admin reset, from the locked address: %d %s", r.Code, r.Body)
+	}
+}
+
+// Strangers who know an email can burn their own tries on it, not the owner's: the strict
+// count is per email and address together.
+func TestSigninOwnerIsNotLockedOutByStrangers(t *testing.T) {
+	e := community(t)
+	e.withPassword("admin", "root@example.com", pwRoot)
+	for i := range 4 { // four attackers, each spending its whole allowance and being locked
+		for range pairFree {
+			e.signinAs("root@example.com", pwEve, fmt.Sprintf("198.51.100.%d", 10+i))
+		}
+		if r := e.signinAs("root@example.com", pwEve, fmt.Sprintf("198.51.100.%d", 10+i)); r.Code != http.StatusTooManyRequests {
+			t.Fatalf("attacker %d not locked: %d", i, r.Code)
+		}
+	}
+	// 20 failed tries so far, under the email-wide ceiling: the owner, from their own address, signs in ...
+	if r := e.signinAs("root@example.com", pwRoot, "203.0.113.1"); r.Code != http.StatusOK {
+		t.Fatalf("owner after four strangers: %d %s", r.Code, r.Body)
+	}
+	// ... and again, since their success cleared their pair and gave back its try.
+	for range 3 {
+		if r := e.signinAs("root@example.com", pwRoot, "203.0.113.1"); r.Code != http.StatusOK {
+			t.Fatalf("owner signing in again: %d %s", r.Code, r.Body)
+		}
+	}
+	// The owner's own typos are forgiven at their address the same way a success clears the pair.
+	for range pairFree - 1 {
+		e.signinAs("root@example.com", pwEve, "203.0.113.1")
+	}
+	if r := e.signinAs("root@example.com", pwRoot, "203.0.113.1"); r.Code != http.StatusOK {
+		t.Fatalf("owner after typos: %d %s", r.Code, r.Body)
+	}
+	if r := e.signinAs("root@example.com", pwEve, "203.0.113.1"); r.Code != http.StatusUnauthorized {
+		t.Fatalf("a good sign-in did not clear the pair: %d", r.Code)
+	}
+}
+
+// A guesser with many addresses still runs out: the email-wide ceiling is loose, not absent.
+func TestSigninEmailWideCeiling(t *testing.T) {
+	e := community(t)
+	e.withPassword("user", "ann@example.com", pwAnn)
+	for i := range emailFree {
+		if r := e.signinAs("ann@example.com", pwEve, fmt.Sprintf("198.51.%d.%d", i/200, i%200+1)); r.Code != http.StatusUnauthorized {
+			t.Fatalf("try %d from its own address: %d %s", i+1, r.Code, r.Body)
+		}
+	}
+	r := e.signinAs("ann@example.com", pwEve, "203.0.113.200") // a fresh address: only the email-wide count can refuse it
+	if r.Code != http.StatusTooManyRequests || r.Head.Get("Retry-After") != "30" {
+		t.Fatalf("after %d tries from %d addresses: %d %s", emailFree, emailFree, r.Code, r.Body)
+	}
+	// The owner's successes do not wipe what the guesser spent.
+	if r := e.signinAs("ann@example.com", pwAnn, "203.0.113.201"); r.Code != http.StatusTooManyRequests {
+		t.Fatalf("the owner during the lock: %d", r.Code)
+	}
+}
+
+// Parallel guesses meet the locks too: the try is counted before it is judged.
+func TestSigninParallelGuessesAreLimited(t *testing.T) {
+	e := community(t)
+	e.withPassword("user", "ann@example.com", pwAnn)
+	run := func(n int, from func(i int) string) map[int]int {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		codes := map[int]int{}
+		for i := range n {
+			wg.Go(func() {
+				r := e.signinAs("ann@example.com", fmt.Sprintf("guess-number-%d", i), from(i))
+				mu.Lock()
+				codes[r.Code]++
+				mu.Unlock()
+			})
+		}
+		wg.Wait()
+		return codes
+	}
+	// 40 at once from one address: exactly the pair allowance reaches the password check.
+	if got := run(40, func(int) string { return "198.51.100.1" }); got[http.StatusUnauthorized] != pairFree || got[http.StatusTooManyRequests] != 40-pairFree {
+		t.Fatalf("one address: %v", got)
+	}
+	// 60 at once from 60 addresses: the email-wide ceiling stops it (the five already spent above count).
+	got := run(60, func(i int) string { return fmt.Sprintf("198.51.101.%d", i+1) })
+	if got[http.StatusUnauthorized] != emailFree-pairFree || got[http.StatusTooManyRequests] != 60-(emailFree-pairFree) {
+		t.Fatalf("many addresses: %v", got)
 	}
 }
 
@@ -504,14 +588,14 @@ func TestChangePassword(t *testing.T) {
 
 	// Guessing the current password is limited like sign-in is.
 	cur := fresh.Token
-	for i := range emailFree {
+	for i := range changeFree {
 		if r := change(cur, map[string]string{"password": pwEve, "new_password": pwAnn}); r.Code != http.StatusBadRequest {
 			t.Fatalf("guess %d: %d %s", i+1, r.Code, r.Body)
 		}
 	}
 	r = change(cur, map[string]string{"password": pwNew, "new_password": pwAnn})
 	if r.Code != http.StatusTooManyRequests || r.Head.Get("Retry-After") == "" {
-		t.Fatalf("after %d wrong guesses: %d %s", emailFree, r.Code, r.Body)
+		t.Fatalf("after %d wrong guesses: %d %s", changeFree, r.Code, r.Body)
 	}
 }
 
@@ -649,7 +733,7 @@ func TestNothingSecretIsLogged(t *testing.T) {
 	see := func(r reply) reply { all.Write(r.Body); all.WriteString(fmt.Sprint(r.Head)); return r }
 
 	see(e.send("POST", "/api/v1/auths/add", admin, "", map[string]string{"email": "ann@example.com", "password": pwAnn}))
-	for range emailFree + 1 {
+	for range pairFree + 1 {
 		see(e.signinAs("ann@example.com", pwEve, ""))
 	}
 	see(e.signinAs("nobody@example.com", pwEve, "203.0.113.5"))

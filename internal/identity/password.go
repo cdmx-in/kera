@@ -28,10 +28,15 @@ import (
 const (
 	emailMax      = 254
 	signinBodyMax = 8 << 10
-	// A key's free tries before the first lock (see auth.Attempts). An email is one
-	// person's account, so it gets few; an address may be a whole office.
-	emailFree = 5
-	ipFree    = 20
+	// Free tries before the first lock (see auth.Attempts), per kind of key:
+	//   - an email tried from one address: strict, because that pair is one guesser at one account;
+	//   - an email from anywhere: a loose ceiling, so a spray from many addresses still ends but a
+	//     couple of strangers cannot lock the real owner out at 5 tries;
+	//   - an address: it may be a whole office, and it catches spraying across many emails.
+	pairFree   = 5
+	emailFree  = 30
+	ipFree     = 20
+	changeFree = 5 // the current-password guesses of one signed-in user
 )
 
 // errBadLogin is the one answer to every failed sign-in: no such user, wrong
@@ -95,8 +100,9 @@ func (h *handler) signin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := api.RealIP(r, h.a.Env.TrustedProxies)
+	pair := auth.Key{Kind: "email+ip", Value: email + "\x00" + ip, Free: pairFree}
 	byEmail, byIP := auth.Key{Kind: "email", Value: email, Free: emailFree}, auth.Key{Kind: "ip", Value: ip, Free: ipFree}
-	if wait, ok := h.attempts.Begin(byEmail, byIP); !ok {
+	if wait, ok := h.attempts.Begin(pair, byEmail, byIP); !ok {
 		slog.Debug("password sign-in refused: locked", "email", email, "ip", ip)
 		tooMany(w, wait)
 		return
@@ -140,7 +146,11 @@ func (h *handler) signin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.attempts.Reset(byEmail) // the address is a shared thing: it is only given its attempt back
+	// A good sign-in clears the pair, which is one person at one address. The email-wide and
+	// address-wide counts are shared with strangers, so a success only gives back its own try
+	// (else an attacker's guesses could be wiped by the owner signing in).
+	h.attempts.Reset(pair)
+	h.attempts.Refund(byEmail)
 	h.attempts.Refund(byIP)
 	if rehash {
 		h.rehash(ctx, id, hash, body.Password)
@@ -223,7 +233,7 @@ func (h *handler) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	// The current password is a guess an attacker with a stolen session would make: same limits as sign-in.
 	ip := api.RealIP(r, h.a.Env.TrustedProxies)
-	byUser, byIP := auth.Key{Kind: "change-password", Value: u.ID, Free: emailFree}, auth.Key{Kind: "ip", Value: ip, Free: ipFree}
+	byUser, byIP := auth.Key{Kind: "change-password", Value: u.ID, Free: changeFree}, auth.Key{Kind: "ip", Value: ip, Free: ipFree}
 	if len(body.Password) > auth.PasswordMaxBytes {
 		body.Password = "" // cannot match
 	}
@@ -303,6 +313,7 @@ func (h *handler) setUserPassword(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	h.attempts.ResetPrefix("email+ip", strings.ToLower(email)+"\x00") // every address it was tried from
 	h.attempts.Reset(auth.Key{Kind: "email", Value: strings.ToLower(email)})
 	h.attempts.Reset(auth.Key{Kind: "change-password", Value: id})
 	slog.Info("password set by an admin", "admin", me.ID, "user", id)

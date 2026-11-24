@@ -158,6 +158,8 @@ func passwdCLI(ctx context.Context, db *pgxpool.Pool, args []string, in io.Reade
 		return err
 	}
 	fmt.Fprintf(out, "password set for %s; their other sessions are signed out\n", email)
+	// The server counts failed tries in memory and this is another process, so it cannot clear a lock.
+	fmt.Fprintln(out, "if they are locked out by too many tries, the lock ends within 15 minutes, when the server restarts, or at once when an admin sets a password in Admin > Users")
 	return nil
 }
 

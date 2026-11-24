@@ -41,7 +41,13 @@ printf '%s\n' "$PASSWORD" | docker compose exec -T kera kera user passwd --stdin
 
 The password is never a command-line argument, so it stays out of the process list and the shell history. Passwords need 10 characters or more (at most 1024 bytes) and may not be the person's email address; there are no rules about digits or symbols.
 
-**Wrong guesses are slowed down.** After 5 wrong tries for one email, or 20 from one address, Kera refuses further tries for 30 seconds, then 1 minute, 2, 4, 8 and at most 15 minutes, and tells the person how long to wait. A good sign-in clears the email's count, and setting a new password for a user clears theirs. The counts are kept in memory, so a restart clears them. The page never says whether an email exists: unknown email, wrong password, no password and a disabled account all answer "Invalid email or password". `docker compose logs kera` has a line per failed try with the email, the address and the reason (never the password).
+**Wrong guesses are slowed down.** Kera counts tries three ways and refuses further tries for 30 seconds, then 1 minute, 2, 4, 8 and at most 15 minutes, telling the person how long to wait:
+
+- 5 tries for one email from one address (a stranger who guesses your admin's email burns only their own allowance and cannot lock the owner out from elsewhere);
+- 30 tries for one email from all addresses together (a guesser with many addresses still runs out; the owner is also held by this one, which takes far more than a couple of strangers);
+- 20 tries from one address across all emails (spraying).
+
+A good sign-in clears that email-and-address pair, and setting a new password for a user (Admin > Users) clears their locks for every address. The counts are kept in memory, so a restart clears them; `kera user passwd` runs in another process and cannot clear them on a running server. The page never says whether an email exists: unknown email, wrong password, no password and a disabled account all answer "Invalid email or password". `docker compose logs kera` has a line per failed try with the email, the address and the reason (never the password).
 
 **Behind a reverse proxy**, tries are counted per client address. A proxy on the same host or Docker network (Caddy, nginx, Traefik) shows up from a loopback or private address; Kera then reads `X-Forwarded-For` from the right, skipping proxies, and takes the address that proxy saw (whatever a client wrote itself sits to the left and is ignored). The proxy must set or append that header: Caddy and Traefik do, nginx needs `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. Kera does **not** believe `CF-Connecting-IP` from such a proxy, because Caddy, nginx and Traefik pass a client-sent copy through untouched.
 
@@ -121,7 +127,7 @@ Upgrade with `docker compose pull && docker compose up -d`; database migrations 
 |---|---|
 | `required variable ... is empty` | Run `./init.sh` in `deploy/`, or fill in `.env`. |
 | "Invalid email or password" for the right password | The account may have no password yet (Admin > Users, key button; or `kera user passwd`), be disabled, or have been created by a single sign-on provider. `docker compose logs kera` names the reason for each failed try. |
-| "Too many attempts" | Wait the time it says (30 seconds to 15 minutes), or set a new password for the user in Admin > Users, which clears their count. |
+| "Too many attempts" | Wait the time it says (30 seconds to 15 minutes), or set a new password for the user in Admin > Users, which clears their locks. |
 | The admin from `KERA_ADMIN_EMAIL` does not exist | It is created only at a start where Kera has no users; `docker compose logs kera` says "first admin created" or "ignored". Use `kera user add`, or `login-link` to get in. |
 | Kera stops at start with `KERA_ADMIN_PASSWORD` in the message | The password is shorter than 10 characters, or the email is not an address; fix `.env` and `docker compose up -d`. |
 | `KERA_SECRET_KEY must be at least 32 bytes` in `docker compose logs kera` | Use 64 hex characters: `openssl rand -hex 32`. |

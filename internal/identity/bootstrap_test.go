@@ -200,3 +200,15 @@ func TestUserPasswdAndAddCLI(t *testing.T) {
 		t.Fatal("a password leaked into a log or the output")
 	}
 }
+
+func TestPasswdCLITellsAboutAServerSideLock(t *testing.T) {
+	e := community(t)
+	e.mkUser("user", "dee@example.com")
+	var out bytes.Buffer
+	if err := UserCmd(context.Background(), e.a.DB, []string{"passwd", "--stdin", "dee@example.com"}, strings.NewReader(pwNew+"\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "15 minutes") || !strings.Contains(out.String(), "restarts") || strings.Contains(out.String(), pwNew) {
+		t.Fatalf("output %q", out.String())
+	}
+}
