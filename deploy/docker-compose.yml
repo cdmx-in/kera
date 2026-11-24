@@ -31,6 +31,7 @@ services:
       # The first admin, made at the first start while there are no users (init.sh fills these in); remove them afterwards.
       KERA_ADMIN_EMAIL: ${KERA_ADMIN_EMAIL:-}
       KERA_ADMIN_PASSWORD: ${KERA_ADMIN_PASSWORD:-}
+      KERA_TRUSTED_PROXIES: ${KERA_TRUSTED_PROXIES:-}
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: [kera_data:/data]
     ports: ["${KERA_PORT:-8080}:8080"]

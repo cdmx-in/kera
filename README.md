@@ -194,7 +194,7 @@ Only Postgres is required. The sidecars (document extraction, reranking, code sa
 | `KERA_DATA_DIR` | Where uploaded files live, default `/data` |
 | `OLLAMA_BASE_URL` | Ollama server, default `http://host.docker.internal:11434` in the compose file |
 | `KERA_ADMIN_EMAIL`, `KERA_ADMIN_PASSWORD` | Create the first admin when Kera starts with no users (ignored once any user exists); `deploy/init.sh` writes them |
-| `KERA_TRUSTED_PROXIES` | Reverse proxies (addresses or CIDRs) whose `X-Forwarded-For` is believed for sign-in rate limits, besides private addresses |
+| `KERA_TRUSTED_PROXIES` | CDNs (addresses or CIDRs) whose `CF-Connecting-IP` is believed for sign-in rate limits; proxies on private addresses are always trusted for `X-Forwarded-For` |
 
 Everything else (connections, sign-in providers, branding, guardrails, tool servers) is set in the admin console, or as code with `kera apply -f config.yaml`.
 

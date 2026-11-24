@@ -46,7 +46,7 @@ Usage:
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
 KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL),
 KERA_ADMIN_EMAIL and KERA_ADMIN_PASSWORD (create the first admin when serve finds no users), KERA_TRUSTED_PROXIES
-(reverse proxies, addresses or CIDRs, whose X-Forwarded-For is believed besides private addresses).
+(CDNs, addresses or CIDRs, whose CF-Connecting-IP is believed for sign-in rate limits; private proxies are always trusted for X-Forwarded-For).
 kera pipeline reads only KERA_URL, KERA_PIPELINE, KERA_PIPELINE_TOKEN (and sets KERA_RUN and KERA_MARK for the command it runs).
 `
 

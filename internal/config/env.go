@@ -24,9 +24,10 @@ type Env struct {
 	// AdminEmail and AdminPassword (KERA_ADMIN_EMAIL, KERA_ADMIN_PASSWORD) create the first
 	// admin when the user table is empty at startup; they change nothing once any user exists.
 	AdminEmail, AdminPassword string
-	// TrustedProxies (KERA_TRUSTED_PROXIES, comma-separated addresses or CIDRs) are reverse
-	// proxies whose X-Forwarded-For / CF-Connecting-IP headers are believed, besides the
-	// loopback and private addresses that are always trusted. Used for sign-in rate limits.
+	// TrustedProxies (KERA_TRUSTED_PROXIES, comma-separated addresses or CIDRs) are CDNs that reach
+	// Kera over a public address: their CF-Connecting-IP and X-Forwarded-For are believed. Loopback
+	// and private peers are always taken for reverse proxies, but only their X-Forwarded-For counts.
+	// Used for sign-in rate limits (api.RealIP).
 	TrustedProxies []netip.Prefix
 }
 

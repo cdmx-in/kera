@@ -682,3 +682,50 @@ func staleHash(t *testing.T, password string) string {
 	sum := argon2.IDKey([]byte(password), salt, 3, 64*1024, 1, 32)
 	return fmt.Sprintf("$argon2id$v=19$m=65536,t=3,p=1$%s$%s", base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(sum))
 }
+
+// signinWith posts a sign-in with arbitrary request headers (a proxy's, or a client's own).
+func (e *env) signinWith(email, password string, hdr map[string]string) reply {
+	e.t.Helper()
+	b, _ := json.Marshal(map[string]string{"email": email, "password": password})
+	req, _ := http.NewRequest("POST", e.srv.URL+"/api/v1/auths/signin", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return reply{resp.StatusCode, body, resp.Header, resp}
+}
+
+// Behind Caddy, nginx or Traefik on this host, a client's own CF-Connecting-IP is passed through
+// untouched. It must not choose the address the limiter counts: the proxy's X-Forwarded-For does.
+func TestSigninAddressIgnoresClientSentCFHeader(t *testing.T) {
+	e := community(t)
+	e.withPassword("user", "ann@example.com", pwAnn)
+
+	// Spraying emails with a new forged CF-Connecting-IP per try still meets the address limit.
+	var refused int
+	for i := range ipFree + 5 {
+		r := e.signinWith(fmt.Sprintf("spray%d@example.com", i), pwEve, map[string]string{
+			"X-Forwarded-For": "203.0.113.5", "CF-Connecting-IP": fmt.Sprintf("198.51.100.%d", i+1)})
+		if r.Code == http.StatusTooManyRequests {
+			refused++
+		}
+	}
+	if refused != 5 {
+		t.Fatalf("%d of %d tries were refused, want the last 5: a forged CF-Connecting-IP chose the address", refused, ipFree+5)
+	}
+
+	// Nor can it aim a lock at someone else's address: the forger burns its own.
+	for i := range ipFree + 2 {
+		e.signinWith(fmt.Sprintf("aim%d@example.com", i), pwEve, map[string]string{
+			"X-Forwarded-For": "203.0.113.7", "CF-Connecting-IP": "192.0.2.50"})
+	}
+	if r := e.signinWith("ann@example.com", pwAnn, map[string]string{"X-Forwarded-For": "192.0.2.50"}); r.Code != http.StatusOK {
+		t.Fatalf("a bystander at the address the forger named: %d %s", r.Code, r.Body)
+	}
+}

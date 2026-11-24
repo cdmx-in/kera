@@ -43,7 +43,15 @@ The password is never a command-line argument, so it stays out of the process li
 
 **Wrong guesses are slowed down.** After 5 wrong tries for one email, or 20 from one address, Kera refuses further tries for 30 seconds, then 1 minute, 2, 4, 8 and at most 15 minutes, and tells the person how long to wait. A good sign-in clears the email's count, and setting a new password for a user clears theirs. The counts are kept in memory, so a restart clears them. The page never says whether an email exists: unknown email, wrong password, no password and a disabled account all answer "Invalid email or password". `docker compose logs kera` has a line per failed try with the email, the address and the reason (never the password).
 
-**Behind a reverse proxy**, the address is the one the proxy reports in `CF-Connecting-IP` or `X-Forwarded-For`, believed only when the proxy connects from a private or loopback address (the usual setup: Caddy or nginx on the same host or Docker network). A proxy that connects to Kera over a public address, such as a CDN straight to the origin, must be listed in `KERA_TRUSTED_PROXIES` (addresses or CIDRs, comma separated), otherwise every visitor looks like the CDN and shares one count.
+**Behind a reverse proxy**, tries are counted per client address. A proxy on the same host or Docker network (Caddy, nginx, Traefik) shows up from a loopback or private address; Kera then reads `X-Forwarded-For` from the right, skipping proxies, and takes the address that proxy saw (whatever a client wrote itself sits to the left and is ignored). The proxy must set or append that header: Caddy and Traefik do, nginx needs `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. Kera does **not** believe `CF-Connecting-IP` from such a proxy, because Caddy, nginx and Traefik pass a client-sent copy through untouched.
+
+`CF-Connecting-IP` is believed only from a peer you list in `KERA_TRUSTED_PROXIES` (addresses or CIDRs, comma separated). If Cloudflare reaches Kera directly over the internet (a proxied DNS record pointing at the server), put its ranges in `.env`, copied from https://www.cloudflare.com/ips/ (these were current when this was written):
+
+```
+KERA_TRUSTED_PROXIES=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32
+```
+
+A Cloudflare Tunnel on the same host needs nothing: it connects from loopback and sets `X-Forwarded-For`. With Caddy between Cloudflare and Kera, give Caddy `trusted_proxies` for Cloudflare so it keeps their `X-Forwarded-For` instead of replacing it. A proxy that is not listed and not private is treated as an ordinary visitor, so every person behind it shares one count.
 
 **Turning it off.** Admin > Settings > Interface > Password sign-in. With no value set, it is on while there is no OAuth sign-in provider and off as soon as you add one, so a team that moves to single sign-on gets no password form it did not ask for. The switch overrides that either way; in a config file it is `auth: {password: {enabled: true}}`. Off really refuses password sign-ins at the server, not just in the page.
 
