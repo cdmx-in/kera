@@ -1,0 +1,63 @@
+version: 2
+
+# Weekly updates, grouped so review stays one or two pull requests per
+# ecosystem. Dependency PRs are welcome; see CONTRIBUTING.md.
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      web-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /sidecars/extract
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /sidecars/rerank
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pip
+    directory: /sidecars/extract
+    schedule:
+      interval: weekly
+    groups:
+      extract-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: pip
+    directory: /sidecars/rerank
+    schedule:
+      interval: weekly
+    groups:
+      rerank-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

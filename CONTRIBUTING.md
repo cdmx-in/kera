@@ -27,6 +27,7 @@ Kera serves a subset of the Open WebUI HTTP API, so existing scripts and clients
 - Run `make test` before pushing. Database tests need `make testdb`.
 - Keep deployment-specific names, URLs and prompts out of the core; they belong in your own configuration.
 - Small, focused changes review fastest.
+- Dependency PRs are welcome to review; Dependabot groups minor and patch updates weekly.
 
 ## Where to start
 
