@@ -813,3 +813,38 @@ func TestSigninAddressIgnoresClientSentCFHeader(t *testing.T) {
 		t.Fatalf("a bystander at the address the forger named: %d %s", r.Code, r.Body)
 	}
 }
+
+// An admin's API key can list and manage things, but it cannot set a password or make an
+// admin: a leaked key would otherwise become a way to sign in as anyone.
+func TestAPIKeyCannotSetPasswordsOrAddAdmins(t *testing.T) {
+	e := community(t)
+	_, admin := e.mkUser("admin", "root@example.com")
+	annID := e.withPassword("user", "ann@example.com", pwAnn)
+	var key struct{ Key string }
+	e.ok("POST", "/api/v1/auths/api_keys", admin, map[string]string{"name": "ci"}, &key)
+	e.ok("GET", "/api/v1/users/", key.Key, nil, nil) // the key is a working admin credential
+
+	refused := func(what string, r reply) {
+		t.Helper()
+		if r.Code != http.StatusForbidden || !strings.Contains(string(r.Body), "session_required") {
+			t.Errorf("%s with an API key: %d %s", what, r.Code, r.Body)
+		}
+	}
+	refused("set a user's password", e.send("POST", "/api/v1/users/"+annID+"/password", key.Key, "", map[string]string{"password": "attacker-chosen-pw"}))
+	if e.signinAs("ann@example.com", "attacker-chosen-pw", "").Code == http.StatusOK || e.signinAs("ann@example.com", pwAnn, "").Code != http.StatusOK {
+		t.Fatal("the refused request changed Ann's password")
+	}
+	refused("add a user with a password", e.send("POST", "/api/v1/auths/add", key.Key, "", map[string]string{"email": "evil@example.com", "password": "attacker-chosen-pw"}))
+	refused("add an admin", e.send("POST", "/api/v1/auths/add", key.Key, "", map[string]string{"email": "evil@example.com", "role": "admin"}))
+	refused("change a password", e.send("POST", "/api/v1/auths/update/password", key.Key, "", map[string]string{"password": pwAnn, "new_password": "yyyyyyyyyyyy"}))
+	if e.count(`SELECT count(*) FROM "user" WHERE email = 'evil@example.com'`) != 0 {
+		t.Fatal("a refused add left a user behind")
+	}
+	// A plain user without a password (for SSO) is still fine through a key; the same call with a session works too.
+	if r := e.send("POST", "/api/v1/auths/add", key.Key, "", map[string]string{"email": "sso@example.com"}); r.Code != http.StatusOK {
+		t.Fatalf("add a user without a password through a key: %d %s", r.Code, r.Body)
+	}
+	if r := e.send("POST", "/api/v1/users/"+annID+"/password", admin, "", map[string]string{"password": pwNew}); r.Code != http.StatusOK {
+		t.Fatalf("set password with a session: %d %s", r.Code, r.Body)
+	}
+}

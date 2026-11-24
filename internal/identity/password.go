@@ -193,11 +193,17 @@ func (h *handler) respondSession(w http.ResponseWriter, r *http.Request, u *auth
 	api.JSON(w, http.StatusOK, out)
 }
 
+// errSessionRequired is for the things an API key must not do: a stolen or leaked key
+// would otherwise set a password and sign in as that user.
+func errSessionRequired(what string) *api.Error {
+	return api.Errf(http.StatusForbidden, "session_required", "Sign in with the browser to "+what+"; API keys cannot")
+}
+
 func (h *handler) changePassword(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	u := auth.FromContext(ctx)
 	if u.ViaAPIKey {
-		api.Fail(w, r, api.Errf(http.StatusForbidden, "session_required", "Sign in with the browser to change your password"))
+		api.Fail(w, r, errSessionRequired("change your password"))
 		return
 	}
 	if !h.passwordEnabled(ctx) {
@@ -282,6 +288,10 @@ func (h *handler) changePassword(w http.ResponseWriter, r *http.Request) {
 func (h *handler) setUserPassword(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	me := auth.FromContext(ctx)
+	if me.ViaAPIKey {
+		api.Fail(w, r, errSessionRequired("set a user's password"))
+		return
+	}
 	id := r.PathValue("id")
 	if id == me.ID {
 		api.Fail(w, r, api.Errf(http.StatusForbidden, "own_password", "Change your own password under Settings > Account"))
@@ -355,6 +365,11 @@ func (h *handler) addUser(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, signinBodyMax)
 	if err := api.Decode(r, &body); err != nil {
 		api.Fail(w, r, err)
+		return
+	}
+	// Creating an account with a password, or an admin, is a way to get in: not for a key.
+	if auth.FromContext(ctx).ViaAPIKey && (body.Password != "" || body.Role == "admin") {
+		api.Fail(w, r, errSessionRequired("add a user with a password or the admin role"))
 		return
 	}
 	email, err := normalizeEmail(body.Email)
