@@ -850,38 +850,6 @@ func TestAPIKeyCannotSetPasswordsOrAddAdmins(t *testing.T) {
 	}
 }
 
-// An SSO deployment stays SSO-only when its provider goes away: saving a login provider pins the
-// setting (settings.PinPasswordSignInOff), so deleting it later does not switch the form on.
-func TestPasswordFormStaysOffWhenTheProviderIsRemoved(t *testing.T) {
-	ctx := context.Background()
-	e := setup(t) // has an OAuth login provider, no setting
-	e.withPassword("user", "ann@example.com", pwAnn)
-	if err := settings.PinPasswordSignInOff(ctx, e.a.DB); err != nil { // what saving the provider does
-		t.Fatal(err)
-	}
-	e.a.Settings.Invalidate()
-	if _, err := e.a.DB.Exec(ctx, `DELETE FROM oauth_provider`); err != nil {
-		t.Fatal(err)
-	}
-	var out struct {
-		LoginForm bool `json:"login_form"`
-	}
-	e.ok("GET", "/api/v1/auths/providers", "", nil, &out)
-	if out.LoginForm {
-		t.Fatal("the password form switched on when the provider was deleted")
-	}
-	if r := e.signinAs("ann@example.com", pwAnn, ""); r.Code != http.StatusForbidden {
-		t.Fatalf("sign-in after the provider was deleted: %d %s", r.Code, r.Body)
-	}
-	// A fresh install with no provider and no setting is still on (TestSigninDefaultRule), and an admin can turn it on here.
-	if err := e.a.Settings.Set(ctx, "auth.password.enabled", true, false); err != nil {
-		t.Fatal(err)
-	}
-	if r := e.signinAs("ann@example.com", pwAnn, ""); r.Code != http.StatusOK {
-		t.Fatalf("after switching it on: %d %s", r.Code, r.Body)
-	}
-}
-
 // An SSO deployment whose login provider is removed later does not get a password form: saving the
 // provider pinned the setting (settings.PinPasswordSignInOff, which the admin API and kera apply call).
 // A fresh install with no provider still has the form on (TestSigninDefaultRule).
