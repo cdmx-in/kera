@@ -14,8 +14,9 @@ build: web
 
 test: test-go test-web
 
+# coverage.out (gitignored) is the profile CI uploads; DB tests count when KERA_TEST_DATABASE_URL is set.
 test-go:
-	go vet ./... && go test -race ./...
+	go vet ./... && go test -race -coverprofile=coverage.out ./...
 
 test-web:
 	cd web && pnpm typecheck && pnpm test
