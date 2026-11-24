@@ -162,6 +162,23 @@ export function mainCount(s: Pick<Step, 'kera' | 'counts'>): string {
   return hit ? `${c[hit[0]]} ${hit[1]}` : ''
 }
 
+const chipDefs: [string, string, 'red' | 'amber' | 'green' | 'accent' | 'grey'][] = [
+  ['failed', 'failed', 'red'],
+  ['refused', 'not removed', 'amber'],
+  ['waiting', 'waiting', 'accent'],
+  ['uploaded', 'changed', 'green'],
+  ['removed', 'removed', 'amber'],
+  ['adopted', 'adopted', 'grey'],
+  ['unchanged', 'unchanged', 'grey'],
+]
+
+/** The few counts a flow node shows as chips, most telling first (the first one is {@link mainCount}). */
+export function countChips(s: Pick<Step, 'kera' | 'counts'>, max = 3): { text: string; tone: 'red' | 'amber' | 'green' | 'accent' | 'grey' }[] {
+  const c = s.counts ?? {}
+  if (!s.kera) return Object.entries(c).slice(0, max).map(([k, v]) => ({ text: `${v} ${k}`, tone: 'grey' as const }))
+  return chipDefs.filter(([k]) => (c[k] ?? 0) > 0).slice(0, max).map(([k, label, tone]) => ({ text: `${c[k]} ${label}`, tone }))
+}
+
 export const countLabel = (k: string) => (k === 'refused' ? 'Removals refused' : humanize(k))
 
 /** The step to blame: the first failed script step, else the first failed collection. */

@@ -4,26 +4,27 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams, type NavigateFunction } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, CircleAlert, Copy, KeyRound, Pencil, RefreshCw, Trash2, TriangleAlert, type LucideIcon } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, ChevronLeft, Circle, CircleAlert, CircleDashed, Clock, Copy, KeyRound, Library, Loader2, Pencil, RefreshCw, Terminal, Trash2, TriangleAlert, Workflow, type LucideIcon } from 'lucide-react'
 import { Chip } from '@/features/workspace/ui'
 import { copyText, cx } from '@/lib/format'
 import { toast } from '@/stores/toast'
 import { Dialog, DialogHeader } from '@/ui/Dialog'
 import { attempt, Badge, Btn, Card, Confirm, Loading, ManagedBadge, Page } from './ui'
-import { CopyBlock, lateText, PipelineForm, pipelinesBase, StatusBadge, TokenDialog } from './Pipelines'
+import { CopyBlock, lateText, PipelineForm, pipelinesBase, StatusBadge, TokenDialog, tones } from './Pipelines'
 import { relative, when } from './settings/Integrations'
 import {
   atBottom,
+  countChips,
   countLabel,
   duration,
   everyText,
   failedStep,
   isStuck,
   logTail,
-  mainCount,
   runCommand,
   runSummary,
   stateOf,
+  statusLabel,
   triggerLabel,
   upToDate,
   useNow,
@@ -141,6 +142,9 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
       <Back />
       <div className="flex flex-wrap items-start gap-3">
         {/* a readable width, so the buttons wrap under the title on a tablet instead of squeezing it */}
+        <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
+          <Workflow size={22} aria-hidden />
+        </span>
         <div className="min-w-[min(100%,18rem)] flex-1">
           <h2 className="flex flex-wrap items-center gap-2 break-words text-lg font-semibold tracking-tight">
             {p.title || p.name} <StatusBadge status={state} /> {p.managed && <ManagedBadge />}
@@ -284,7 +288,7 @@ export function History({ runs, loading, more, selected, name, now, onMore }: { 
       {loading && !runs.length ? (
         <p className="px-5 py-4 text-sm text-muted">Loading runs…</p>
       ) : (
-        <ul className="max-h-[70dvh] divide-y divide-line overflow-y-auto">
+        <ul className="max-h-[70dvh] divide-y divide-line overflow-y-auto [scrollbar-color:var(--color-line)_transparent] [scrollbar-width:thin]">
           {runs.map((r) => (
             <li key={r.id}>
               <Link
@@ -293,7 +297,7 @@ export function History({ runs, loading, more, selected, name, now, onMore }: { 
                 aria-current={r.id === selected ? 'page' : undefined}
                 data-testid="run-item"
                 data-status={r.status}
-                className={cx('block space-y-1 px-4 py-3 text-sm hover:bg-surface-2/60', r.id === selected && 'bg-accent-soft')}
+                className={cx('block space-y-1 border-l-[3px] px-4 py-3 text-sm hover:bg-surface-2/60', look[r.status as StepStatus]?.rail ?? 'border-l-line', r.id === selected && 'bg-accent-soft')}
               >
                 <span className="flex flex-wrap items-center gap-1.5">
                   <StatusBadge status={r.status} />
@@ -333,6 +337,67 @@ export function History({ runs, loading, more, selected, name, now, onMore }: { 
 
 // The selected run --------------------------------------------------------------------
 
+/** How each status looks: icon, tinted tile, the colour of its word and the rail on the left edge of a card. */
+const look: Record<StepStatus, { icon: LucideIcon; tile: string; text: string; rail: string }> = {
+  pending: { icon: Circle, tile: 'bg-surface-2 text-muted', text: 'text-muted', rail: 'border-l-line' },
+  running: { icon: Loader2, tile: 'bg-accent-soft text-accent', text: 'text-accent', rail: 'border-l-accent' },
+  ok: { icon: Check, tile: 'bg-green-500/15 text-green-700 dark:text-green-400', text: 'text-green-700 dark:text-green-400', rail: 'border-l-green-500' },
+  warning: { icon: TriangleAlert, tile: 'bg-amber-500/15 text-amber-700 dark:text-amber-300', text: 'text-amber-700 dark:text-amber-300', rail: 'border-l-amber-500' },
+  failed: { icon: CircleAlert, tile: 'bg-red-500/15 text-red-700 dark:text-red-400', text: 'text-red-700 dark:text-red-400', rail: 'border-l-red-500' },
+  skipped: { icon: CircleDashed, tile: 'bg-surface-2 text-muted', text: 'text-muted', rail: 'border-l-line' },
+}
+
+/** The headline numbers of a run, as tiles: [count key, label, colour when above zero, shown even at zero]. */
+const stats: [string, string, 'text-green-700 dark:text-green-400' | 'text-amber-700 dark:text-amber-300' | 'text-red-700 dark:text-red-400' | 'text-accent' | '', boolean][] = [
+  ['listed', 'Files', '', true],
+  ['uploaded', 'Changed', 'text-green-700 dark:text-green-400', true],
+  ['adopted', 'Adopted', '', true],
+  ['unchanged', 'Unchanged', '', true],
+  ['removed', 'Removed', 'text-amber-700 dark:text-amber-300', true],
+  ['failed', 'Failed', 'text-red-700 dark:text-red-400', true],
+  ['refused', 'Not removed', 'text-amber-700 dark:text-amber-300', false],
+  ['waiting', 'Waiting', 'text-accent', false],
+]
+
+function RunHeader({ run, now }: { run: Run; now: number }) {
+  const l = look[run.status as StepStatus] ?? look.pending
+  const c = run.counts ?? {}
+  const tiles = stats.filter(([k, , , always]) => (always ? c[k] !== undefined : (c[k] ?? 0) > 0))
+  return (
+    <div className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={cx('grid size-11 shrink-0 place-items-center rounded-xl', l.tile)}>
+          <l.icon size={22} aria-hidden className={run.status === 'running' ? 'animate-spin' : ''} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold">
+            Run #{run.id}
+            <StatusBadge status={run.status} />
+            {run.dry_run && <Badge tone="accent">Dry run</Badge>}
+          </h3>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted" title={when(run.started_at)}>
+            <span>Started {relative(run.started_at)}</span>·
+            <span className="inline-flex items-center gap-1">
+              <Clock size={11} aria-hidden /> {duration(run.started_at, run.finished_at, now)}
+            </span>
+            ·<span>{triggerLabel(run.trigger)}</span>
+          </p>
+        </div>
+      </div>
+      {tiles.length > 0 && (
+        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6" data-testid="run-stats">
+          {tiles.map(([k, label, hot]) => (
+            <div key={k} className="rounded-xl border border-line bg-surface-2/40 px-3 py-2">
+              <dt className="text-xs text-muted">{label}</dt>
+              <dd className={cx('text-xl font-semibold tabular-nums', c[k] > 0 ? hot : 'text-muted')}>{c[k]}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  )
+}
+
 function RunView({ p, run, seq, now, refused, onOpen, onClose, onAllow }: { p: Pipeline; run: Run; seq: number | null; now: number; refused: number; onOpen: (seq: number) => void; onClose: () => void; onAllow?: () => void }) {
   const steps = [...(run.steps ?? [])].sort((a, b) => a.seq - b.seq)
   const open = run.status === 'running'
@@ -340,14 +405,7 @@ function RunView({ p, run, seq, now, refused, onOpen, onClose, onAllow }: { p: P
   const current = upToDate(run.counts)
   return (
     <div className="space-y-4" data-testid="run-view" data-status={run.status}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h3 className="text-[15px] font-semibold">Run #{run.id}</h3>
-        <StatusBadge status={run.status} />
-        {run.dry_run && <Badge tone="accent">Dry run</Badge>}
-        <span className="text-xs text-muted" title={when(run.started_at)}>
-          Started {relative(run.started_at)} · {duration(run.started_at, run.finished_at, now)} · {triggerLabel(run.trigger)}
-        </span>
-      </div>
+      <RunHeader run={run} now={now} />
 
       {isStuck(run, now) && (
         <Notice
@@ -438,15 +496,16 @@ function FailedBanner({ name, run, step, onOpen }: { name: string; run: Run; ste
 
 const ring: Record<StepStatus, string> = {
   pending: 'border-line',
-  running: 'border-accent',
+  running: 'border-accent/50',
   ok: 'border-line',
-  warning: 'border-amber-400 dark:border-amber-700',
-  failed: 'border-red-400 dark:border-red-700',
+  warning: 'border-amber-400/60 dark:border-amber-700',
+  failed: 'border-red-400/60 dark:border-red-700',
   skipped: 'border-dashed border-line text-muted',
 }
 
 function FlowNode({ s, on, now, onClick }: { s: Step; on: boolean; now: number; onClick: () => void }) {
-  const count = mainCount(s)
+  const l = look[s.status]
+  const chips = countChips(s)
   return (
     <button
       type="button"
@@ -456,58 +515,100 @@ function FlowNode({ s, on, now, onClick }: { s: Step; on: boolean; now: number; 
       data-kind={s.kera ? 'kera' : 'script'}
       onClick={onClick}
       className={cx(
-        'flex w-full flex-col gap-1 sm:w-44 rounded-xl border bg-surface px-3 py-2 text-left text-sm outline-none hover:bg-surface-2/60 focus-visible:border-accent focus-visible:ring-3 focus-visible:ring-accent-soft aria-pressed:border-accent aria-pressed:ring-2 aria-pressed:ring-accent',
+        'flex h-full min-w-0 flex-1 items-start gap-3 rounded-xl border border-l-4 bg-surface px-3 py-2.5 text-left text-sm outline-none transition-colors hover:bg-surface-2/60 focus-visible:border-accent focus-visible:ring-3 focus-visible:ring-accent-soft aria-pressed:border-accent aria-pressed:ring-2 aria-pressed:ring-accent',
         ring[s.status],
+        l.rail,
       )}
     >
-      <span className="line-clamp-2 break-words font-medium" title={s.name}>
-        {s.name}
+      <span className={cx('grid size-8 shrink-0 place-items-center rounded-lg', l.tile)}>
+        <l.icon size={16} aria-hidden className={s.status === 'running' ? 'animate-spin' : ''} />
       </span>
-      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <StatusBadge status={s.status} />
-        <span className="text-xs text-muted">{duration(s.started_at, s.finished_at, now)}</span>
+      <span className="min-w-0 flex-1 space-y-1">
+        <span className="line-clamp-2 block break-words font-medium leading-snug" title={s.name}>
+          {s.name}
+        </span>
+        <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted">
+          <span className={cx('font-medium', l.text)}>{statusLabel[s.status]}</span>
+          {s.started_at && (
+            <>
+              ·
+              <span className="inline-flex items-center gap-1">
+                <Clock size={11} aria-hidden /> {duration(s.started_at, s.finished_at, now)}
+              </span>
+            </>
+          )}
+        </span>
+        {chips.length > 0 && (
+          <span className="flex flex-wrap gap-1">
+            {chips.map((c) => (
+              <Badge key={c.text} tone={c.tone}>
+                {c.text}
+              </Badge>
+            ))}
+          </span>
+        )}
       </span>
-      <span className="min-h-4 truncate text-xs text-muted">{count}</span>
     </button>
   )
 }
 
 const Connector = () => (
-  <span aria-hidden className="mx-1 hidden shrink-0 items-center text-muted sm:inline-flex">
-    <span className="h-px w-3 bg-current opacity-50" />
-    <ChevronRight size={14} />
+  <span aria-hidden className="hidden shrink-0 items-center px-1.5 text-muted sm:inline-flex">
+    <ArrowRight size={16} />
   </span>
 )
 
+/** A lane of the diagram: a small tinted icon, its name and one line of what it is. */
+function LaneTitle({ icon: Icon, tone, title, hint, id }: { icon: LucideIcon; tone: keyof typeof tones; title: string; hint: string; id?: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span className={cx('grid size-6 place-items-center rounded-md', tones[tone])}>
+        <Icon size={13} aria-hidden />
+      </span>
+      <span id={id} className="text-xs font-semibold uppercase tracking-wide">
+        {title}
+      </span>
+      <span className="text-xs text-muted">{hint}</span>
+    </div>
+  )
+}
+
 // ponytail: a linear chain plus a fan to the collections; add an `after` column and a layout when steps branch.
 export function Flow({ steps, seq, now, onOpen }: { steps: Step[]; seq: number | null; now: number; onOpen: (seq: number) => void }) {
-  const script = steps.filter((s) => !s.kera)
+  // the implicit "start" step comes first, whatever order an older run recorded it in
+  const plain = steps.filter((s) => !s.kera)
+  const script = [...plain.filter((s) => s.name === 'start'), ...plain.filter((s) => s.name !== 'start')]
   const kera = steps.filter((s) => s.kera)
   const node = (s: Step) => <FlowNode s={s} on={s.seq === seq} now={now} onClick={() => onOpen(s.seq)} />
   return (
-    <div data-testid="flow" className="flex flex-col gap-y-5 rounded-2xl border border-line bg-surface p-4 sm:flex-row sm:flex-wrap sm:items-center">
+    <div data-testid="flow" className="space-y-1 rounded-2xl border border-line bg-surface p-4 sm:p-5">
       {script.length > 0 && (
-        <ol aria-label="Script steps" className="flex min-w-0 flex-col gap-y-3 sm:flex-row sm:flex-wrap sm:items-center">
-          {script.map((s, i) => (
-            <li key={s.seq} className="flex items-center sm:w-auto">
-              {node(s)}
-              {i < script.length - 1 && <Connector />}
-            </li>
-          ))}
-        </ol>
+        <section className="space-y-2.5">
+          <LaneTitle icon={Terminal} tone="violet" title="Script" hint="The steps your script reports" />
+          <ol aria-label="Script steps" className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
+            {script.map((s, i) => (
+              <li key={s.seq} className="flex items-stretch sm:min-w-[12rem] sm:flex-1">
+                {node(s)}
+                {i < script.length - 1 && <Connector />}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+      {script.length > 0 && kera.length > 0 && (
+        <div aria-hidden className="flex flex-col items-center py-1 text-muted">
+          <span className="h-3 w-px bg-line" />
+          <ChevronDown size={16} />
+        </div>
       )}
       {kera.length > 0 && (
-        <div
-          role="group"
-          aria-labelledby="flow-kera"
-          className="relative flex min-w-0 flex-col gap-2 py-3 pl-5 sm:min-w-[min(100%,24rem)] sm:flex-1 before:absolute before:inset-y-0 before:left-0 before:w-2.5 before:rounded-l-lg before:border-y-2 before:border-l-2 before:border-line"
-        >
-          <p id="flow-kera" className="text-xs font-semibold uppercase tracking-wide text-muted">
-            Kera
-          </p>
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-2">
+        <div role="group" aria-labelledby="flow-kera" className="space-y-2.5 rounded-xl border border-line bg-surface-2/40 p-3 sm:p-4">
+          <LaneTitle id="flow-kera" icon={Library} tone="sky" title="Kera" hint={`${kera.length} ${kera.length === 1 ? 'collection' : 'collections'} kept in sync`} />
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-2">
             {kera.map((s) => (
-              <li key={s.seq}>{node(s)}</li>
+              <li key={s.seq} className="flex">
+                {node(s)}
+              </li>
             ))}
           </ul>
         </div>

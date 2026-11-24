@@ -58,8 +58,17 @@ describe('Flow', () => {
     const h = renderToStaticMarkup(<Flow steps={many} seq={null} now={now} onOpen={() => {}} />)
     expect(h).toContain('line-clamp-2')
     expect(h).not.toContain('truncate font-medium')
-    expect(h).toContain('grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]')
+    expect(h).toContain('grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]')
     expect(h.match(/data-testid="flow-node"/g)).toHaveLength(20)
+  })
+  it('puts the implicit start step first, even when an older run recorded it last', () => {
+    const late = [step({ seq: 1, name: 'secret-scan' }), step({ seq: 2, name: 'kera' }), step({ seq: 3, name: 'start' })]
+    const h = renderToStaticMarkup(<Flow steps={late} seq={null} now={now} onOpen={() => {}} />)
+    const order = [...h.matchAll(/data-testid="flow-node"[^>]*>.*?title="([^"]+)"/g)].map((m) => m[1])
+    expect(order).toEqual(['start', 'secret-scan', 'kera'])
+  })
+  it('shows a count chip per number that matters, most telling first', () => {
+    expect(nodes[3]).toMatch(/2 waiting.*3 changed/)
   })
   it('draws no script row when a run only has collections', () => {
     const only = renderToStaticMarkup(<Flow steps={steps.filter((s) => s.kera)} seq={null} now={now} onOpen={() => {}} />)

@@ -83,7 +83,7 @@ export function TokenDialog({ pipeline, token, onClose }: { pipeline: Pipeline; 
 
 const formFields = ['name', 'title', 'targets', 'new_collections', 'every_minutes', 'owner_id']
 
-const tones = {
+export const tones = {
   accent: 'bg-accent-soft text-accent',
   amber: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
   sky: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',

@@ -20,7 +20,7 @@ import {
   validatePipeline,
   type Pipeline,
   type Step,
-} from './pipelines'
+ countChips } from './pipelines'
 
 const pipe = (o: Partial<Pipeline> = {}): Pipeline => ({
   id: 'p1',
@@ -248,5 +248,17 @@ describe('countLabel', () => {
   it('words the counts', () => {
     expect(countLabel('listed')).toBe('Listed')
     expect(countLabel('refused')).toBe('Removals refused')
+  })
+})
+
+describe('countChips', () => {
+  it('lists a collection\'s non-zero counts, worst first, at most three', () => {
+    const c = countChips({ kera: true, counts: { listed: 30, unchanged: 22, adopted: 4, uploaded: 3, removed: 1, failed: 1 } })
+    expect(c.map((x) => x.text)).toEqual(['1 failed', '3 changed', '1 removed'])
+    expect(c[0].tone).toBe('red')
+  })
+  it('shows nothing for a collection with no counts, and a script step\'s own counts as they come', () => {
+    expect(countChips({ kera: true, counts: {} })).toEqual([])
+    expect(countChips({ kera: false, counts: { files: 25 } }).map((x) => x.text)).toEqual(['25 files'])
   })
 })
