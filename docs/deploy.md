@@ -14,7 +14,7 @@ The stack has four services: `kera`, its Postgres `kera-db`, `extract`, which re
 
 Without `KERA_ADMIN_EMAIL`, `./init.sh` writes the same `.env` and prints how to get an admin. Before the first start you can delete `.env` and run it again with the variable. At any time while Kera has no users, you can add `KERA_ADMIN_EMAIL` and `KERA_ADMIN_PASSWORD` (10 or more characters) to `.env` and run `docker compose up -d`. Or run `docker compose exec kera kera user login-link you@example.com` for a one-time sign-in link.
 
-Without `init.sh`: `cp .env.example .env` and fill in `KERA_DB_PASSWORD` and `KERA_SECRET_KEY` (`openssl rand -hex 32`), and for a first admin `KERA_ADMIN_EMAIL` and `KERA_ADMIN_PASSWORD` (10 or more characters; avoid `$` and `#`, which `.env` files treat specially). `.env` holds the key that encrypts the API keys Kera stores, so keep it with your backups and out of git.
+Without `init.sh`: `cp .env.example .env` and fill in `KERA_DB_PASSWORD` and `KERA_SECRET_KEY` (`openssl rand -hex 32`), and for a first admin `KERA_ADMIN_EMAIL` and `KERA_ADMIN_PASSWORD` (10 or more characters; avoid `$` and `#`, which `.env` files treat specially). `.env` holds the key that encrypts the API keys Kera stores, so keep it out of git and out of the backup of the data (see [The secret key](#the-secret-key)).
 
 ### The password in `.env`
 
@@ -201,7 +201,7 @@ Measured idle: Kera about 20 MB of memory (a burst of sign-ins can take up to 4 
 - Volumes: `kera_pgdata` (the database), `kera_data` (uploaded files, branding), `kera_runner_token` (the built-in runner's token, made by Kera), `kera_runner_work` (the workspaces of Kera-run pipelines), `litellm_pgdata`, `ollama_models`. Compose prefixes them with the project name, which is the folder name unless you set `COMPOSE_PROJECT_NAME` or `-p`: by default `deploy_kera_pgdata` and `deploy_kera_data`. `docker volume ls` shows the names on your machine; use them in place of `deploy_` in the commands below.
 - `docker compose down` keeps all data. `docker compose down -v` deletes it.
 
-Back up the database and the uploads, and keep `.env` somewhere safe: it holds `KERA_SECRET_KEY`, which encrypts the API keys and secrets Kera stores and signs the sign-in sessions, and `KERA_DB_PASSWORD`. A backup without it cannot restore those. Take the two archives at about the same time, since the database lists the uploaded files.
+Back up the database and the uploads, and keep `.env` somewhere safe but **apart from them**: it holds `KERA_SECRET_KEY`, which encrypts the API keys and secrets Kera stores and signs the sign-in sessions, and `KERA_DB_PASSWORD`. A backup without it cannot restore those, and a backup with it opens all of them ([The secret key](#the-secret-key)). Take the two archives at about the same time, since the database lists the uploaded files.
 
 ```sh
 docker compose exec -T kera-db pg_dump -U kera kera | gzip > kera-db.sql.gz
@@ -238,6 +238,29 @@ For a machine that lost its data, a new machine, or a restore over a running sta
 
 The accounts are the ones in the backup: an admin that `./init.sh` printed on a new machine does not exist after the restore. Forgotten password: `docker compose exec kera kera user passwd you@example.com`.
 
+### The secret key
+
+`KERA_SECRET_KEY` encrypts every credential Kera stores (model API keys, OAuth client secrets and tokens, tool and hook server keys, pipeline variables, secret settings) and signs the sign-in sessions. Keep it out of git and **apart from the backup of the data**: a database dump with the key opens every stored secret, a dump without it opens none. If the key is lost, those secrets are gone and are entered again (`kera apply` writes the ones in your config file back).
+
+`.env` is the default home. To keep the key out of the container's environment (`docker inspect` shows it), point Kera at a file: `KERA_SECRET_KEY_FILE=/run/secrets/kera_secret_key`, and `KERA_DATABASE_URL_FILE` for the database address, which carries the database password. The file wins when the plain variable is set too, and a trailing newline is dropped (nothing else is: the key is used byte for byte). Docker or Kubernetes secrets, systemd `LoadCredential=` or a mode 600 file all work. The stock `docker-compose.yml` still takes the key from `.env`; to use a file there, replace its `KERA_SECRET_KEY:` lines with `KERA_SECRET_KEY_FILE: /run/secrets/kera_secret_key` and mount the file with Compose `secrets:`.
+
+**Rotating the key** (it may have leaked, or someone who knew it left). Take a database backup first. `kera secrets check` opens every stored secret with the current key and prints how many it found in each place, never a value; it exits 1 when any fails. `kera secrets rotate` opens everything with the old key, writes it again under the new key and checks the result, all in one transaction: when any secret does not open with the old key it stops and changes nothing, and `--dry-run` stops there on purpose. Stop Kera while it runs.
+
+```sh
+docker compose exec kera kera secrets check
+docker compose stop kera
+sed -n 's/^KERA_SECRET_KEY=//p' .env > old.key
+openssl rand -hex 32 > new.key
+docker compose run --rm --no-deps -v "$PWD/old.key:/old.key:ro" -v "$PWD/new.key:/new.key:ro" \
+  kera secrets rotate --dry-run --old-key-file /old.key --new-key-file /new.key
+```
+
+Run the same command without `--dry-run`, then put the contents of `new.key` into `.env` (or your secret file), `docker compose up -d`, and run `kera secrets check` again. Delete `old.key` and `new.key` afterwards: the new key now lives in `.env` or your secret store. Do not start Kera with the old key again: it would not open anything. What a rotation does to a running install:
+
+- Everyone is signed out, because sessions are signed with the key. API keys keep working.
+- Tool and hook calls that started in the last 15 minutes lose their callback token, and pipeline runs that are open at that moment lose theirs and fail or time out.
+- Kera keeps decrypted values in memory, so every Kera process must be restarted with the new key.
+
 ### Upgrade
 
 Upgrade with `docker compose pull && docker compose up -d`; database migrations run on start. An install from before the `extract` service existed gets it by updating the checkout (`git pull`) and running `docker compose up -d`: Kera uses it with no setting changed, and files that failed earlier have a Retry button. The same goes for the `runner` service ([Pipelines run by Kera](#pipelines-run-by-kera)).
@@ -251,8 +274,8 @@ Upgrade with `docker compose pull && docker compose up -d`; database migrations 
 | "Too many attempts" | Wait the time it says (30 seconds to 15 minutes), or set a new password for the user in Admin > Users, which clears their locks. |
 | The admin from `KERA_ADMIN_EMAIL` does not exist | It is created only at a start where Kera has no users; `docker compose logs kera` says "first admin created" or "ignored". Use `kera user add`, or `login-link` to get in. |
 | Kera stops at start with `KERA_ADMIN_PASSWORD` in the message | The password is shorter than 10 characters, or the email is not an address; fix `.env` and `docker compose up -d`. |
-| `KERA_SECRET_KEY must be at least 32 bytes` in `docker compose logs kera` | Use 64 hex characters: `openssl rand -hex 32`. |
-| Sign-in fails, or Kera does not come up, after a restore | `docker compose logs kera` says which. `password authentication failed for user "kera"`: `.env` has another `KERA_DB_PASSWORD` than the one the database volume was created with. Put the old `.env` back, or give the database the new password: ``docker compose exec -T kera-db psql -U kera -d kera -c "ALTER USER kera PASSWORD '$(sed -n 's/^KERA_DB_PASSWORD=//p' .env)'"``. You are signed out again, or `cannot be decrypted` appears for a connection or provider: `KERA_SECRET_KEY` is not the one of the backup, so old sessions are void and stored keys cannot be read; put the original value back (`docker compose up -d`), or sign in with your password and enter the keys again. "Invalid email or password" for the admin `./init.sh` printed: the restore replaced all accounts, use the ones from the backup. |
+| `KERA_SECRET_KEY must be at least 32 bytes` in `docker compose logs kera` | Use 64 hex characters: `openssl rand -hex 32`. With `KERA_SECRET_KEY_FILE` the message names the file; it must hold the key (a trailing newline is fine) and be readable by Kera. |
+| Sign-in fails, or Kera does not come up, after a restore | `docker compose logs kera` says which. `password authentication failed for user "kera"`: `.env` has another `KERA_DB_PASSWORD` than the one the database volume was created with. Put the old `.env` back, or give the database the new password: ``docker compose exec -T kera-db psql -U kera -d kera -c "ALTER USER kera PASSWORD '$(sed -n 's/^KERA_DB_PASSWORD=//p' .env)'"``. You are signed out again, or `cannot be decrypted` appears for a connection or provider: `KERA_SECRET_KEY` is not the one of the backup, so old sessions are void and stored keys cannot be read; put the original value back (`docker compose up -d`), or sign in with your password and enter the keys again. `docker compose exec kera kera secrets check` counts what opens with the key Kera has now. "Invalid email or password" for the admin `./init.sh` printed: the restore replaced all accounts, use the ones from the backup. |
 | `port is already allocated` | Set `KERA_PORT=8081` (and `KERA_URL=http://localhost:8081`) in `.env`. |
 | Sign-in link or login redirects go to the wrong address | Set `KERA_URL` to the address in the browser's address bar. |
 | No models in the picker | Admin: Admin > Settings > Connections > Test shows why. Other users: see the note on models above. |

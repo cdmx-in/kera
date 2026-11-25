@@ -1,5 +1,7 @@
 #!/bin/sh
 # Writes deploy/.env with random secrets, once. Usage: ./init.sh [ollama] [litellm] [searxng]
+# KERA_SECRET_KEY in it encrypts every stored credential: keep it apart from backups of the data. To keep it out of
+# the container's environment, Kera also reads KERA_SECRET_KEY_FILE (see docs/deploy.md, The secret key).
 #   ollama   also run a model server in the stack (small chat + embedding model, CPU)
 #   litellm  also run the LiteLLM gateway, wired to Kera with spend tracking
 #   searxng  also run SearXNG for private web search, wired to Kera (no account or API key)

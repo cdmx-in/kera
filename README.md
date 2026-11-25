@@ -198,8 +198,8 @@ Only Postgres is required. The sidecars (document extraction, reranking, code sa
 
 | Variable | Purpose |
 |---|---|
-| `KERA_DATABASE_URL` | Postgres connection string (required) |
-| `KERA_SECRET_KEY` | 32-byte hex key that signs sessions and encrypts stored secrets (required; rotating it signs everyone out) |
+| `KERA_DATABASE_URL` | Postgres connection string (required). `KERA_DATABASE_URL_FILE` names a file that holds it instead (Docker or Kubernetes secrets; the file wins) |
+| `KERA_SECRET_KEY` | 32-byte hex key that signs sessions and encrypts stored secrets (required; changing it signs everyone out, and `kera secrets rotate` re-encrypts what is stored, see [docs/deploy.md](docs/deploy.md#the-secret-key)). `KERA_SECRET_KEY_FILE` names a file that holds it instead |
 | `KERA_URL` | Public URL of the server, used for sign-in redirects |
 | `KERA_CALLBACK_URL` | Callback base URL for tools and sidecars, if different from `KERA_URL` |
 | `KERA_LISTEN` | Listen address, default `:8080` |

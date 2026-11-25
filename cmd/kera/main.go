@@ -25,6 +25,7 @@ import (
 	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/knowledge"
 	"github.com/cdmx-in/kera/internal/pipeline"
+	"github.com/cdmx-in/kera/internal/rotate"
 	"github.com/cdmx-in/kera/internal/secret"
 	"github.com/cdmx-in/kera/internal/settings"
 	"github.com/cdmx-in/kera/internal/skills"
@@ -42,8 +43,9 @@ Usage:
   kera export [-o FILE]   print the managed config as YAML (secrets as ${...})
   kera version            print the version
   kera health             exit 0 when the local server is ready (container healthcheck)
-` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + pipeline.CLIUsage + pipeline.RunnerUsage + identity.CLIUsage + `
+` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + pipeline.CLIUsage + pipeline.RunnerUsage + identity.CLIUsage + rotate.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
+KERA_DATABASE_URL_FILE and KERA_SECRET_KEY_FILE (a file holding the value, which wins over the variable; for Docker or Kubernetes secrets),
 KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL),
 KERA_ADMIN_EMAIL and KERA_ADMIN_PASSWORD (create the first admin when serve finds no users), KERA_TRUSTED_PROXIES
 (CDNs, addresses or CIDRs, whose X-Forwarded-For is believed for sign-in rate limits; private proxies are always trusted for it too).
@@ -102,6 +104,8 @@ func run(args []string) error {
 		return pipeline.Command(ctx, args[1:], os.Stdout, os.Stderr)
 	case "runner":
 		return pipeline.RunnerCommand(ctx, os.Stdout, os.Stderr)
+	case "secrets":
+		return rotate.Command(ctx, args[1:], os.Stdout)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
