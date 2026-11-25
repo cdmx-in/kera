@@ -327,7 +327,7 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := connectors.Connector{Name: Name, Run: run}
+	c := connectors.Connector{Name: Name, Title: "Google Workspace", Run: run}
 	if _, err := connectors.Run(ctx, a, c, "cli", true); err == nil {
 		t.Fatal("ran without credentials")
 	}
@@ -369,6 +369,18 @@ func TestRun(t *testing.T) {
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM "user" WHERE origin = 'gworkspace'`).Scan(&n)
 	if n != 2 {
 		t.Errorf("real run created %d users", n)
+	}
+	// the dry runs recorded nothing; the real one recorded both accounts with the integration as the actor
+	var events, other int
+	var leaks bool
+	if err := pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE action = 'user.create' AND actor_kind = 'service' AND actor_label = 'Google Workspace'
+			AND actor_id IS NULL AND target_type = 'user' AND meta->>'integration' = 'google_workspace' AND target_label IN ('one@ex.com', 'two@ex.com')),
+		count(*) FILTER (WHERE action <> 'user.create'),
+		coalesce(bool_or(row_to_json(a)::text ~* 'PRIVATE KEY|Bearer|assertion|client_email'), false) FROM audit_event a`).Scan(&events, &other, &leaks); err != nil {
+		t.Fatal(err)
+	}
+	if events != 2 || other != 0 || leaks {
+		t.Errorf("audit: %d user.create events by the integration, %d other events, credentials in a row: %v", events, other, leaks)
 	}
 	var runs, failed int
 	_ = pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE error <> '') FROM connector_run WHERE finished_at IS NOT NULL`).Scan(&runs, &failed)
