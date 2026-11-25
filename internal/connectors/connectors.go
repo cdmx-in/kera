@@ -28,6 +28,7 @@ import (
 
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/audit"
 )
 
 // Change is one thing a run did (or, in a dry run, would do).
@@ -221,6 +222,9 @@ func run(ctx context.Context, a *app.App, c Connector, trigger string, dryRun bo
 	if rep == nil {
 		rep = NewReport()
 	}
+	if runErr == nil && !dryRun {
+		recordUsers(ctx, a, c, rep)
+	}
 	msg := ""
 	if runErr != nil {
 		msg = runErr.Error()
@@ -334,4 +338,19 @@ func Command(ctx context.Context, a *app.App, args []string, out io.Writer) erro
 		return err
 	}
 	return fmt.Errorf("unknown connectors command %q", args[0])
+}
+
+// userActions are the report actions that change a user account; each one becomes an audit event.
+var userActions = map[string]string{"create": "user.create", "disable": "user.disable", "enable": "user.enable", "delete": "user.delete"}
+
+// recordUsers writes an audit event, with the integration as the actor, for each account a run created,
+// disabled, enabled or deleted.
+func recordUsers(ctx context.Context, a *app.App, c Connector, rep *Report) {
+	actx := audit.With(ctx, a.DB, audit.KindService, c.Title)
+	for _, ch := range rep.Changes {
+		if action, ok := userActions[ch.Action]; ok {
+			audit.Record(actx, audit.Event{Action: action, TargetType: "user", TargetLabel: ch.Target,
+				Meta: map[string]any{"integration": c.Name, "reason": ch.Detail}})
+		}
+	}
 }

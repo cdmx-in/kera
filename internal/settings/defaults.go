@@ -58,6 +58,9 @@ var Defaults = map[string]json.RawMessage{
 	"guardrails.moderation.model": raw(`"omni-moderation-latest"`),
 	"guardrails.local_exempt":     raw(`true`),
 
+	// Audit log (internal/audit): days an event is kept; 0 keeps every event. The purge runs daily.
+	"audit.retention_days": raw(`365`),
+
 	// Cowork (task mode): the prompt added after the preset prompt ("" = cowork.DefaultPrompt) and its tool-round cap.
 	"cowork.prompt":              raw(`""`),
 	"cowork.max_tool_iterations": raw(`100`),

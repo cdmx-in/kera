@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, KeyRound, Pencil, Search, Trash2, UserPlus } from 'lucide-react'
+import { ChevronDown, History, KeyRound, Pencil, Search, Trash2, UserPlus } from 'lucide-react'
+import { Link } from 'react-router'
 import { api, type ApiError } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { useAuthOptions, useMe } from '@/api/queries'
@@ -22,6 +23,9 @@ const roleOptions = roles.map((r) => ({ value: r, label: r[0].toUpperCase() + r.
 export function avatarURL(id: string) {
   return `/api/v1/users/${enc(id)}/profile/image`
 }
+
+/** The Audit tab showing what one user did. */
+export const activityPath = (u: { id: string; email: string }) => `/admin/audit?actor=${enc(u.id)}&name=${enc(u.email)}`
 
 export function UserAvatar({ id, size = 28 }: { id: string; size?: number }) {
   return <img src={avatarURL(id)} alt="" loading="lazy" width={size} height={size} className="shrink-0 rounded-full bg-surface-2 object-cover" style={{ width: size, height: size }} />
@@ -194,6 +198,14 @@ export function UsersPage() {
                       </td>
                       <td className={cx(tdCls, 'text-right tabular-nums')}>{u.api_key_count}</td>
                       <td className={cx(tdCls, 'whitespace-nowrap text-right')}>
+                        <Link
+                          to={activityPath(u)}
+                          aria-label={`Activity of ${u.email}`}
+                          title={`Activity of ${u.email}`}
+                          className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg align-middle text-muted hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+                        >
+                          <History size={15} aria-hidden />
+                        </Link>
                         <IconButton label={`Edit ${u.email}`} onClick={() => setEditing(u)}>
                           <Pencil size={15} />
                         </IconButton>

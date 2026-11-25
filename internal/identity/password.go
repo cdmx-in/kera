@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cdmx-in/kera/internal/api"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
 )
@@ -149,6 +150,12 @@ func (h *handler) signin(w http.ResponseWriter, r *http.Request) {
 			who = email // a real account: the log may name it
 		}
 		slog.Warn("password sign-in failed", "email", who, "fp", shown, "ip", ip, "reason", reason)
+		e := audit.Event{Action: "auth.sign_in_failed", Outcome: audit.Denied, ActorKind: audit.KindAnonymous, ActorLabel: who,
+			TargetType: "user", TargetLabel: who, Meta: map[string]any{"method": "password", "reason": reason}}
+		if found {
+			e.TargetID = id
+		}
+		audit.Record(ctx, e) // capped per address and minute (audit.limiter); locked-out tries above are not recorded
 		api.Fail(w, r, errBadLogin)
 		return
 	}
@@ -169,6 +176,7 @@ func (h *handler) signin(w http.ResponseWriter, r *http.Request) {
 	}
 	u.SessionEpoch = epoch // the epoch the password was checked under, even if it moved since
 	api.LogUser(ctx, id)
+	audit.Record(ctx, audit.Event{Action: "auth.sign_in", ActorID: u.ID, ActorLabel: u.Email, Meta: map[string]any{"method": "password"}})
 	h.respondSession(w, r, u)
 }
 
@@ -263,6 +271,7 @@ func (h *handler) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if !match {
 		slog.Warn("password change refused", "user", u.ID, "email", u.Email, "ip", ip, "reason", "wrong current password")
+		audit.Record(ctx, audit.Event{Action: "auth.password_change", Outcome: audit.Denied, Meta: map[string]any{"reason": "wrong current password"}})
 		api.Fail(w, r, api.FieldErr("password", "wrong_password", "The current password is not right."))
 		return
 	}
@@ -278,6 +287,7 @@ func (h *handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("password changed", "user", u.ID, "ip", ip)
+	audit.Record(ctx, audit.Event{Action: "auth.password_change", TargetType: "user", TargetID: u.ID, TargetLabel: u.Email})
 	u.SessionEpoch = epoch // this session continues; every other one ends
 	ttl := h.a.Auth.SessionTTL(ctx)
 	tok, err := auth.IssueSession(h.a.Keys, u.ID, epoch, ttl)
@@ -335,6 +345,7 @@ func (h *handler) setUserPassword(w http.ResponseWriter, r *http.Request) {
 	h.attempts.Reset(auth.Key{Kind: "email", Value: strings.ToLower(email)})
 	h.attempts.Reset(auth.Key{Kind: "change-password", Value: id})
 	slog.Info("password set by an admin", "admin", me.ID, "user", id, "api_keys_revoked", body.RevokeAPIKeys)
+	audit.Record(ctx, audit.Event{TargetID: id, TargetLabel: email, Meta: map[string]any{"api_keys_revoked": body.RevokeAPIKeys}})
 	api.JSON(w, http.StatusOK, map[string]any{"status": true})
 }
 
@@ -445,6 +456,7 @@ func (h *handler) addUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("user added by an admin", "admin", auth.FromContext(ctx).ID, "user", id, "role", body.Role, "password", hash != "")
+	audit.Record(ctx, audit.Event{TargetID: id, TargetLabel: email, Meta: map[string]any{"role": body.Role, "password_set": hash != ""}})
 	u, err := h.loadUser(ctx, id)
 	if err != nil {
 		api.Fail(w, r, err)

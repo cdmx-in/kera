@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/settings"
@@ -55,6 +56,7 @@ func UserCmd(ctx context.Context, db *pgxpool.Pool, args []string, in io.Reader,
 		if tag.RowsAffected() == 0 {
 			return fmt.Errorf("no user with email %s (they must sign in once first)", args[1])
 		}
+		audit.Record(audit.CLI(ctx, db), audit.Event{Action: "user.role_change", TargetType: "user", TargetLabel: strings.ToLower(args[1]), Meta: map[string]any{"to": "admin"}})
 		fmt.Fprintln(out, args[1], "is now an admin")
 		return nil
 	}
@@ -118,6 +120,7 @@ func addUserCLI(ctx context.Context, db *pgxpool.Pool, args []string, in io.Read
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
+	audit.Record(audit.CLI(ctx, db), audit.Event{Action: "user.create", TargetID: id, TargetLabel: email, Meta: map[string]any{"role": role, "password_set": hash != ""}})
 	if hash != "" {
 		fmt.Fprintf(out, "added %s as %s with a password; they sign in at the web address with that email and password\n", email, role)
 		return nil
@@ -165,6 +168,7 @@ func passwdCLI(ctx context.Context, db *pgxpool.Pool, args []string, in io.Reade
 	if _, err := storePassword(ctx, db, id, pw, *revoke); err != nil {
 		return err
 	}
+	audit.Record(audit.CLI(ctx, db), audit.Event{Action: "user.password_set", TargetID: id, TargetLabel: email, Meta: map[string]any{"api_keys_revoked": *revoke}})
 	fmt.Fprintf(out, "password set for %s; their other sessions are signed out\n", email)
 	if *revoke {
 		fmt.Fprintln(out, "their API keys are deleted")
@@ -255,10 +259,11 @@ func APIKeyCmd(ctx context.Context, db *pgxpool.Pool, args []string, out, warn i
 	}
 	switch args[0] {
 	case "create":
-		_, key, err := CreateAPIKey(ctx, db, userID, *name)
+		keyID, key, err := CreateAPIKey(ctx, db, userID, *name)
 		if err != nil {
 			return err
 		}
+		audit.Record(audit.CLI(ctx, db), audit.Event{Action: "apikey.create", TargetID: keyID, TargetLabel: *name, Meta: map[string]any{"owner": strings.ToLower(*email)}})
 		u, err := auth.New(db, nil, settings.New(db), false).LoadUser(ctx, userID)
 		if err == nil && !u.Can("features.api_keys") {
 			fmt.Fprintln(warn, "warning: this user lacks the features.api_keys permission, so the key will not authenticate until it is granted")

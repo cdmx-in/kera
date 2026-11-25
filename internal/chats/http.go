@@ -13,6 +13,7 @@ import (
 
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
 )
@@ -572,6 +573,7 @@ func (h *handler) share(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(ctx, audit.Event{Action: "chat.share", TargetID: c.ID, Meta: map[string]any{"share_id": shareID}})
 	api.JSON(w, http.StatusOK, map[string]any{"id": shareID, "share_id": shareID, "chat_id": c.ID, "title": c.Title})
 }
 
@@ -590,6 +592,7 @@ func (h *handler) unshare(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(ctx, audit.Event{Action: "chat.unshare", TargetID: c.ID})
 	api.JSON(w, http.StatusOK, true)
 }
 

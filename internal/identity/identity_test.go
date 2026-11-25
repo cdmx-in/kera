@@ -20,6 +20,7 @@ import (
 
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/ids"
@@ -107,6 +108,9 @@ func setup(t *testing.T) *env {
 	st := settings.New(pool)
 	a := &app.App{Env: cfg, DB: pool, Keys: keys, Settings: st, Server: s, Auth: auth.New(pool, keys, st, false)}
 	if err := Mount(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := audit.Mount(a); err != nil {
 		t.Fatal(err)
 	}
 	root = s.Handler()

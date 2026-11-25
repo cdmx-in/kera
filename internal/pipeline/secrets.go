@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/cdmx-in/kera/internal/api"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
 )
@@ -171,6 +172,11 @@ func (s *Service) aSecretCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("secret created", "name", in.Name, "by", deref(by, "")) // never the value
+	e := audit.Event{TargetID: in.Name, TargetLabel: in.Name}
+	if in.From != nil {
+		e.Meta = map[string]any{"copied_from": in.From.Pipeline + "/" + in.From.Variable}
+	}
+	audit.Record(r.Context(), e)
 	s.secretsReply(w, r, http.StatusCreated)
 }
 
@@ -228,6 +234,14 @@ func (s *Service) aSecretUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("secret updated", "name", name, "value_changed", in.Value != nil, "by", deref(by, ""))
+	var changed []string
+	if in.Value != nil {
+		changed = append(changed, "value")
+	}
+	if in.Description != nil {
+		changed = append(changed, "description")
+	}
+	audit.Record(r.Context(), audit.Event{TargetLabel: name, Meta: map[string]any{"changed": changed}})
 	s.secretsReply(w, r, http.StatusOK)
 }
 
@@ -257,6 +271,7 @@ func (s *Service) aSecretDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("secret deleted", "name", name, "by", deref(userID(r), ""))
+	audit.Record(r.Context(), audit.Event{TargetLabel: name})
 	w.WriteHeader(http.StatusNoContent)
 }
 

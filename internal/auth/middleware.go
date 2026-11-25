@@ -42,14 +42,21 @@ func (a *Authenticator) Required(next http.Handler) http.Handler {
 	})
 }
 
-// Admin requires an authenticated admin.
+// Admin requires an authenticated admin. AdminHook, when set, runs around the check.
 func (a *Authenticator) Admin(next http.Handler) http.Handler {
-	return a.Required(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	check := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !FromContext(r.Context()).IsAdmin() {
 			deny(w, http.StatusForbidden, "forbidden", "Admin access required")
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+	return a.Required(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a.AdminHook != nil {
+			a.AdminHook(w, r, check)
+			return
+		}
+		check.ServeHTTP(w, r)
 	}))
 }
 

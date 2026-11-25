@@ -3,6 +3,7 @@ import { NavLink, Navigate, useParams, useSearchParams } from 'react-router'
 import { useMe } from '@/api/queries'
 import { AdminFrame, pillCls } from './Frame'
 import { AnalyticsPage } from './Analytics'
+import { AuditPage } from './Audit'
 import { GroupsPage } from './Groups'
 import { PipelineDetail } from './PipelineRuns'
 import { RunnersPage } from './PipelineRunners'
@@ -44,6 +45,7 @@ function sections(): [string, string][] {
     ['skills', 'Skills'],
     ['analytics', 'Analytics'],
     ['spend', 'Spend'],
+    ['audit', 'Audit'],
     ['pipelines', 'Pipelines'],
     ['settings', 'Settings'],
   ]
@@ -60,6 +62,7 @@ export default function AdminPage() {
   else if (section === 'skills') body = <SkillsPage />
   else if (section === 'analytics') body = <AnalyticsPage />
   else if (section === 'spend') body = <SpendPage />
+  else if (section === 'audit') body = <AuditPage />
   else if (section === 'pipelines') body = sub ? item === 'edit' ? <PipelineEditPage name={sub} /> : <PipelineDetail name={sub} run={item} /> : search.has('new') ? <PipelineEditPage name={null} /> : search.has('runners') ? <RunnersPage /> : search.has('secrets') ? <SecretsPage /> : <PipelinesPage />
   else if (section === 'settings') {
     const tab = settingsTabs.find(([k]) => k === sub)

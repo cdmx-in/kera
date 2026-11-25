@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/connectors"
@@ -245,6 +247,8 @@ func loginLink(ctx context.Context, pool *pgxpool.Pool, args []string) error {
 	if err != nil {
 		return err
 	}
+	audit.Record(audit.CLI(ctx, pool), audit.Event{Action: "auth.login_link", TargetType: "user", TargetID: id,
+		TargetLabel: strings.ToLower(fs.Arg(0)), Meta: map[string]any{"hours": ttl.Hours()}})
 	fmt.Fprintln(os.Stderr, "This link signs in as that user until it expires. Do not share it.")
 	fmt.Printf("%s/auth#token=%s\n", env.PublicURL, tok)
 	return nil

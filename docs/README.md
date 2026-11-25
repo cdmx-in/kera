@@ -6,6 +6,7 @@
 | [litellm.md](litellm.md) | Put LiteLLM in front of your models and get per-user spend in Admin > Spend |
 | [pipelines.md](pipelines.md) | Keep a knowledge collection in sync with a folder, on a schedule, with a flow view of each run |
 | [integrations.md](integrations.md) | Scheduled directory sync from Google Workspace, and how to write another integration |
+| [audit.md](audit.md) | See what the audit log records and leaves out, how long it keeps events, and how to export them |
 | [comparison.md](comparison.md) | See how Kera differs from Open WebUI, LibreChat, AnythingLLM and Onyx, with sources and a date |
 | [compat/openwebui-api.md](compat/openwebui-api.md) | Look up the HTTP routes Kera serves, including the Open WebUI-compatible subset |
 

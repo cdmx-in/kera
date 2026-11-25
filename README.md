@@ -87,6 +87,7 @@ How it differs from Open WebUI, LibreChat, AnythingLLM and Onyx, row by row and 
 - **Scheduled tasks.** Save a Cowork task with a timetable (hourly, daily, weekdays, weekly) and the server runs it by itself as you, with your connected apps. Each run is a normal task, and the task keeps notes from run to run.
 - 🧠 **Memory.** Automatic memory capture, which users manage in Settings.
 - 🛡️ **Guardrails.** Personal-data redaction or blocking, prompt-injection and blocklist checks, and optional moderation on every model call, with an audit trail (see below).
+- 🧾 **Audit log.** Who did what and when: sign-ins, admin changes, stored secrets, pipelines and sharing, one plain sentence per event under Admin > Audit, with filters, a CSV export and a retention setting. Names of what changed are kept, values never are (see [docs/audit.md](docs/audit.md)).
 - 🔗 **Integrations.** Scheduled directory sync from Google Workspace: users come in, departments become groups, and suspended or deleted users are disabled (see [docs/integrations.md](docs/integrations.md)).
 - 🔄 **Pipelines.** Keep a knowledge collection in sync with a source on a schedule, from your own script or with one command. A flow view shows each run step by step, with its logs and errors (see [docs/pipelines.md](docs/pipelines.md)). Or let Kera run the script too: the Compose stack includes a runner, so a timetable, a notebook editor and checks work with no setup ([docs/kera-run-pipelines.md](docs/kera-run-pipelines.md)).
 - 🎨 **Branding.** Your own name, logos and colours, set from the admin console.

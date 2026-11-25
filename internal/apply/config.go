@@ -40,6 +40,7 @@ type Config struct {
 	Integrations    []Integration    `yaml:"integrations,omitempty"`
 	Spend           *Spend           `yaml:"spend,omitempty"`
 	Pipelines       *Pipelines       `yaml:"pipelines,omitempty"`
+	Audit           *Audit           `yaml:"audit,omitempty"`
 	Compat          *Compat          `yaml:"compat,omitempty"`
 	Guardrails      *Guardrails      `yaml:"guardrails,omitempty"`
 	Skills          SkillSets        `yaml:"skills,omitempty"`
@@ -501,6 +502,11 @@ type Integration struct {
 // Pipelines: AlertURL is an Alertmanager /api/v2/alerts URL; failed or late pipelines are posted there every minute.
 type Pipelines struct {
 	AlertURL *string `yaml:"alert_url,omitempty"`
+}
+
+// Audit: RetentionDays is how long an audit event is kept (0 keeps every event).
+type Audit struct {
+	RetentionDays *int `yaml:"retention_days,omitempty"`
 }
 
 type Spend struct {

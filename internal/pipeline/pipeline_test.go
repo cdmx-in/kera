@@ -25,6 +25,7 @@ import (
 
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/files"
@@ -150,6 +151,9 @@ func newEnv(t *testing.T, index bool) *tenv {
 	clk := &clock{t: time.Date(2026, 3, 10, 6, 0, 0, 0, time.UTC)}
 	s.now = clk.now
 	s.routes()
+	if err := audit.Mount(a); err != nil {
+		t.Fatal(err)
+	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	e := &tenv{t: t, pool: pool, s: s, k: k, url: ts.URL, clk: clk}

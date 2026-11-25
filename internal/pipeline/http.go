@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/cdmx-in/kera/internal/api"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/knowledge"
@@ -825,6 +826,7 @@ func (s *Service) aCreate(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(ctx, audit.Event{TargetID: p.Name, TargetLabel: p.Name})
 	api.JSON(w, http.StatusCreated, map[string]any{"pipeline": o, "token": token})
 }
 
@@ -1011,6 +1013,7 @@ func (s *Service) aOnce(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(r.Context(), audit.Event{Meta: map[string]any{"adopt": np.Adopt, "mass_delete": np.AllowMassDelete}})
 	o, err := s.pipelineView(r.Context(), np)
 	if err != nil {
 		api.Fail(w, r, err)

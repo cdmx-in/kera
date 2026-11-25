@@ -4,6 +4,7 @@ package main
 // Import each one here (blank import when main does not call it directly).
 import (
 	_ "github.com/cdmx-in/kera/internal/admin"
+	_ "github.com/cdmx-in/kera/internal/audit"
 	_ "github.com/cdmx-in/kera/internal/chats"
 	_ "github.com/cdmx-in/kera/internal/cowork"
 	_ "github.com/cdmx-in/kera/internal/desktop"
