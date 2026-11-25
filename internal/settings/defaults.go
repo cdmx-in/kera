@@ -40,13 +40,34 @@ var Defaults = map[string]json.RawMessage{
 
 	"chat.max_tool_iterations":  raw(`30`),
 	"chat.local_lock":           raw(`false`),
-	"chat.compaction.enable":    raw(`false`),
+	"chat.compaction.enable":    raw(`true`),
 	"chat.compaction.threshold": raw(`120000`),
 	"chat.compaction.retention": raw(`30`),
 	"chat.memory.enable":        raw(`false`),
 	"chat.memory.review_every":  raw(`5`),
 	"chat.memory.local_only":    raw(`true`),
 	"compat.throwaway_chats":    raw(`true`),
+
+	// Context management inside a run (internal/engine/budget.go, spill.go, docs/context-management.md).
+	// enable switches size tracking, clearing and mid-run compaction; window_local is the context window assumed for a
+	// local model that declares none (params.context_window, then params.num_ctx, come first; a hosted model uses
+	// chat.compaction.threshold). Above clear_at of the window, tool results older than keep_rounds rounds are cleared down
+	// to clear_to. tools.spill_chars: a longer tool result is stored as a file (0 = one eighth of the window, at least 8000
+	// characters; -1 = never). compact: summarise the run so far when clearing is not enough. digest: earlier turns carry a
+	// short list of the steps they took. model_retries: extra tries of a model call that failed before it answered.
+	// repeat_limit: the same call this many times in a row is not run again (0 = off). parallel_tools: run read-only
+	// calls of one round at once.
+	"chat.context.enable":       raw(`true`),
+	"chat.context.window_local": raw(`16000`),
+	"chat.context.clear_at":     raw(`0.7`),
+	"chat.context.clear_to":     raw(`0.5`),
+	"chat.context.keep_rounds":  raw(`4`),
+	"chat.context.compact":      raw(`true`),
+	"chat.context.digest":       raw(`true`),
+	"tools.spill_chars":         raw(`0`),
+	"chat.model_retries":        raw(`2`),
+	"chat.repeat_limit":         raw(`3`),
+	"chat.parallel_tools":       raw(`true`),
 
 	// Run trace (internal/engine/trace.go): sizes and timings of each model round and tool call, kept for
 	// retention_days and then purged. No text is stored.
@@ -101,6 +122,8 @@ var Defaults = map[string]json.RawMessage{
 	"web.fetch.max_calls_per_turn":  raw(`3`),
 	"web.search.url":                raw(`""`), // searxng base URL; web.search.api_key (brave) is a secret without default
 	"web.fetch.allow_private":       raw(`false`),
+	"cowork.web.max_searches":       raw(`15`), // the per-run web budgets of a task (a chat reply keeps the two per-turn ones above)
+	"cowork.web.max_fetches":        raw(`15`),
 
 	// Added for `kera apply` (internal/apply). Secrets apply writes as {"enc": ...}
 	// (code_interpreter.token, spend.source.dsn) have no default; read them with apply.ReadSecret.

@@ -117,7 +117,7 @@ func (p *Provider) search(ctx context.Context, c tools.Call) (tools.Result, erro
 	if err := json.Unmarshal(c.Args, &args); err != nil || strings.TrimSpace(args.Query) == "" {
 		return errResult("the query argument is required"), nil
 	}
-	if !p.budgets.take(c.RunID, "search", p.intSetting(ctx, "web.search.max_calls_per_turn")) {
+	if !p.budgets.take(c.RunID, "search", p.intSetting(ctx, budgetKey(c, "web.search.max_calls_per_turn", "cowork.web.max_searches"))) {
 		return tools.Result{Content: BudgetSpent}, nil
 	}
 	n := max(p.intSetting(ctx, "web.search.result_count"), 1)
@@ -159,7 +159,7 @@ func (p *Provider) fetch(ctx context.Context, c tools.Call) (tools.Result, error
 	if err := json.Unmarshal(c.Args, &args); err != nil || strings.TrimSpace(args.URL) == "" {
 		return errResult("the url argument is required"), nil
 	}
-	if !p.budgets.take(c.RunID, "fetch", p.intSetting(ctx, "web.fetch.max_calls_per_turn")) {
+	if !p.budgets.take(c.RunID, "fetch", p.intSetting(ctx, budgetKey(c, "web.fetch.max_calls_per_turn", "cowork.web.max_fetches"))) {
 		return tools.Result{Content: BudgetSpent}, nil
 	}
 	host := args.URL
@@ -201,6 +201,15 @@ func plural(n int, one, many string) string {
 		return fmt.Sprintf(one, n)
 	}
 	return fmt.Sprintf(many, n)
+}
+
+// budgetKey is the setting that caps this call: a task (many tool rounds) has its own
+// budget, a chat reply keeps the per-turn one.
+func budgetKey(c tools.Call, chat, task string) string {
+	if c.Task {
+		return task
+	}
+	return chat
 }
 
 // budgets counts calls per run and kind.

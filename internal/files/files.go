@@ -143,6 +143,20 @@ func (s *Service) Create(ctx context.Context, userID, name, contentType string, 
 	return f, nil
 }
 
+// CreateText stores text as a file whose extracted text is the text itself, completed at once
+// (no extraction pass, no OnProcessed hooks). The run engine uses it for tool results it moves out of the prompt.
+func (s *Service) CreateText(ctx context.Context, userID, name, text string, meta map[string]any) (File, error) {
+	f, err := s.store(ctx, userID, name, "text/plain; charset=utf-8", strings.NewReader(text), meta, false)
+	if err != nil {
+		return File{}, err
+	}
+	if _, err := s.db.Exec(ctx, `UPDATE file SET text = $2 WHERE id = $1`, f.ID, text); err != nil {
+		_ = s.Delete(ctx, f.ID)
+		return File{}, fmt.Errorf("store file text: %w", err)
+	}
+	return f, nil
+}
+
 // store writes the blob and inserts the row. With process=false the row is
 // completed straight away (no extraction); otherwise it stays pending and the
 // caller enqueues it.

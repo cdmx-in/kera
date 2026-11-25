@@ -48,6 +48,7 @@ type Call struct {
 	ChatID    string // empty for API calls without a chat; "temp:<run>" for temporary chats
 	MessageID string // assistant message being produced
 	RunID     string
+	Task      bool     // the run is a task (Cowork), not a chat reply
 	FileIDs   []string // files attached to the conversation branch
 	// CallbackURL and CallbackToken let a remote tool server post events or
 	// ask the user (POST {CallbackURL}/events, POST {CallbackURL}/ask with
