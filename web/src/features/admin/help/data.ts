@@ -1,7 +1,9 @@
 // The content of Admin > Help ("How Kera answers"): boxes, setting keys, defaults and the worked example.
-// One source for the page and for the Mermaid diagrams in README.md and docs/how-it-answers.md.
-// Tests keep the three in step: help.test.ts (page, simulator, Mermaid ids) and internal/settings/help_data_test.go
-// (every key and default below against internal/settings/defaults.go, every fixed number against the Go code).
+// One source for the page, for the SVG diagrams (docs/images/how-it-answers-*.svg, shown in README.md and
+// docs/how-it-answers.md) and for the Mermaid text versions in docs/how-it-answers.md.
+// Tests keep them in step: help.test.tsx (page, simulator, the boxes, numbers and settings of the SVGs and the Mermaid ids)
+// and internal/settings/help_data_test.go (every key and default below against internal/settings/defaults.go, every fixed
+// number against the Go code, and the files of the SVGs).
 
 /** Every setting the page names. `def` is the default as defaults.go holds it ('(empty)' for ""). */
 export const SETTINGS = [
@@ -101,7 +103,7 @@ export const docUrl = (id: DocId) => REPO + DOCS[id].path
 /** A box of a diagram: what it does, the settings that steer it, where to look, what to read. */
 export interface Box {
   id: string
-  /** The label in the Mermaid diagrams. Plain words, no punctuation that Mermaid reads. */
+  /** The label of the box in the SVG and Mermaid diagrams. Plain words, no punctuation that Mermaid reads. */
   short: string
   title: string
   summary: string

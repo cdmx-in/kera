@@ -1,33 +1,69 @@
 # How Kera answers
 
-This page shows what Kera does between your question and its answer, and which settings steer each step. It is the same content as **Admin > Help** in the web app, drawn as diagrams that GitHub shows. Where a number is a default, your install may have changed it under Admin > Settings.
+This page shows what Kera does between your question and its answer, and which settings steer each step. It is the same content as **Admin > Help** in the web app, drawn as diagrams: each colour is a stage, the numbers are the steps of the Help page, and the diagrams are animated unless your system asks for reduced motion. Under each one, a text version in Mermaid shows the same boxes. Where a number is a default, your install may have changed it under Admin > Settings.
 
 Kera answers in two stages. First it builds the prompt and, if the assistant has knowledge, searches it. Then it calls the model, runs the tools the model asks for, and calls the model again until it answers. Parts A and B follow the first stage, part C the second.
 
 ## A. How a question is answered
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/how-it-answers-flow-dark.svg">
+    <img src="images/how-it-answers-flow-light.svg" alt="The flow from a message to the saved reply in twelve numbered steps: the message and context are prepared, the knowledge mode chooses between retrieving passages, using whole documents or adding nothing, then a loop of guardrails, model call, tool calls and fitting the prompt to the window repeats every round until the model answers, and the cited answer is scanned by the guardrails, saved and traced" width="880">
+  </picture>
+</p>
+
+<details>
+<summary>Text version (Mermaid)</summary>
+
 ```mermaid
 flowchart TD
     ask["User message"] --> context["Build context"]
     context --> mode{"Knowledge mode"}
-    mode -->|"retrieve"| retrieve["Retrieve passages"]
-    mode -->|"full: whole documents"| place["Place passages"]
-    mode -->|"tools: nothing added"| guardIn["Guardrails in"]
+    subgraph loop ["The loop: repeats every round"]
+        guardIn["Guardrails in"] --> model["Call the model"]
+        model --> calls{"Tool calls?"}
+        calls --> lYes(["yes"]) --> tools["Run tool calls"]
+        tools --> window["Fit to window"]
+        window --> lNext(["next round"]) --> guardIn
+    end
+    mode --> lRetrieve(["retrieve"]) --> retrieve["Retrieve passages"]
+    mode --> lFull(["full: whole documents"]) --> place["Place passages"]
+    mode --> lTools(["tools: nothing added"]) --> guardIn
     retrieve --> place
     place --> guardIn
-    guardIn --> model["Call the model"]
-    model --> calls{"Tool calls?"}
-    calls -->|"yes"| tools["Run tool calls"]
-    tools --> window["Fit to window"]
-    window -->|"next round"| guardIn
-    calls -->|"no, or the round cap"| answer["Answer with citations"]
+    calls --> lNo(["no, or the round cap"]) --> answer["Answer with citations"]
     answer --> guardOut["Guardrails out"]
     guardOut --> save["Save and trace"]
-    classDef guard fill:#fdf0d2,stroke:#d9960f,color:#1a1a1a
-    classDef llm fill:#d7eef2,stroke:#1e7f8c,color:#1a1a1a
-    class guardIn,guardOut guard
-    class model llm
+    classDef cIn fill:#dbeafe,stroke:#2563eb,color:#1a1a1a,stroke-width:1.5px
+    classDef cCtx fill:#e0e7ff,stroke:#4f46e5,color:#1a1a1a,stroke-width:1.5px
+    classDef cKn fill:#d7eef2,stroke:#1e7f8c,color:#1a1a1a,stroke-width:1.5px
+    classDef cGd fill:#fdf0d2,stroke:#d9960f,color:#1a1a1a,stroke-width:1.5px
+    classDef cMd fill:#ede4ff,stroke:#7c3aed,color:#1a1a1a,stroke-width:1.5px
+    classDef cTl fill:#ffe6d5,stroke:#ea580c,color:#1a1a1a,stroke-width:1.5px
+    classDef cOt fill:#d9f2e3,stroke:#2f9e63,color:#1a1a1a,stroke-width:1.5px
+    classDef cBd fill:#fbe0e0,stroke:#d64a4a,color:#1a1a1a,stroke-width:1.5px
+    classDef pKn fill:#1e7f8c,stroke:#1e7f8c,color:#ffffff
+    classDef pTl fill:#c2410c,stroke:#c2410c,color:#ffffff
+    classDef pOt fill:#15803d,stroke:#15803d,color:#ffffff
+    classDef pMd fill:#7c3aed,stroke:#7c3aed,color:#ffffff
+    classDef pBd fill:#c2312f,stroke:#c2312f,color:#ffffff
+    class ask cIn
+    class context,window cCtx
+    class mode,retrieve,place cKn
+    class guardIn,guardOut cGd
+    class model,calls cMd
+    class tools cTl
+    class answer,save cOt
+    class lRetrieve,lFull pKn
+    class lTools,lYes pTl
+    class lNo pOt
+    class lNext pMd
+    style loop fill:none,stroke:#7c3aed,stroke-width:2px,stroke-dasharray:6 4
+    linkStyle default stroke:#8b949e,stroke-width:2px
 ```
+
+</details>
 
 The guard wraps every call to a model, so "Guardrails in" runs again in each round of the loop, and "Guardrails out" checks the reply as it streams. The knowledge mode is an option of the assistant (Workspace > Models > Knowledge), not a setting.
 
@@ -269,8 +305,18 @@ Read: [Run trace and prompt layout](run-trace.md)
 
 ## B. The retrieval pipeline
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/how-it-answers-retrieval-dark.svg">
+    <img src="images/how-it-answers-retrieval-light.svg" alt="The retrieval pipeline in eight numbered steps: the queries feed vector, keyword and heading search side by side, their rankings are fused into one list, an optional reranker re-reads the best candidates, neighbouring chunks are added, and the passages are numbered for citation" width="880">
+  </picture>
+</p>
+
+<details>
+<summary>Text version (Mermaid)</summary>
+
 ```mermaid
-flowchart TD
+flowchart LR
     q["Queries"] --> vec["Vector search"]
     q --> kw["Keyword search"]
     q --> head["Heading search"]
@@ -280,7 +326,28 @@ flowchart TD
     fuse --> rerank["Rerank (optional)"]
     rerank --> nb["Add neighbours"]
     nb --> num["Number citations"]
+    classDef cIn fill:#dbeafe,stroke:#2563eb,color:#1a1a1a,stroke-width:1.5px
+    classDef cCtx fill:#e0e7ff,stroke:#4f46e5,color:#1a1a1a,stroke-width:1.5px
+    classDef cKn fill:#d7eef2,stroke:#1e7f8c,color:#1a1a1a,stroke-width:1.5px
+    classDef cGd fill:#fdf0d2,stroke:#d9960f,color:#1a1a1a,stroke-width:1.5px
+    classDef cMd fill:#ede4ff,stroke:#7c3aed,color:#1a1a1a,stroke-width:1.5px
+    classDef cTl fill:#ffe6d5,stroke:#ea580c,color:#1a1a1a,stroke-width:1.5px
+    classDef cOt fill:#d9f2e3,stroke:#2f9e63,color:#1a1a1a,stroke-width:1.5px
+    classDef cBd fill:#fbe0e0,stroke:#d64a4a,color:#1a1a1a,stroke-width:1.5px
+    classDef pKn fill:#1e7f8c,stroke:#1e7f8c,color:#ffffff
+    classDef pTl fill:#c2410c,stroke:#c2410c,color:#ffffff
+    classDef pOt fill:#15803d,stroke:#15803d,color:#ffffff
+    classDef pMd fill:#7c3aed,stroke:#7c3aed,color:#ffffff
+    classDef pBd fill:#c2312f,stroke:#c2312f,color:#ffffff
+    class q cIn
+    class vec,kw,head cKn
+    class fuse,nb cCtx
+    class rerank cMd
+    class num cOt
+    linkStyle default stroke:#8b949e,stroke-width:2px
 ```
+
+</details>
 
 Vector, keyword and heading search run side by side on every query. The rankings are fused in one step, an optional reranker re-reads the best candidates, neighbouring chunks are added, and the passages are numbered.
 
@@ -445,23 +512,57 @@ The numbers below are **illustrative**: the passages and their ranks are invente
 
 ## C. The agent loop
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/how-it-answers-loop-dark.svg">
+    <img src="images/how-it-answers-loop-light.svg" alt="The agent loop: a round runs the model call, the tool calls it asked for, their results and a fit of the prompt to the window, then repeats; a failed call is retried, and the loop ends with a final answer, a round cap report or an error" width="880">
+  </picture>
+</p>
+
+<details>
+<summary>Text version (Mermaid)</summary>
+
 ```mermaid
 flowchart TD
-    modelCall["Model call"] --> calls{"Tool calls?"}
-    calls -->|"yes"| run["Run tool calls"]
-    run --> results["Results"]
-    results --> fit["Fit to window"]
-    fit -->|"next round"| modelCall
-    fit -->|"round cap reached"| cap["Round cap report"]
-    calls -->|"no"| final["Final answer"]
-    modelCall -->|"fails before output"| retry["Retry"]
+    subgraph round ["One round"]
+        modelCall["Model call"] --> calls{"Tool calls?"}
+        calls --> lYes(["yes"]) --> run["Run tool calls"]
+        run --> results["Results"]
+        results --> fit["Fit to window"]
+    end
+    fit --> lNext(["next round"]) --> modelCall
+    fit --> lCap(["round cap reached"]) --> cap["Round cap report"]
+    calls --> lNo(["no"]) --> final["Final answer"]
+    modelCall --> lFails(["fails before output"]) --> retry["Retry"]
     retry --> modelCall
-    modelCall -->|"retries used up"| fail["Run fails"]
-    classDef llm fill:#d7eef2,stroke:#1e7f8c,color:#1a1a1a
-    classDef bad fill:#fbe0e0,stroke:#d64a4a,color:#1a1a1a
-    class modelCall llm
-    class fail bad
+    modelCall --> lUsed(["retries used up"]) --> fail["Run fails"]
+    classDef cIn fill:#dbeafe,stroke:#2563eb,color:#1a1a1a,stroke-width:1.5px
+    classDef cCtx fill:#e0e7ff,stroke:#4f46e5,color:#1a1a1a,stroke-width:1.5px
+    classDef cKn fill:#d7eef2,stroke:#1e7f8c,color:#1a1a1a,stroke-width:1.5px
+    classDef cGd fill:#fdf0d2,stroke:#d9960f,color:#1a1a1a,stroke-width:1.5px
+    classDef cMd fill:#ede4ff,stroke:#7c3aed,color:#1a1a1a,stroke-width:1.5px
+    classDef cTl fill:#ffe6d5,stroke:#ea580c,color:#1a1a1a,stroke-width:1.5px
+    classDef cOt fill:#d9f2e3,stroke:#2f9e63,color:#1a1a1a,stroke-width:1.5px
+    classDef cBd fill:#fbe0e0,stroke:#d64a4a,color:#1a1a1a,stroke-width:1.5px
+    classDef pKn fill:#1e7f8c,stroke:#1e7f8c,color:#ffffff
+    classDef pTl fill:#c2410c,stroke:#c2410c,color:#ffffff
+    classDef pOt fill:#15803d,stroke:#15803d,color:#ffffff
+    classDef pMd fill:#7c3aed,stroke:#7c3aed,color:#ffffff
+    classDef pBd fill:#c2312f,stroke:#c2312f,color:#ffffff
+    class modelCall,calls,retry cMd
+    class run,results cTl
+    class fit cCtx
+    class final,cap cOt
+    class fail cBd
+    class lYes pTl
+    class lNext,lFails pMd
+    class lCap,lNo pOt
+    class lUsed pBd
+    style round fill:none,stroke:#7c3aed,stroke-width:2px,stroke-dasharray:6 4
+    linkStyle default stroke:#8b949e,stroke-width:2px
 ```
+
+</details>
 
 One round is one pass through "Model call", "Run tool calls", "Results" and "Fit to window". The loop ends with an answer, at the round cap, or on an error. A failed call that produced no output is tried again first.
 
