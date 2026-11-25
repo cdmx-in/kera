@@ -122,6 +122,9 @@ func (s *Service) aSecretCreate(w http.ResponseWriter, r *http.Request) {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 		Value       string `json:"value"`
+		// From copies the value of a pipeline's secret variable into the store, inside the database: the value
+		// never leaves the server (the way to store a value that only Kera still holds).
+		From *struct{ Pipeline, Variable string } `json:"from"`
 	}
 	if err := decode(w, r, &in, maxEnvValue+4096); err != nil {
 		api.Fail(w, r, err)
@@ -136,7 +139,17 @@ func (s *Service) aSecretCreate(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, api.FieldErr("description", "bad_description", "At most 500 characters"))
 		return
 	}
-	enc, err := s.secretSeal(in.Value)
+	var enc []byte
+	var err error
+	if in.From != nil {
+		if in.Value != "" {
+			api.Fail(w, r, api.FieldErr("value", "value_and_from", "Give a value or a variable to copy, not both"))
+			return
+		}
+		enc, err = s.variableCipher(r.Context(), in.From.Pipeline, in.From.Variable)
+	} else {
+		enc, err = s.secretSeal(in.Value)
+	}
 	if err != nil {
 		api.Fail(w, r, err)
 		return
@@ -159,6 +172,17 @@ func (s *Service) aSecretCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("secret created", "name", in.Name, "by", deref(by, "")) // never the value
 	s.secretsReply(w, r, http.StatusCreated)
+}
+
+// variableCipher is the stored ciphertext of a secret variable (its own, or that of the secret it points at).
+func (s *Service) variableCipher(ctx context.Context, pipeline, variable string) ([]byte, error) {
+	var enc []byte
+	err := s.db.QueryRow(ctx, `SELECT coalesce(e.value_enc, sc.value_enc) FROM pipeline_env e JOIN pipeline p ON p.id = e.pipeline_id
+		LEFT JOIN secret sc ON sc.id = e.secret_id WHERE p.name = $1 AND e.name = $2 AND e.secret`, pipeline, variable).Scan(&enc)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, api.FieldErr("from", "unknown_variable", "That pipeline has no secret variable with this name")
+	}
+	return enc, err
 }
 
 // aSecretUpdate changes the value (write-only) and/or the description. Pipelines that reference the secret

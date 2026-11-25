@@ -169,6 +169,17 @@ func TestEnvReferencesAStoredSecret(t *testing.T) {
 		t.Fatalf("loadEnv after rotating: %v %v %v", got, secrets, err)
 	}
 
+	// a secret can be created from a variable's stored value without the value being sent: only secret variables
+	e.call(e.admin, "POST", "/api/v1/admin/secrets", map[string]any{"name": "copied", "from": map[string]string{"pipeline": "docs", "variable": "API_KEY"}}, http.StatusCreated, nil)
+	e.call(e.admin, "POST", "/api/v1/admin/secrets", map[string]any{"name": "plain", "from": map[string]string{"pipeline": "docs", "variable": "OWN"}}, http.StatusBadRequest, nil)
+	e.call(e.admin, "POST", "/api/v1/admin/secrets", map[string]any{"name": "both", "value": val, "from": map[string]string{"pipeline": "docs", "variable": "API_KEY"}}, http.StatusBadRequest, nil)
+	e.call(e.admin, "PUT", base+"/env", map[string]any{"name": "COPY", "secret_ref": "copied"}, http.StatusOK, nil)
+	if got, _, err := e.s.loadEnv(t.Context(), pid); err != nil || got["COPY"] != rotated {
+		t.Fatalf("a secret copied from a variable: %v", err)
+	}
+	e.call(e.admin, "DELETE", base+"/env/COPY", nil, http.StatusOK, nil)
+	e.call(e.admin, "DELETE", "/api/v1/admin/secrets/copied", nil, http.StatusNoContent, nil)
+
 	// switching the variable back to its own value frees the secret
 	e.call(e.admin, "PUT", base+"/env", map[string]any{"name": "API_KEY", "value": "own-again"}, http.StatusOK, nil)
 	e.call(e.admin, "DELETE", "/api/v1/admin/secrets/shared-key", nil, http.StatusNoContent, nil)
