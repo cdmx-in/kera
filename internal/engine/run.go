@@ -264,9 +264,6 @@ func (e *Engine) process(ctx context.Context, x *exec) error {
 	if err := e.runHooks(ctx, x, "inlet"); err != nil {
 		return err
 	}
-	if err := e.compact(ctx, x); err != nil {
-		return err
-	}
 	if err := e.buildContext(ctx, x); err != nil {
 		return err
 	}
@@ -280,6 +277,9 @@ func (e *Engine) process(ctx context.Context, x *exec) error {
 	}
 	if t, ok := table["execute_code"]; ok && t.provider.ID() == sandbox.ID {
 		x.system = append(x.system, sandbox.Prompt(ctx, e.Settings))
+	}
+	if err := e.compact(ctx, x, x.overheadTokens(specs)); err != nil { // after the prompt and the tools exist, so they count
+		return err
 	}
 	if err := e.loop(ctx, x, table, specs); err != nil {
 		return err
@@ -379,11 +379,18 @@ func (e *Engine) loadTurns(ctx context.Context, x *exec) error {
 		if err != nil {
 			return err
 		}
+		digest, local := e.Settings.Bool(ctx, "chat.context.digest"), x.m != nil && x.m.Local
 		for _, m := range branch {
 			if m.Role == "assistant" && m.Content == "" {
 				continue // failed or empty replies add nothing
 			}
-			x.turns = append(x.turns, turn{ID: m.ID, msg: provider.Message{Role: m.Role, Content: m.Content},
+			content := m.Content
+			if m.Role == "assistant" && digest {
+				if d := stepDigest(m.Parts, local); d != "" {
+					content += "\n\n" + d
+				}
+			}
+			x.turns = append(x.turns, turn{ID: m.ID, msg: provider.Message{Role: m.Role, Content: content},
 				files: fileIDsOf(m.Files), summary: m.ContextSummary})
 			x.collections = append(x.collections, collectionIDsOf(m.Files)...)
 		}
