@@ -276,15 +276,32 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 		x.run.mu.Lock()
 		x.run.roundText = ""
 		x.run.mu.Unlock()
-		msgs = e.fit(ctx, x, b, msgs, round)
-		req := provider.Request{Model: x.m.ProviderModel, Messages: msgs, Tools: specs, Params: x.params, ProviderTools: x.providerTools}
+		if msgs, err = e.fit(ctx, x, b, msgs, round); err != nil {
+			return err
+		}
 		final := !passthrough && round >= maxIter
 		if final { // the cap: one last call without tools that asks for the report
 			x.run.status(StatusEvent{ID: "limit", Action: "tool_call", Description: fmt.Sprintf("Stopped after %d tool rounds", maxIter), Done: true})
-			req.Messages = append(slices.Clone(msgs), provider.Message{Role: "user", Content: finalReportNote})
-			req.Tools, req.ProviderTools = nil, nil
 		}
-		calls, finish, err := e.callModel(ctx, x, client, req, round, b, final)
+		request := func() provider.Request {
+			req := provider.Request{Model: x.m.ProviderModel, Messages: msgs, Tools: specs, Params: x.params, ProviderTools: x.providerTools}
+			if final {
+				req.Messages = append(slices.Clone(msgs), provider.Message{Role: "user", Content: finalReportNote})
+				req.Tools, req.ProviderTools = nil, nil
+			}
+			return req
+		}
+		calls, finish, err := e.callModel(ctx, x, client, request(), round, b, final)
+		if err != nil && b.manage && ctx.Err() == nil && provider.IsContextOverflow(err) {
+			// the server says the prompt did not fit: sending it again would fail the same way, so shorten it and try once more
+			switch out, serr := e.afterOverflow(ctx, x, b, msgs, round, err); {
+			case serr == nil:
+				msgs = out
+				calls, finish, err = e.callModel(ctx, x, client, request(), round, b, final)
+			case !errors.Is(serr, errNothingToShrink):
+				err = serr
+			}
+		}
 		if err != nil {
 			if final && ctx.Err() == nil { // the work is done and saved; only the closing report is missing
 				slog.Warn("final report call failed", "run", x.run.ID, "err", err)
