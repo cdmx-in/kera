@@ -21,6 +21,7 @@ import { useUploads } from '@/features/chat/composer/uploads'
 import { TopBar } from '../TaskPage'
 import { canSchedule, type Schedule } from '../lib'
 import { Stepper } from './Stepper'
+import type { LastTest } from './TestRun'
 import { GoalStep } from './steps/GoalStep'
 import { AssistantStep } from './steps/AssistantStep'
 import { ToolsStep } from './steps/ToolsStep'
@@ -117,6 +118,7 @@ function WizardBody({ job, schedulable }: { job?: Schedule; schedulable: boolean
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [confirmReset, setConfirmReset] = useState(false)
+  const [lastTest, setLastTest] = useState<LastTest>({ ranWith: '' })
   const errors = attempted.includes(step) ? validateStep(step, draft, ctx) : {}
   const body = useRef<HTMLDivElement>(null)
 
@@ -217,7 +219,7 @@ function WizardBody({ job, schedulable }: { job?: Schedule; schedulable: boolean
                 {step === 'assistant' && <AssistantStep draft={draft} dispatch={dispatch} errors={errors} onPick={(m) => chooseAssistant(m, tools.data)} />}
                 {step === 'tools' && <ToolsStep schedulable={steps.includes('when')} />}
                 {step === 'when' && <WhenStep draft={draft} dispatch={dispatch} errors={errors} edit={edit} />}
-                {step === 'review' && <ReviewStep draft={draft} steps={steps} goTo={(s) => go(s)} files={draft.kept.length + uploads.ready.length} testBody={taskBodyNow} signature={signature} saveError={saveError} />}
+                {step === 'review' && <ReviewStep draft={draft} steps={steps} goTo={(s) => go(s)} files={draft.kept.length + uploads.ready.length} testBody={taskBodyNow} signature={signature} lastTest={lastTest} onTest={setLastTest} saveError={saveError} />}
               </div>
             </>
           )}

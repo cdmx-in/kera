@@ -6,7 +6,7 @@ import { cx } from '@/lib/format'
 import { useComposer } from '@/stores/composer'
 import { ModelIcon } from '@/features/header/ModelPicker'
 import { appLook } from '../ToolCard'
-import { TestRun } from '../TestRun'
+import { TestRun, type LastTest } from '../TestRun'
 import { ReviewCard } from '../ReviewCard'
 import { leftOut, selectedApps } from '../tools'
 import { whenSentence, describeRun } from '../when'
@@ -15,7 +15,7 @@ import type { StepId } from '../steps'
 import { Pill, StepHeader } from '../ui'
 import { useNextRuns } from './WhenStep'
 
-export function ReviewStep({ draft, steps, goTo, files, testBody, signature, saveError }: { draft: Draft; steps: StepId[]; goTo: (s: StepId) => void; files: number; testBody: () => object; signature: string; saveError?: string }) {
+export function ReviewStep({ draft, steps, goTo, files, testBody, signature, lastTest, onTest, saveError }: { draft: Draft; steps: StepId[]; goTo: (s: StepId) => void; files: number; testBody: () => object; signature: string; lastTest: LastTest; onTest: (t: LastTest) => void; saveError?: string }) {
   const models = useModels()
   const tools = useTools()
   const model = useComposer((s) => s.model)
@@ -101,7 +101,7 @@ export function ReviewStep({ draft, steps, goTo, files, testBody, signature, sav
         </ReviewCard>
       </div>
 
-      <TestRun body={testBody} signature={signature} />
+      <TestRun body={testBody} signature={signature} last={lastTest} onChange={onTest} />
     </div>
   )
 }

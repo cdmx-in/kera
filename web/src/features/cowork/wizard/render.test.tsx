@@ -9,6 +9,7 @@ import type { Collection } from '@/features/workspace/api'
 import type { useUploads } from '@/features/chat/composer/uploads'
 import { initialDraft, type Draft } from './draft'
 import { Stepper } from './Stepper'
+import type { LastTest } from './TestRun'
 import { stepList, type Errors } from './steps'
 import { AssistantStep } from './steps/AssistantStep'
 import { EXAMPLES, GoalStep } from './steps/GoalStep'
@@ -244,7 +245,7 @@ describe('WhenStep', () => {
 })
 
 describe('ReviewStep', () => {
-  const html = (d: Draft, steps = stepList(true), saveError?: string) => render(<ReviewStep draft={d} steps={steps} goTo={() => {}} files={2} testBody={() => ({})} signature="s" saveError={saveError} />)
+  const html = (d: Draft, steps = stepList(true), saveError?: string, lastTest: LastTest = { ranWith: '' }) => render(<ReviewStep draft={d} steps={steps} goTo={() => {}} files={2} testBody={() => ({})} signature="s" lastTest={lastTest} onTest={() => {}} saveError={saveError} />)
   const d = draft({ title: 'Morning digest', goal: 'Summarise the tickets', collections: [{ id: 'k1', name: 'Handbook', type: 'collection' }], when: 'daily', time: '06:00' })
   it('summarises every choice with an Edit button per section', () => {
     const h = html(d)
@@ -274,6 +275,15 @@ describe('ReviewStep', () => {
     expect(h).toContain('read-only')
     expect(h).toContain('Nothing is scheduled or saved')
     expect(h).not.toContain('data-testid="test-result"')
+  })
+  it('keeps the last test in place, and says when the task changed since', () => {
+    const same = html(d, stepList(true), undefined, { chatId: 'c1', ranWith: 's' })
+    expect(same).toContain('data-testid="test-result"')
+    expect(same).toContain('Run the test again')
+    expect(same).not.toContain('data-testid="test-stale"')
+    const stale = html(d, stepList(true), undefined, { chatId: 'c1', ranWith: 'an older body' })
+    expect(stale).toContain('data-testid="test-stale"')
+    expect(stale).toContain('You changed the task after this test')
   })
   it('shows a save error from the server', () => {
     expect(html(d, stepList(true), 'You have reached the limit of scheduled tasks')).toContain('You have reached the limit of scheduled tasks')

@@ -17,11 +17,16 @@ import { taskStatus } from '../lib'
 import { StatusBadge } from '../TaskPage'
 import { Pill } from './ui'
 
-export function TestRun({ body, signature }: { body: () => object; signature: string }) {
+/** The last test of this wizard: its chat, and the settings (as the request body) it ran with. The wizard holds it, so it is still here after a visit to another step. */
+export interface LastTest {
+  chatId?: string
+  ranWith: string
+}
+
+export function TestRun({ body, signature, last, onChange }: { body: () => object; signature: string; last: LastTest; onChange: (t: LastTest) => void }) {
   const qc = useQueryClient()
   const models = useModels()
-  const [chatId, setChatId] = useState<string>()
-  const [ranWith, setRanWith] = useState('')
+  const { chatId, ranWith } = last
   const [starting, setStarting] = useState(false)
   const state = useOpenChat(chatId, 'cowork')
   const status = useChat((s) => taskStatus(s.messages, s.currentId))
@@ -32,8 +37,7 @@ export function TestRun({ body, signature }: { body: () => object; signature: st
     setStarting(true)
     try {
       const r = await api<{ chat_id: string }>('/api/v1/cowork/test-run', { method: 'POST', json: body() })
-      setRanWith(signature)
-      setChatId(r.chat_id)
+      onChange({ chatId: r.chat_id, ranWith: signature })
       void qc.invalidateQueries({ queryKey: ['chats', 'cowork'] })
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not start the test run', 'error')
@@ -45,7 +49,7 @@ export function TestRun({ body, signature }: { body: () => object; signature: st
     if (!chatId) return
     try {
       await api(`/api/v1/chats/${encodeURIComponent(chatId)}`, { method: 'DELETE' })
-      setChatId(undefined)
+      onChange({ ranWith: '' })
       void qc.invalidateQueries({ queryKey: ['chats', 'cowork'] })
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not delete the test run', 'error')
