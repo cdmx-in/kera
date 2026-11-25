@@ -311,6 +311,7 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 		text := x.run.roundText
 		x.run.mu.Unlock()
 		msgs = append(msgs, provider.Message{Role: "assistant", Content: text, ToolCalls: calls})
+		b.callChars = b.callShare(msgs, len(calls)) // the round's results share what is left of the window
 		results := e.runCalls(ctx, x, table, b, st, calls, round)
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
@@ -585,7 +586,9 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 		res = tools.Result{Content: skip, IsError: true}
 	default:
 		var err error
-		res, err = entry.provider.Execute(ctx, e.toolCall(x, c))
+		call := e.toolCall(x, c)
+		call.MaxChars = b.callChars
+		res, err = entry.provider.Execute(ctx, call)
 		if err != nil {
 			if ctx.Err() != nil {
 				res = tools.Result{Content: "Cancelled.", IsError: true}
@@ -599,10 +602,18 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	if spilledOut {
 		res.Inputs = append(res.Inputs, spillFile.id) // an input of the step: the model reads it, the answer does not carry it
 	}
+	shown := res.Content // what the model reads of the result
+	if spilledOut {
+		shown = spillText
+	}
+	capped := b.callChars > 0 && len(shown) > b.callChars+capSlack // more than this call's share of the window
+	if capped {
+		shown = cutResult(shown, b.callChars)
+	}
 	x.run.trace.add(traceStep{Kind: stepTool, Name: c.Name, Round: round, Started: started, Duration: time.Since(started),
 		Detail: map[string]any{"server": entry.server, "args_chars": len(c.Arguments), "result_chars": utf8.RuneCountInString(res.Content),
-			"is_error": res.IsError, "truncated": res.Truncated, "files": len(res.Files), "images": len(res.Images), "known": ok,
-			"spilled": spilledOut, "repeat_refused": skip != ""}})
+			"is_error": res.IsError, "truncated": res.Truncated || capped, "files": len(res.Files), "images": len(res.Images), "known": ok,
+			"spilled": spilledOut, "repeat_refused": skip != "", "capped": capped, "cap_chars": b.callChars}})
 	refs := e.fileRefs(ctx, res.Files)
 	x.run.files(refs)
 	var inputs []FileRef
@@ -659,10 +670,7 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	x.run.mu.Lock()
 	x.run.tools = append(x.run.tools, toolRecord{ID: c.ID, Name: c.Name, Args: c.Arguments, Result: clip(res.Content, 20000), Error: res.IsError})
 	x.run.mu.Unlock()
-	content := res.Content
-	if spilledOut {
-		content = spillText
-	}
+	content := shown
 	if content == "" && len(refs) > 0 {
 		var names []string
 		for _, f := range refs {

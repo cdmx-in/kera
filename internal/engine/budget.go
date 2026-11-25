@@ -25,6 +25,18 @@ const compactKeepRounds = 2
 // server probably cut the prompt": Ollama drops the oldest messages and still answers.
 const overflowAt = 0.97
 
+// A model call's prompt is held under ceilingShare of the window: the rest is room for the reply and for the error of the estimate.
+// ponytail: a constant; make it a setting if a model needs a longer reply than 15% of its window.
+const ceilingShare = 0.85
+
+// What one tool result may add: the share of the room left in the window, never less than minCallChars; a result
+// that is only capSlack characters over its share is left alone (a tool's own header and footer).
+const (
+	minCallChars = 1000
+	capSlack     = 400
+	callOverhead = 150 // a page's header and footer, the call's message framing
+)
+
 // The size of a prompt is estimated, not counted. charsPerToken is the estimate until a server's report calibrates
 // it: markdown and JSON run near 3.3 characters per token (52,135 characters measured 15,583 tokens), English prose
 // near 4, so the estimate errs towards "bigger". A calibrated value stays between the two limits.
@@ -50,6 +62,7 @@ type runBudget struct {
 	lastPrompt int     // prompt tokens the server reported for the last call (or the estimate after a rewrite)
 	lastLen    int     // number of messages that call carried
 	cpt        float64 // characters per token, calibrated from the server's report (0 = charsPerToken)
+	callChars  int     // the most one tool result of the current round may add, in characters (0 = no limit)
 
 	mu      sync.Mutex
 	spilled map[string]string // tool call id -> "file name (id ...)" of the spilled full text
@@ -169,6 +182,56 @@ func (b *runBudget) calibrate(msgs []provider.Message, prompt int) {
 		return
 	}
 	b.cpt = min(max(float64(chars)/float64(body), minCharsPerToken), maxCharsPerToken)
+}
+
+// ceiling is the prompt size, in tokens, a model call may reach.
+func (b *runBudget) ceiling() int { return int(ceilingShare * float64(b.window)) }
+
+// callShare is the most characters one of n parallel tool results may add: the room under the ceiling, shared equally,
+// less what a tool adds around its text. The results of earlier rounds count as room: the model has read them, and the
+// guard clears them again when the new ones need the space. 0 when the run is not managed.
+func (b *runBudget) callShare(msgs []provider.Message, n int) int {
+	if !b.manage {
+		return 0
+	}
+	old := 0
+	for _, m := range msgs[min(b.base, len(msgs)):] {
+		if m.Role == "tool" {
+			old += len(m.Content)
+		}
+	}
+	room := b.ceiling() - b.size(msgs) + b.tokens(old)
+	return max(b.chars(room)/max(n, 1)-callOverhead, minCallChars)
+}
+
+// A cut result ends with cutNote; cutHead starts it, so a result cut again keeps the size of the original.
+const (
+	cutHead = "[Cut to fit the context window: "
+	cutNote = cutHead + "%d of %d characters shown. Ask for the rest in smaller parts or with a narrower query.]"
+)
+
+// cutResult shortens s to at most limit characters, the note included. Sizes are bytes, which is what the estimate counts.
+// ponytail: keeps the start only; for a log or a list the end can matter, keep a tail as spill does if that shows up.
+func cutResult(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	total := len(s)
+	if i := strings.LastIndex(s, "\n"+cutHead); i >= 0 { // cut before: the first note has the real size
+		if _, err := fmt.Sscanf(s[i+1:], cutHead+"%d of %d", new(int), &total); err == nil {
+			s = s[:i]
+		} else {
+			total = len(s)
+		}
+	}
+	keep := max(limit-len(fmt.Sprintf("\n"+cutNote, limit, total)), 0)
+	if len(s) > keep {
+		for keep > 0 && s[keep]&0xC0 == 0x80 { // not in the middle of a character
+			keep--
+		}
+		s = s[:keep]
+	}
+	return s + fmt.Sprintf("\n"+cutNote, len(s), total)
 }
 
 // rebase records an estimate as the new baseline after the messages were rewritten.
