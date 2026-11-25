@@ -6,7 +6,7 @@ import { NoRunnerHint, OnlineBadge, RunnerTable, RunnerTokenDialog } from './Pip
 import type { Runner } from './pipelines'
 
 const runner = (o: Partial<Runner> = {}): Runner => ({ id: 'kr1', name: 'build-server', token_prefix: 'kr-1a2b3c4', version: 'v1.4.0', last_seen_at: new Date(Date.now() - 30_000).toISOString(), online: true, created_at: '2026-03-01T00:00:00Z', ...o })
-const TOKEN = 'kr-1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d'
+const TOKEN = 'kr-' + 'x'.repeat(40) // built at run time: a literal looks like a credential to secret scanners
 
 afterEach(() => vi.unstubAllGlobals())
 

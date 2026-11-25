@@ -2,3 +2,6 @@
 b09e6d64421b1b0114852a494073c662be0becd0:internal/desktop/desktop_test.go:generic-api-key:134
 # False positive: a made-up sample password in the shared password test vectors ("fine: generated style"), used only by the Go and web tests to check that the strength rules accept it; not a credential.
 01d6501f05b68375b2800b2cb7f9ea1262b4f785:web/src/lib/passwordVectors.json:generic-api-key:28
+
+# False positive: a made-up runner token used as a UI test fixture (it is now built at run time).
+2f3f4453b0133542bbce0e1d6a7f23f7efbd430c:web/src/features/admin/PipelineRunners.test.tsx:generic-api-key:9
