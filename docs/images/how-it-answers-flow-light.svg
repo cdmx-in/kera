@@ -1,0 +1,391 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="606" viewBox="0 0 880 606" role="img" aria-labelledby="t d">
+  <title id="t">How Kera answers: from your message to the saved reply</title>
+  <desc id="d">Twelve numbered steps. Your message is turned into a prompt (1 and 2). The knowledge mode (3) decides whether passages are retrieved (4), whole documents are used or nothing is added, and passages are placed in the prompt (5). A loop then repeats every round: guardrails scan the call (6), the model answers or asks for tools (7), tools run (8) and the prompt is fitted to the window (9). When the model answers without tool calls, the answer is cited (10), the guardrails scan the reply (11) and it is saved and traced (12).</desc>
+  <!-- Icons from Lucide (ISC licence). One colour per stage; blocks, numbers and settings match Admin > Help (web/src/features/admin/help/data.ts). -->
+  <defs>
+    <symbol id="i-database" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></g></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></g></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></g></symbol>
+    <symbol id="i-message-square" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></g></symbol>
+    <symbol id="i-message-square-quote" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14a2 2 0 0 0 2-2V8h-2"/><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M8 14a2 2 0 0 0 2-2V8H8"/></g></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></g></symbol>
+    <symbol id="i-shield-check" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></g></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></g></symbol>
+    <symbol id="i-split" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/></g></symbol>
+    <symbol id="i-text-quote" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 5H3"/><path d="M21 12H8"/><path d="M21 19H8"/><path d="M3 12v7"/></g></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"/></g></symbol>
+    <marker id="ah-n" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-n" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-in" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-in" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-cx" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-cx" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-kn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-kn" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-gd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-gd" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-md" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-md" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-tl" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-tl" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-ot" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-ot" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-bd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-bd" d="M1 1 L9 5 L1 9 Z"/></marker>
+  </defs>
+  <style>
+    svg { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .panel { fill: #ffffff; stroke: #d0d7de; stroke-width: 1; }
+    .band { fill: #f6f8fa; stroke: #d8dee4; stroke-width: 1; }
+    .band-label rect { fill: #ffffff; stroke: #d8dee4; }
+    .band-label text { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; fill: #4b5563; }
+    .frame { fill: none; stroke-width: 1.6; stroke-dasharray: 7 5; }
+    .t { font-size: 13.5px; font-weight: 700; fill: #1f2328; }
+    .s { font-size: 12px; fill: #4b5563; }
+    .note { font-size: 11px; fill: #4b5563; }
+    .card { stroke-width: 1.5; }
+    .chip text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 10.5px; }
+    .num text { font-size: 11px; font-weight: 700; }
+    .pill text { font-size: 11px; font-weight: 700; }
+    .ln { fill: none; stroke: #6e7781; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .dash { stroke-dasharray: 6 6; }
+    .halo { fill: none; stroke-width: 6; stroke-opacity: 0.25; }
+    .edge { fill: none; stroke-width: 2.5; }
+    .glow { opacity: 0; }
+    .in .card { fill: #ebf3fe; stroke: #89b4fa; }
+    .in .tile { fill: #2563eb; }
+    .in .ico { color: #ffffff; }
+    .in .chip rect { fill: #d8e6fd; }
+    .in .chip text { fill: #1e4fbc; }
+    .in .num circle, .in .num rect { fill: #2563eb; stroke: #f6f8fa; stroke-width: 2; }
+    .in .num text { fill: #ffffff; }
+    .in .halo, .in .edge { stroke: #2563eb; }
+    .pill.in rect { fill: #2563eb; }
+    .pill.in text { fill: #ffffff; }
+    .mk-in { fill: #2563eb; }
+    .ln.in { stroke: #2563eb; }
+    .frame.in { stroke: #2563eb; }
+    .dot-in { fill: #2563eb; }
+    .cx .card { fill: #eff0fe; stroke: #a1a3f7; }
+    .cx .tile { fill: #4f46e5; }
+    .cx .ico { color: #ffffff; }
+    .cx .chip rect { fill: #e0e0fc; }
+    .cx .chip text { fill: #3f38b7; }
+    .cx .num circle, .cx .num rect { fill: #4f46e5; stroke: #f6f8fa; stroke-width: 2; }
+    .cx .num text { fill: #ffffff; }
+    .cx .halo, .cx .edge { stroke: #4f46e5; }
+    .pill.cx rect { fill: #4f46e5; }
+    .pill.cx text { fill: #ffffff; }
+    .mk-cx { fill: #4f46e5; }
+    .ln.cx { stroke: #4f46e5; }
+    .frame.cx { stroke: #4f46e5; }
+    .dot-cx { fill: #4f46e5; }
+    .kn .card { fill: #eaf5f7; stroke: #7fc4d0; }
+    .kn .tile { fill: #1e7f8c; }
+    .kn .ico { color: #ffffff; }
+    .kn .chip rect { fill: #d4ebef; }
+    .kn .chip text { fill: #186670; }
+    .kn .num circle, .kn .num rect { fill: #1e7f8c; stroke: #f6f8fa; stroke-width: 2; }
+    .kn .num text { fill: #ffffff; }
+    .kn .halo, .kn .edge { stroke: #1e7f8c; }
+    .pill.kn rect { fill: #1e7f8c; }
+    .pill.kn text { fill: #ffffff; }
+    .mk-kn { fill: #1e7f8c; }
+    .ln.kn { stroke: #1e7f8c; }
+    .frame.kn { stroke: #1e7f8c; }
+    .dot-kn { fill: #1e7f8c; }
+    .gd .card { fill: #fbf5e7; stroke: #e8c06f; }
+    .gd .tile { fill: #a16207; }
+    .gd .ico { color: #ffffff; }
+    .gd .chip rect { fill: #f7eacf; }
+    .gd .chip text { fill: #814e06; }
+    .gd .num circle, .gd .num rect { fill: #a16207; stroke: #f6f8fa; stroke-width: 2; }
+    .gd .num text { fill: #ffffff; }
+    .gd .halo, .gd .edge { stroke: #a16207; }
+    .pill.gd rect { fill: #a16207; }
+    .pill.gd text { fill: #ffffff; }
+    .mk-gd { fill: #a16207; }
+    .ln.gd { stroke: #a16207; }
+    .frame.gd { stroke: #a16207; }
+    .dot-gd { fill: #a16207; }
+    .md .card { fill: #f3effe; stroke: #b99dfa; }
+    .md .tile { fill: #7c3aed; }
+    .md .ico { color: #ffffff; }
+    .md .chip rect { fill: #e8defd; }
+    .md .chip text { fill: #632ebe; }
+    .md .num circle, .md .num rect { fill: #7c3aed; stroke: #f6f8fa; stroke-width: 2; }
+    .md .num text { fill: #ffffff; }
+    .md .halo, .md .edge { stroke: #7c3aed; }
+    .pill.md rect { fill: #7c3aed; }
+    .pill.md text { fill: #ffffff; }
+    .mk-md { fill: #7c3aed; }
+    .ln.md { stroke: #7c3aed; }
+    .frame.md { stroke: #7c3aed; }
+    .dot-md { fill: #7c3aed; }
+    .tl .card { fill: #fef1e8; stroke: #fbab73; }
+    .tl .tile { fill: #c2410c; }
+    .tl .ico { color: #ffffff; }
+    .tl .chip rect { fill: #fee3d0; }
+    .tl .chip text { fill: #9b340a; }
+    .tl .num circle, .tl .num rect { fill: #c2410c; stroke: #f6f8fa; stroke-width: 2; }
+    .tl .num text { fill: #ffffff; }
+    .tl .halo, .tl .edge { stroke: #c2410c; }
+    .pill.tl rect { fill: #c2410c; }
+    .pill.tl text { fill: #ffffff; }
+    .mk-tl { fill: #c2410c; }
+    .ln.tl { stroke: #c2410c; }
+    .frame.tl { stroke: #c2410c; }
+    .dot-tl { fill: #c2410c; }
+    .ot .card { fill: #e9f6ef; stroke: #7ac89c; }
+    .ot .tile { fill: #15803d; }
+    .ot .ico { color: #ffffff; }
+    .ot .chip rect { fill: #d3edde; }
+    .ot .chip text { fill: #116631; }
+    .ot .num circle, .ot .num rect { fill: #15803d; stroke: #f6f8fa; stroke-width: 2; }
+    .ot .num text { fill: #ffffff; }
+    .ot .halo, .ot .edge { stroke: #15803d; }
+    .pill.ot rect { fill: #15803d; }
+    .pill.ot text { fill: #ffffff; }
+    .mk-ot { fill: #15803d; }
+    .ln.ot { stroke: #15803d; }
+    .frame.ot { stroke: #15803d; }
+    .dot-ot { fill: #15803d; }
+    .bd .card { fill: #fceded; stroke: #ef9194; }
+    .bd .tile { fill: #c2312f; }
+    .bd .ico { color: #ffffff; }
+    .bd .chip rect { fill: #fadadb; }
+    .bd .chip text { fill: #9b2726; }
+    .bd .num circle, .bd .num rect { fill: #c2312f; stroke: #f6f8fa; stroke-width: 2; }
+    .bd .num text { fill: #ffffff; }
+    .bd .halo, .bd .edge { stroke: #c2312f; }
+    .pill.bd rect { fill: #c2312f; }
+    .pill.bd text { fill: #ffffff; }
+    .mk-bd { fill: #c2312f; }
+    .ln.bd { stroke: #c2312f; }
+    .frame.bd { stroke: #c2312f; }
+    .dot-bd { fill: #c2312f; }
+    .mk-n { fill: #6e7781; }
+    .dot .halo2 { fill: #1e7f8c; opacity: 0.28; }
+    .dot .core { fill: #1e7f8c; stroke: #ffffff; stroke-width: 2; }
+    .junction { fill: #6e7781; }
+    .legend text { font-size: 11px; fill: #1f2328; }
+    .legend text.note { fill: #4b5563; }
+    .kp { fill: #ffffff; stroke: #d8dee4; stroke-width: 1; stroke-dasharray: 3 4; }
+    .cap { font-weight: 700; letter-spacing: 0.8px; font-size: 10px; }
+    .frame.md { fill: #f7f4fe; }
+    .loop-label rect { stroke: #7c3aed; }
+    .loop-label text { fill: #632ebe; }
+    .flow { stroke-dasharray: 6 6; animation: flow 0.9s linear infinite; }
+    @keyframes flow { to { stroke-dashoffset: -12; } }
+    @keyframes ret { to { stroke-dashoffset: -11; } }
+    .ret { stroke-dasharray: 5 6; animation: ret 0.9s linear infinite; }
+    .g-ask { animation: g-ask 14s linear infinite; }
+    .g-context { animation: g-context 14s linear infinite; }
+    .g-mode { animation: g-mode 14s linear infinite; }
+    .g-retrieve { animation: g-retrieve 14s linear infinite; }
+    .g-place { animation: g-place 14s linear infinite; }
+    .g-guardIn { animation: g-guardIn 14s linear infinite; }
+    .g-model { animation: g-model 14s linear infinite; }
+    .g-tools { animation: g-tools 14s linear infinite; }
+    .g-window { animation: g-window 14s linear infinite; }
+    .g-answer { animation: g-answer 14s linear infinite; }
+    .g-guardOut { animation: g-guardOut 14s linear infinite; }
+    .g-save { animation: g-save 14s linear infinite; }
+    @keyframes g-ask{0%{opacity:0}1.57%{opacity:0}2.86%{opacity:1}6.79%{opacity:1}9.64%{opacity:0}100%{opacity:0}}
+    @keyframes g-context{0%{opacity:0}6.89%{opacity:0}8.17%{opacity:1}12.47%{opacity:1}15.33%{opacity:0}100%{opacity:0}}
+    @keyframes g-mode{0%{opacity:0}12.57%{opacity:0}13.86%{opacity:1}18.17%{opacity:1}21.03%{opacity:0}100%{opacity:0}}
+    @keyframes g-retrieve{0%{opacity:0}17.97%{opacity:0}19.25%{opacity:1}23.32%{opacity:1}26.18%{opacity:0}100%{opacity:0}}
+    @keyframes g-place{0%{opacity:0}23.44%{opacity:0}24.73%{opacity:1}29.02%{opacity:1}31.88%{opacity:0}100%{opacity:0}}
+    @keyframes g-guardIn{0%{opacity:0}35.43%{opacity:0}36.71%{opacity:1}40.78%{opacity:1}43.64%{opacity:0}67.65%{opacity:0}68.94%{opacity:1}73.01%{opacity:1}75.87%{opacity:0}100%{opacity:0}}
+    @keyframes g-model{0%{opacity:0}40.43%{opacity:0}41.72%{opacity:1}45.94%{opacity:1}48.8%{opacity:0}72.49%{opacity:0}73.78%{opacity:1}78%{opacity:1}80.86%{opacity:0}100%{opacity:0}}
+    @keyframes g-tools{0%{opacity:0}45.74%{opacity:0}47.03%{opacity:1}51.25%{opacity:1}54.11%{opacity:0}100%{opacity:0}}
+    @keyframes g-window{0%{opacity:0}50.86%{opacity:0}52.14%{opacity:1}56.37%{opacity:1}59.23%{opacity:0}100%{opacity:0}}
+    @keyframes g-answer{0%{opacity:0}77.96%{opacity:0}79.25%{opacity:1}83.32%{opacity:1}86.17%{opacity:0}100%{opacity:0}}
+    @keyframes g-guardOut{0%{opacity:0}82.93%{opacity:0}84.22%{opacity:1}88.45%{opacity:1}91.3%{opacity:0}100%{opacity:0}}
+    @keyframes g-save{0%{opacity:0}88.06%{opacity:0}89.35%{opacity:1}93.57%{opacity:1}96.43%{opacity:0}100%{opacity:0}}
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .glow { opacity: 0; }
+      .dot { display: none; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="879" height="605" rx="16"/>
+
+  <!-- stage bands and the loop frame -->
+  <rect class="band" x="10" y="14" width="860" height="258" rx="14"/>
+  <rect class="band" x="10" y="474" width="860" height="122" rx="14"/>
+  <rect class="frame md" x="11" y="308" width="858" height="144" rx="14"/>
+  <g class="band-label "><rect x="28" y="4" width="172" height="20" rx="10"/><text x="39" y="17.6">PREPARE THE PROMPT</text></g>
+  <g class="band-label loop-label"><rect x="140" y="298" width="263" height="20" rx="10"/><text x="151" y="311.6">THE LOOP: REPEATS EVERY ROUND</text></g>
+  <g class="band-label "><rect x="28" y="464" width="97" height="20" rx="10"/><text x="39" y="477.6">THE REPLY</text></g>
+
+  <!-- connectors, under the blocks -->
+  <g id="connectors">
+  <path class="ln flow" d="M250 79 L296 79" marker-end="url(#ah-n)"/>
+  <path class="ln flow" d="M530 79 L576 79" marker-end="url(#ah-n)"/>
+  <path class="ln flow kn" d="M700 124 L700 166" marker-end="url(#ah-kn)"/>
+  <path class="ln flow kn" d="M610 124 L610 138 Q610 147 601 147 L424 147 Q415 147 415 156 L415 166" marker-end="url(#ah-kn)"/>
+  <path class="ln flow tl" d="M810 79 L833 79 Q842 79 842 88 L842 279 Q842 288 833 288 L124 288 Q115 288 115 297 L115 346" marker-end="url(#ah-tl)"/>
+  <path class="ln" d="M415 260 L415 288"/>
+  <path class="ln flow" d="M580 215 L534 215" marker-end="url(#ah-n)"/>
+  <path class="ln flow" d="M208 395 L234 395" marker-end="url(#ah-n)"/>
+  <path class="ln flow tl" d="M424 395 L458 395" marker-end="url(#ah-tl)"/>
+  <path class="ln flow" d="M648 395 L672 395" marker-end="url(#ah-n)"/>
+  <path class="ln ret md" d="M769 350 L769 339 Q769 330 760 330 L173 330 Q165 330 165 338 L165 346" marker-end="url(#ah-md)"/>
+  <path class="ln flow ot" d="M333 440 L333 490" marker-end="url(#ah-ot)"/>
+  <path class="ln flow" d="M428 539 L452 539" marker-end="url(#ah-n)"/>
+  <path class="ln flow" d="M646 539 L670 539" marker-end="url(#ah-n)"/>
+  <circle class="junction" cx="415" cy="288" r="3.5"/>
+  </g>
+
+  <!-- the message: a dot that follows the main path and is hidden under each block it visits -->
+  <g class="dot" opacity="0">
+    <circle class="halo2" r="11"/>
+    <circle class="core" r="5"/>
+    <animateMotion dur="14s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;0;0.03167;0.04639;0.07778;0.07778;0.10944;0.12417;0.15694;0.15694;0.16917;0.18278;0.19472;0.19472;0.22778;0.2425;0.27389;0.27389;0.28611;0.39528;0.40722;0.40722;0.43278;0.44194;0.46722;0.46722;0.49278;0.50417;0.52944;0.52944;0.555;0.56361;0.58889;0.58889;0.60111;0.78083;0.79278;0.79278;0.80444;0.81361;0.83889;0.83889;0.85167;0.8675;0.87944;0.87944;0.90556;0.91417;0.94;0.94;0.96611;0.97472;1;1;1" keyTimes="0;0.02857;0.06786;0.07156;0.08174;0.08541;0.12469;0.1284;0.13858;0.14241;0.18169;0.18312;0.19254;0.19393;0.23322;0.23708;0.24726;0.25093;0.29022;0.29165;0.36715;0.36854;0.40783;0.41081;0.41715;0.42011;0.45939;0.46238;0.47026;0.47321;0.5125;0.51548;0.52144;0.52439;0.56368;0.56511;0.6894;0.6908;0.73009;0.73145;0.73779;0.74074;0.78003;0.78152;0.79247;0.79387;0.83315;0.83621;0.84216;0.84518;0.88447;0.88752;0.89347;0.89643;0.93571;1" path="M135 79 L415 79 L700 79 L700 215 L415 215 L415 288 L115 288 L115 395 L331 395 L555 395 L769 395 L769 330 L165 330 L165 395 L331 395 L333 395 L333 539 L551 539 L767 539"/>
+    <animate attributeName="opacity" dur="14s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.00857;0.02857;0.93571;0.96071;1"/>
+  </g>
+
+  <g class="keypanel">
+    <rect class="kp" x="20" y="170" width="230" height="90" rx="12"/>
+    <text class="note cap" x="34" y="192">KNOWLEDGE MODE</text>
+    <g class="pill kn"><rect x="34" y="202" width="62" height="16" rx="8"/><text x="65" y="214" text-anchor="middle" style="font-size:10.5px">retrieve</text></g><text class="s" x="106" y="214" style="font-size:11.5px">search, then place</text>
+    <g class="pill kn"><rect x="34" y="220" width="62" height="16" rx="8"/><text x="65" y="232" text-anchor="middle" style="font-size:10.5px">full</text></g><text class="s" x="106" y="232" style="font-size:11.5px">whole documents</text>
+    <g class="pill tl"><rect x="34" y="238" width="62" height="16" rx="8"/><text x="65" y="250" text-anchor="middle" style="font-size:10.5px">tools</text></g><text class="s" x="106" y="250" style="font-size:11.5px">model searches later</text>
+  </g>
+  <g id="blocks">
+<g id="b-ask" class="blk in" data-box="ask" data-step="1">
+  <rect class="card" x="20" y="34" width="230" height="90" rx="12"/>
+  <rect class="tile" x="34" y="48" width="26" height="26" rx="8"/>
+  <use href="#i-message-square" class="ico" x="39" y="53" width="16" height="16"/>
+  <text class="t" x="69" y="66">User message</text>
+  <text class="s" x="34" y="88">From the web app or the API</text>
+
+  <g class="num"><circle cx="29" cy="37" r="10"/><text x="29" y="41" text-anchor="middle">1</text></g>
+  <g class="glow g-ask"><rect x="17" y="31" width="236" height="96" rx="15" class="halo"/><rect x="20" y="34" width="230" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-context" class="blk cx" data-box="context" data-step="2">
+  <rect class="card" x="300" y="34" width="230" height="90" rx="12"/>
+  <rect class="tile" x="314" y="48" width="26" height="26" rx="8"/>
+  <use href="#i-layers" class="ico" x="319" y="53" width="16" height="16"/>
+  <text class="t" x="349" y="66">Build context</text>
+  <text class="s" x="314" y="88">Prompt, files and past turns</text>
+  <g class="chip"><rect x="314" y="96" width="172" height="18" rx="9"/><text x="321" y="108.8">chat.compaction.threshold</text></g>
+  <g class="num"><circle cx="309" cy="37" r="10"/><text x="309" y="41" text-anchor="middle">2</text></g>
+  <g class="glow g-context"><rect x="297" y="31" width="236" height="96" rx="15" class="halo"/><rect x="300" y="34" width="230" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-mode" class="blk kn" data-box="mode" data-step="3">
+  <rect class="card" x="580" y="34" width="230" height="90" rx="12"/>
+  <rect class="tile" x="594" y="48" width="26" height="26" rx="8"/>
+  <use href="#i-split" class="ico" x="599" y="53" width="16" height="16"/>
+  <text class="t" x="629" y="66">Knowledge mode</text>
+  <text class="s" x="594" y="88">Retrieve, full or tools</text>
+  <g class="chip"><rect x="594" y="96" width="179" height="18" rx="9"/><text x="601" y="108.8">rag.full_context_max_chars</text></g>
+  <g class="num"><rect x="580" y="28" width="17" height="17" rx="3" transform="rotate(45 588.5 36.5)"/><text x="588.5" y="40.4" text-anchor="middle">3</text></g>
+  <g class="glow g-mode"><rect x="577" y="31" width="236" height="96" rx="15" class="halo"/><rect x="580" y="34" width="230" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-place" class="blk kn" data-box="place" data-step="5">
+  <rect class="card" x="300" y="170" width="230" height="90" rx="12"/>
+  <rect class="tile" x="314" y="184" width="26" height="26" rx="8"/>
+  <use href="#i-text-quote" class="ico" x="319" y="189" width="16" height="16"/>
+  <text class="t" x="349" y="202">Place passages</text>
+  <text class="s" x="314" y="224">System prompt or data message</text>
+  <g class="chip"><rect x="314" y="232" width="97" height="18" rx="9"/><text x="321" y="244.8">rag.placement</text></g>
+  <g class="num"><circle cx="309" cy="173" r="10"/><text x="309" y="177" text-anchor="middle">5</text></g>
+  <g class="glow g-place"><rect x="297" y="167" width="236" height="96" rx="15" class="halo"/><rect x="300" y="170" width="230" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-retrieve" class="blk kn" data-box="retrieve" data-step="4">
+  <rect class="card" x="580" y="170" width="230" height="90" rx="12"/>
+  <rect class="tile" x="594" y="184" width="26" height="26" rx="8"/>
+  <use href="#i-search" class="ico" x="599" y="189" width="16" height="16"/>
+  <text class="t" x="629" y="202">Retrieve passages</text>
+  <text class="s" x="594" y="224">Vector, keyword and heading</text>
+  <g class="chip"><rect x="594" y="232" width="71" height="18" rx="9"/><text x="601" y="244.8">rag.top_k</text></g><g class="chip"><rect x="670" y="232" width="116" height="18" rx="9"/><text x="677" y="244.8">rag.top_k_rerank</text></g>
+  <g class="num"><circle cx="589" cy="173" r="10"/><text x="589" y="177" text-anchor="middle">4</text></g>
+  <g class="glow g-retrieve"><rect x="577" y="167" width="236" height="96" rx="15" class="halo"/><rect x="580" y="170" width="230" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-guardIn" class="blk gd" data-box="guardIn" data-step="6">
+  <rect class="card" x="22" y="350" width="186" height="90" rx="12"/>
+  <rect class="tile" x="36" y="364" width="26" height="26" rx="8"/>
+  <use href="#i-shield-check" class="ico" x="41" y="369" width="16" height="16"/>
+  <text class="t" x="71" y="382">Guardrails in</text>
+  <text class="s" x="36" y="404">Scans every call</text>
+  <g class="chip"><rect x="36" y="412" width="103" height="18" rx="9"/><text x="43" y="424.8">guardrails.pii</text></g>
+  <g class="num"><circle cx="31" cy="353" r="10"/><text x="31" y="357" text-anchor="middle">6</text></g>
+  <g class="glow g-guardIn"><rect x="19" y="347" width="192" height="96" rx="15" class="halo"/><rect x="22" y="350" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-model" class="blk md" data-box="model" data-step="7">
+  <rect class="card" x="238" y="350" width="186" height="90" rx="12"/>
+  <rect class="tile" x="252" y="364" width="26" height="26" rx="8"/>
+  <use href="#i-sparkles" class="ico" x="257" y="369" width="16" height="16"/>
+  <text class="t" x="287" y="382">Call the model</text>
+  <text class="s" x="252" y="404">Answer or ask for tools</text>
+  <g class="chip"><rect x="252" y="412" width="128" height="18" rx="9"/><text x="259" y="424.8">chat.model_retries</text></g>
+  <g class="num"><circle cx="247" cy="353" r="10"/><text x="247" y="357" text-anchor="middle">7</text></g>
+  <g class="glow g-model"><rect x="235" y="347" width="192" height="96" rx="15" class="halo"/><rect x="238" y="350" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-tools" class="blk tl" data-box="tools" data-step="8">
+  <rect class="card" x="462" y="350" width="186" height="90" rx="12"/>
+  <rect class="tile" x="476" y="364" width="26" height="26" rx="8"/>
+  <use href="#i-wrench" class="ico" x="481" y="369" width="16" height="16"/>
+  <text class="t" x="511" y="382">Run tool calls</text>
+  <text class="s" x="476" y="404">Parallel when read-only</text>
+  <g class="chip"><rect x="476" y="412" width="135" height="18" rx="9"/><text x="483" y="424.8">chat.parallel_tools</text></g>
+  <g class="num"><circle cx="471" cy="353" r="10"/><text x="471" y="357" text-anchor="middle">8</text></g>
+  <g class="glow g-tools"><rect x="459" y="347" width="192" height="96" rx="15" class="halo"/><rect x="462" y="350" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-window" class="blk cx" data-box="window" data-step="9">
+  <rect class="card" x="676" y="350" width="186" height="90" rx="12"/>
+  <rect class="tile" x="690" y="364" width="26" height="26" rx="8"/>
+  <use href="#i-gauge" class="ico" x="695" y="369" width="16" height="16"/>
+  <text class="t" x="725" y="382">Fit to window</text>
+  <text class="s" x="690" y="404">Clears, then summarises</text>
+  <g class="chip"><rect x="690" y="412" width="147" height="18" rx="9"/><text x="697" y="424.8">chat.context.clear_at</text></g>
+  <g class="num"><circle cx="685" cy="353" r="10"/><text x="685" y="357" text-anchor="middle">9</text></g>
+  <g class="glow g-window"><rect x="673" y="347" width="192" height="96" rx="15" class="halo"/><rect x="676" y="350" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-answer" class="blk ot" data-box="answer" data-step="10">
+  <rect class="card" x="206" y="494" width="222" height="90" rx="12"/>
+  <rect class="tile" x="220" y="508" width="26" height="26" rx="8"/>
+  <use href="#i-message-square-quote" class="ico" x="225" y="513" width="16" height="16"/>
+  <text class="t" x="255" y="526">Answer with citations</text>
+  <text class="s" x="220" y="548">Cites passages as [1] to [n]</text>
+  <g class="chip"><rect x="220" y="556" width="166" height="18" rx="9"/><text x="227" y="568.8">chat.max_tool_iterations</text></g>
+  <g class="num"><circle cx="215" cy="497" r="10"/><text x="215" y="501" text-anchor="middle">10</text></g>
+  <g class="glow g-answer"><rect x="203" y="491" width="228" height="96" rx="15" class="halo"/><rect x="206" y="494" width="222" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-guardOut" class="blk gd" data-box="guardOut" data-step="11">
+  <rect class="card" x="456" y="494" width="190" height="90" rx="12"/>
+  <rect class="tile" x="470" y="508" width="26" height="26" rx="8"/>
+  <use href="#i-shield-check" class="ico" x="475" y="513" width="16" height="16"/>
+  <text class="t" x="505" y="526">Guardrails out</text>
+  <text class="s" x="470" y="548">Scans the reply</text>
+  <g class="chip"><rect x="470" y="556" width="147" height="18" rx="9"/><text x="477" y="568.8">guardrails.output_pii</text></g>
+  <g class="num"><circle cx="465" cy="497" r="10"/><text x="465" y="501" text-anchor="middle">11</text></g>
+  <g class="glow g-guardOut"><rect x="453" y="491" width="196" height="96" rx="15" class="halo"/><rect x="456" y="494" width="190" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-save" class="blk ot" data-box="save" data-step="12">
+  <rect class="card" x="674" y="494" width="186" height="90" rx="12"/>
+  <rect class="tile" x="688" y="508" width="26" height="26" rx="8"/>
+  <use href="#i-database" class="ico" x="693" y="513" width="16" height="16"/>
+  <text class="t" x="723" y="526">Save and trace</text>
+  <text class="s" x="688" y="548">Reply, usage and trace</text>
+  <g class="chip"><rect x="688" y="556" width="141" height="18" rx="9"/><text x="695" y="568.8">trace.retention_days</text></g>
+  <g class="num"><circle cx="683" cy="497" r="10"/><text x="683" y="501" text-anchor="middle">12</text></g>
+  <g class="glow g-save"><rect x="671" y="491" width="192" height="96" rx="15" class="halo"/><rect x="674" y="494" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+  </g>
+  <g class="legend">
+    <text class="note cap" x="24" y="511">STAGE COLOURS</text>
+    <circle cx="29" cy="525" r="4.5" class="dot-in"/><text x="39" y="529">Input</text>
+    <circle cx="109" cy="525" r="4.5" class="dot-cx"/><text x="119" y="529">Context</text>
+    <circle cx="29" cy="538" r="4.5" class="dot-kn"/><text x="39" y="542">Knowledge</text>
+    <circle cx="109" cy="538" r="4.5" class="dot-gd"/><text x="119" y="542">Guardrails</text>
+    <circle cx="29" cy="551" r="4.5" class="dot-md"/><text x="39" y="555">Model</text>
+    <circle cx="109" cy="551" r="4.5" class="dot-tl"/><text x="119" y="555">Tools</text>
+    <circle cx="29" cy="564" r="4.5" class="dot-ot"/><text x="39" y="568">Reply</text>
+    <text class="note nt" x="24" y="585" style="font-size:10px">Numbers = Admin &gt; Help steps</text>
+  </g>
+
+  <!-- branch and loop labels -->
+  <g id="labels">
+  <g class="pill kn "><rect x="663" y="137" width="74" height="20" rx="10"/><text x="700" y="151" text-anchor="middle">retrieve</text></g>
+  <g class="pill kn "><rect x="480" y="137" width="40" height="20" rx="10"/><text x="500" y="151" text-anchor="middle">full</text></g>
+  <g class="pill tl "><rect x="815.5" y="137" width="53" height="20" rx="10"/><text x="842" y="151" text-anchor="middle">tools</text></g>
+  <g class="pill tl "><rect x="426.5" y="385" width="33" height="20" rx="10"/><text x="443" y="399" text-anchor="middle">yes</text></g>
+  <g class="pill ot "><rect x="279" y="453" width="108" height="20" rx="10"/><text x="333" y="467" text-anchor="middle">no tool calls</text></g>
+  <g class="pill md "><rect x="440.5" y="320" width="239" height="20" rx="10"/><text x="560" y="334" text-anchor="middle">next round: the guard runs again</text></g>
+  </g>
+</svg>

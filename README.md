@@ -229,45 +229,23 @@ Only Postgres is required. The sidecars (document extraction, reranking, code sa
 <a id="how-it-answers"></a>
 ## 🔎 How it answers
 
-From your message to the saved reply. The shaded boxes are the guardrails and the model call; the guard also runs again in every round of the tool loop.
+From your message to the saved reply. Each colour is a stage and the numbers are the steps of **Admin > Help**. The amber blocks are the guardrails and the violet one is the model call; everything inside the dashed frame repeats in every round of the tool loop, so the guard runs again each time the model is called.
 
-```mermaid
-flowchart TD
-    ask["User message"] --> context["Build context"]
-    context --> mode{"Knowledge mode"}
-    mode -->|"retrieve"| retrieve["Search the collections"]
-    mode -->|"full: whole documents"| place["Place passages"]
-    mode -->|"tools: nothing added"| guardIn["Guardrails in"]
-    retrieve --> place
-    place --> guardIn
-    guardIn --> model["Call the model"]
-    model --> calls{"Tool calls?"}
-    calls -->|"yes"| tools["Run tool calls"]
-    tools --> window["Keep within window"]
-    window -->|"next round"| guardIn
-    calls -->|"no, or the round cap"| answer["Answer with citations"]
-    answer --> guardOut["Guardrails out"]
-    guardOut --> save["Save and trace"]
-    classDef guard fill:#fdf0d2,stroke:#d9960f,color:#1a1a1a
-    classDef llm fill:#d7eef2,stroke:#1e7f8c,color:#1a1a1a
-    class guardIn,guardOut guard
-    class model llm
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-answers-flow-dark.svg">
+    <img src="docs/images/how-it-answers-flow-light.svg" alt="The flow from a message to the saved reply in twelve numbered steps: the message and context are prepared, the knowledge mode chooses between retrieving passages, using whole documents or adding nothing, then a loop of guardrails, model call, tool calls and fitting the prompt to the window repeats every round until the model answers, and the cited answer is scanned by the guardrails, saved and traced" width="880">
+  </picture>
+</p>
 
 When the assistant has knowledge, the search runs three rankings (by meaning, by words, and by file name and heading), fuses them, optionally reranks, adds the neighbouring chunks of each hit, and numbers the passages so that a citation like [2] means the same passage everywhere in the run.
 
-```mermaid
-flowchart TD
-    q["Queries"] --> vec["Vector search"]
-    q --> kw["Keyword search"]
-    q --> head["Heading search"]
-    vec --> fuse["Fuse rankings"]
-    kw --> fuse
-    head --> fuse
-    fuse --> rerank["Rerank (optional)"]
-    rerank --> nb["Add neighbours"]
-    nb --> num["Number citations"]
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-answers-retrieval-dark.svg">
+    <img src="docs/images/how-it-answers-retrieval-light.svg" alt="The retrieval pipeline in eight numbered steps: the queries feed vector, keyword and heading search side by side, their rankings are fused into one list, an optional reranker re-reads the best candidates, neighbouring chunks are added, and the passages are numbered for citation" width="880">
+  </picture>
+</p>
 
 Every box has settings, defaults and a place to look when it misbehaves. Admins find them in **Admin > Help**; [docs/how-it-answers.md](docs/how-it-answers.md) has the same diagrams, a worked example with numbers, the agent loop and a table of symptoms and the settings to try.
 
