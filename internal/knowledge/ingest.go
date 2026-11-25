@@ -396,6 +396,18 @@ func (s *Service) finishReindex(ctx context.Context, kid string) error {
 	if busy {
 		return nil
 	}
+	// A file that had chunks under the old model but has none under the new one failed to re-embed: switching now
+	// would drop its only chunks and empty the collection. Keep serving the old model; "reindex" again once the
+	// cause is fixed, or cancel the move with a plain reindex.
+	var missing int
+	if err := tx.QueryRow(ctx, `SELECT count(DISTINCT o.file_id) FROM chunk o WHERE o.knowledge_id = $1 AND o.embedding_model_id IS DISTINCT FROM $2
+		AND NOT EXISTS (SELECT 1 FROM chunk n WHERE n.knowledge_id = $1 AND n.file_id = o.file_id AND n.embedding_model_id = $2)`, kid, *to).Scan(&missing); err != nil {
+		return fmt.Errorf("check reindexed files: %w", err)
+	}
+	if missing > 0 {
+		slog.Warn("knowledge: reindex not finished, the old model keeps serving", "knowledge", kid, "files_without_new_chunks", missing)
+		return nil
+	}
 	if _, err := tx.Exec(ctx, `UPDATE knowledge SET embedding_model_id = $2, meta = meta - 'reindex_to', updated_at = now() WHERE id = $1`, kid, *to); err != nil {
 		return fmt.Errorf("switch embedding model: %w", err)
 	}

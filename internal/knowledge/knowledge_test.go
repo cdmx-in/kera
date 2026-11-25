@@ -482,6 +482,51 @@ func TestReindexToAnotherModel(t *testing.T) {
 	}
 }
 
+// A reindex in which a file could not be re-embedded must not switch the model and drop the old chunks.
+func TestReindexKeepsTheOldModelWhileAFileHasNoNewChunks(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	var c coll
+	e.req("root", "POST", "/api/v1/knowledge/create", map[string]any{"name": "Docs"}, 200, &c)
+	fid := e.upload("root", "a.md", "alpha beta gamma\n\ndelta epsilon")
+	e.req("root", "POST", "/api/v1/knowledge/"+c.ID+"/file/add", map[string]any{"file_id": fid}, 200, nil)
+	e.waitFile(c.ID, fid, "completed")
+	next, err := e.s.ensureModel(ctx, "ollama", "next")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A move to "next" is under way and the file's re-embedding failed: no chunk of the new model exists.
+	if _, err := e.s.db.Exec(ctx, `UPDATE knowledge SET meta = meta || jsonb_build_object('reindex_to', $2::text) WHERE id = $1`, c.ID, next.ID); err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	_ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM chunk WHERE knowledge_id = $1`, c.ID).Scan(&before)
+	if before == 0 {
+		t.Fatal("no chunks to protect")
+	}
+	if err := e.s.finishReindex(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	var after, moved int
+	_ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM chunk WHERE knowledge_id = $1`, c.ID).Scan(&after)
+	_ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM knowledge WHERE id = $1 AND meta ? 'reindex_to'`, c.ID).Scan(&moved)
+	if after != before || moved != 1 {
+		t.Fatalf("chunks %d -> %d, move still pending %d: the old model must keep serving", before, after, moved)
+	}
+	// Once the file has a chunk under the new model the move completes and the old chunks go.
+	if _, err := e.s.db.Exec(ctx, `INSERT INTO chunk (knowledge_id, file_id, idx, text, embedding_model_id) VALUES ($1, $2, 0, 'new', $3)`, c.ID, fid, next.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.finishReindex(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	_ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM chunk WHERE knowledge_id = $1 AND embedding_model_id IS DISTINCT FROM $2`, c.ID, next.ID).Scan(&left)
+	if left != 0 {
+		t.Fatalf("%d old chunks left after the move finished", left)
+	}
+}
+
 func TestRerankerAndThreshold(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
