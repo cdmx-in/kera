@@ -1,28 +1,39 @@
 // Admin > Pipelines > one pipeline: header, run history, the flow run view
 // (a hand-built diagram: script steps, then one node per collection) and the
 // step drawer with its log. Everything is read-only; the page polls while a run is open.
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams, type NavigateFunction } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, Check, ChevronDown, ChevronLeft, Circle, CircleAlert, CircleDashed, Clock, Copy, KeyRound, Library, Loader2, Pencil, RefreshCw, Terminal, Trash2, TriangleAlert, Workflow, type LucideIcon } from 'lucide-react'
+import { ArrowRight, Ban, Check, ChevronDown, ChevronLeft, Circle, CircleAlert, CircleDashed, Clock, Copy, KeyRound, Library, Loader2, Pencil, Play, RefreshCw, Server, Terminal, Trash2, TriangleAlert, Workflow, type LucideIcon } from 'lucide-react'
 import { Chip } from '@/features/workspace/ui'
 import { copyText, cx } from '@/lib/format'
 import { toast } from '@/stores/toast'
 import { Dialog, DialogHeader } from '@/ui/Dialog'
 import { attempt, Badge, Btn, Card, Confirm, Loading, ManagedBadge, Page } from './ui'
 import { CopyBlock, editUrl, lateText, pipelinesBase, StatusBadge, TokenDialog, tones } from './Pipelines'
+import { Notice } from './Notice'
+import { EnvTab } from './PipelineEnv'
+import { nextRunText } from './PipelineSchedule'
+import { NoRunnerHint } from './PipelineRunners'
+import { ScriptTab } from './PipelineScript'
 import { relative, when } from './settings/Integrations'
 import {
   atBottom,
+  cancellable,
   countChips,
   countLabel,
   duration,
+  isNotebookRun,
   everyText,
   failedStep,
   isStuck,
   logTail,
+  queuedText,
   runCommand,
+  runStatus,
   runSummary,
+  scheduleSummary,
+  scriptLabel,
   stateOf,
   statusLabel,
   triggerLabel,
@@ -31,6 +42,7 @@ import {
   usePipeline,
   usePipelineApi,
   useRun,
+  useRunners,
   useRuns,
   useStep,
   useWide,
@@ -73,23 +85,7 @@ function Back() {
   )
 }
 
-const noticeTone = {
-  red: 'border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300',
-  amber: 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300',
-  accent: 'border-accent/30 bg-accent-soft',
-  grey: 'border-line bg-surface-2/50 text-muted',
-}
-
-export function Notice({ tone, icon: Icon, actions, role, testId, children }: { tone: keyof typeof noticeTone; icon?: LucideIcon; actions?: ReactNode; role?: 'alert' | 'status'; testId?: string; children: ReactNode }) {
-  return (
-    <div role={role} data-testid={testId} className={cx('flex flex-wrap items-start gap-x-3 gap-y-2 rounded-xl border px-4 py-3 text-sm', noticeTone[tone])}>
-      {Icon && <Icon size={16} className="mt-0.5 shrink-0" aria-hidden />}
-      {/* the text keeps a readable width, so the actions wrap under it on a phone; text-fg because a Btn sets only its (app theme) background, and the tone colours follow the OS scheme */}
-      <div className="min-w-[min(100%,14rem)] flex-1">{children}</div>
-      {actions && <div className="text-fg">{actions}</div>}
-    </div>
-  )
-}
+export { Notice }
 
 /** The command that starts a run, for a pipeline that has none yet and for the "How to run" disclosure. */
 function HowTo({ p }: { p: Pipeline }) {
@@ -106,7 +102,16 @@ function HowTo({ p }: { p: Pipeline }) {
   )
 }
 
-type Ask = 'rotate' | 'delete' | 'close' | 'allow' | null
+type Ask = 'rotate' | 'delete' | 'close' | 'allow' | 'cancel' | null
+
+type Tab = 'runs' | 'script' | 'env'
+const tabs: [Tab, string][] = [
+  ['runs', 'Runs'],
+  ['script', 'Script'],
+  ['env', 'Environment'],
+]
+const tabUrl = (name: string, tab: Tab) => `${urlOf(name)}${tab === 'runs' ? '' : `?tab=${tab}`}`
+const tabCls = (on: boolean) => cx('whitespace-nowrap rounded-md px-2.5 py-1 text-sm', on ? 'bg-accent-soft text-accent dark:text-accent-bright' : 'text-muted hover:bg-surface-2 hover:text-fg')
 
 function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
   const nav = useNavigate()
@@ -117,8 +122,20 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
   const [limit, setLimit] = useState(30)
   const [token, setToken] = useState<string | null>(null)
   const [ask, setAsk] = useState<Ask>(null)
+  const [starting, setStarting] = useState(false)
+  const kera = p.run_mode === 'kera'
+  const tab: Tab = kera ? (tabs.find(([k]) => k === params.get('tab'))?.[0] ?? 'runs') : 'runs'
+  const runners = useRunners(kera)
+  const runnerName = (id: string | undefined) => (id ? runners.data?.runners.find((r) => r.id === id)?.name : undefined)
   const runs = useRuns(p.name, limit)
-  const runId = runParam !== undefined ? Number(runParam) : runs.data?.runs[0]?.id
+  // runs behind the script notebook (Test, Run all) are dry and not the pipeline's last run: hidden until asked for
+  const [showNotebook, setShowNotebook] = useState(false)
+  const allRuns = runs.data?.runs ?? []
+  const notebookRuns = allRuns.filter(isNotebookRun).length
+  const shownRuns = showNotebook ? allRuns : allRuns.filter((r) => !isNotebookRun(r))
+  // the history shows once the pipeline has run for real, or when notebook runs are asked for and there are some
+  const showHistory = p.last_run !== null || (showNotebook && shownRuns.length > 0)
+  const runId = runParam !== undefined ? Number(runParam) : shownRuns[0]?.id
   const noRun = runParam !== undefined && !Number.isInteger(runId)
   const rq = useRun(p.name, runId)
   const run = rq.data
@@ -127,13 +144,26 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
   const stepParam = params.get('step')
   const seq = run && stepParam !== null && /^\d+$/.test(stepParam) ? Number(stepParam) : null
   const refused = run?.counts?.refused ?? 0
+  const runNow = async () => {
+    setStarting(true)
+    try {
+      const r = await pa.runNow(p.name)
+      toast('Run queued')
+      nav(urlOf(p.name, r.id))
+    } catch (e) {
+      toast((e as Error).message, 'error') // 409 run_active says which run is still going
+    } finally {
+      setStarting(false)
+    }
+  }
   const canAllow = !!run && run.id === p.last_run?.id && run.status !== 'running' && refused > 0 && !p.allow_mass_delete
 
-  // when the open run closes, the list, the header and the history catch up at once
+  // when the open run changes state (a runner claims it, a stop is asked for, it closes), the list, the header and the history catch up at once
   const before = useRef<string>(undefined)
   useEffect(() => {
-    if (before.current === 'running' && run && run.status !== 'running') void qc.invalidateQueries({ queryKey: ['admin', 'pipelines'] })
-    before.current = run?.status
+    const now = run ? `${run.id}:${runStatus(run)}:${run.cancel_requested}` : undefined
+    if (run && before.current?.startsWith(`${run.id}:`) && before.current !== now) void qc.invalidateQueries({ queryKey: ['admin', 'pipelines'] })
+    before.current = now
   }, [run, qc])
 
   return (
@@ -149,7 +179,17 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
             {p.title || p.name} <StatusBadge status={state} /> {p.managed && <ManagedBadge />}
           </h2>
           <p className="mt-0.5 text-[13px] text-muted">
-            <code>{p.name}</code> · Owner {p.owner.name || p.owner.email} · {p.every_minutes > 0 ? `Expected every ${everyText(p.every_minutes)}` : 'No expected interval'}
+            <code>{p.name}</code> · Owner {p.owner.name || p.owner.email} ·{' '}
+            {kera ? (
+              <span data-testid="kera-timetable">
+                Run by Kera: {p.schedule.scheduled ? scheduleSummary(p.schedule) : 'not scheduled'}
+                {p.schedule.scheduled && p.schedule.next_run_at && <span title={nextRunText(p.schedule)}>, next run {relative(p.schedule.next_run_at)}</span>}
+              </span>
+            ) : p.every_minutes > 0 ? (
+              `Expected every ${everyText(p.every_minutes)}`
+            ) : (
+              'No expected interval'
+            )}
             {p.last_ok_at && <span title={when(p.last_ok_at)}> · Last good run {relative(p.last_ok_at)}</span>}
           </p>
           <div className="mt-2 flex flex-wrap gap-1">
@@ -164,6 +204,11 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
           <Btn variant="ghost" aria-label="Refresh" onClick={() => void qc.invalidateQueries({ queryKey: ['admin', 'pipelines'] })}>
             <RefreshCw size={14} />
           </Btn>
+          {kera && (
+            <Btn variant="primary" onClick={() => void runNow()} disabled={starting || !p.enabled} title={p.enabled ? 'Queue a run now, outside the timetable' : 'Switched off'} data-testid="run-now">
+              <Play size={14} aria-hidden /> Run now
+            </Btn>
+          )}
           <Btn onClick={() => nav(editUrl(p.name))} data-testid="pipeline-edit">
             <Pencil size={14} aria-hidden /> Edit
           </Btn>
@@ -176,7 +221,17 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
         </div>
       </div>
 
-      {!p.enabled && <Notice tone="grey">This pipeline is switched off: Kera refuses its token. Edit it to switch it on.</Notice>}
+      {kera && (
+        <nav aria-label="Pipeline sections" className="flex flex-wrap gap-1 border-b border-line pb-2" data-testid="pipeline-tabs">
+          {tabs.map(([k, l]) => (
+            <Link key={k} to={tabUrl(p.name, k)} aria-current={tab === k ? 'page' : undefined} className={tabCls(tab === k)}>
+              {l}
+            </Link>
+          ))}
+        </nav>
+      )}
+
+      {!p.enabled && <Notice tone="grey">{kera ? 'This pipeline is switched off: the timetable starts no runs and runners skip it. Edit it to switch it on.' : 'This pipeline is switched off: Kera refuses its token. Edit it to switch it on.'}</Notice>}
       {p.late && p.enabled && !p.running && (
         <Notice tone="amber" icon={TriangleAlert} testId="late-notice">
           <strong>Late.</strong> {lateText(p)}
@@ -193,22 +248,42 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
         </Notice>
       )}
 
-      {p.last_run === null ? (
-        <Card title="This pipeline has not run yet" hint="The first run shows up here as a flow of steps with their logs.">
+      {tab === 'script' && <ScriptTab name={p.name} />}
+      {tab === 'env' && <EnvTab name={p.name} />}
+
+      {tab === 'runs' && !kera && <LetKeraRun onSetUp={() => nav(`${editUrl(p.name)}#how-it-runs`)} />}
+      {tab === 'runs' && kera && <NoRunnerHint runners={runners.data?.runners} />}
+      {tab === 'runs' && !showHistory && (
+        <Card title="This pipeline has not run yet" hint={kera ? 'Press Run now to try it, or wait for the timetable.' : 'The first run shows up here as a flow of steps with their logs.'}>
           <div className="p-5" data-testid="never-ran">
-            <HowTo p={p} />
+            {kera ? (
+              <p className="text-sm text-muted">
+                {p.schedule.scheduled ? `Next run: ${nextRunText(p.schedule)}.` : 'It is not scheduled, so it runs only when you press Run now.'} The run shows up here as a flow of steps with their logs.
+              </p>
+            ) : (
+              <HowTo p={p} />
+            )}
+            {notebookRuns > 0 && (
+              <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-muted">
+                <input type="checkbox" checked={showNotebook} onChange={(e) => setShowNotebook(e.target.checked)} className="size-4 accent-[var(--accent)]" data-testid="show-notebook-runs" />
+                Show notebook runs ({notebookRuns})
+              </label>
+            )}
           </div>
         </Card>
-      ) : (
+      )}
+      {tab === 'runs' && showHistory && (
         <>
-          <details className="rounded-xl border border-line bg-surface text-sm">
-            <summary className="cursor-pointer select-none px-4 py-2.5 font-medium">How to run</summary>
-            <div className="border-t border-line p-4">
-              <HowTo p={p} />
-            </div>
-          </details>
+          {!kera && (
+            <details className="rounded-xl border border-line bg-surface text-sm">
+              <summary className="cursor-pointer select-none px-4 py-2.5 font-medium">How to run</summary>
+              <div className="border-t border-line p-4">
+                <HowTo p={p} />
+              </div>
+            </details>
+          )}
           <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start">
-            <History runs={runs.data?.runs ?? []} loading={runs.isLoading} more={!!runs.data?.more} selected={run?.id ?? runId} name={p.name} now={now} onMore={() => setLimit((l) => Math.min(l + 30, 100))} />
+            <History runs={shownRuns} loading={runs.isLoading} more={!!runs.data?.more} selected={run?.id ?? runId} name={p.name} now={now} onMore={() => setLimit((l) => Math.min(l + 30, 100))} notebookRuns={notebookRuns} showNotebook={showNotebook} onShowNotebook={setShowNotebook} />
             {run ? (
               <div className={cx('min-w-0', rq.isPlaceholderData && 'opacity-60')}>
                 <RunView
@@ -218,8 +293,10 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
                   now={now}
                   onOpen={(s) => nav(urlOf(p.name, run.id, s), { state: { drawer: true } })}
                   onClose={() => setAsk('close')}
+                  onCancel={() => setAsk('cancel')}
                   onAllow={canAllow ? () => setAsk('allow') : undefined}
                   refused={refused}
+                  runner={runnerName(run.runner)}
                 />
               </div>
             ) : rq.error || noRun ? (
@@ -265,6 +342,14 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
         onClose={() => setAsk(null)}
       />
       <Confirm
+        open={ask === 'cancel'}
+        title={`Cancel run #${run?.id}?`}
+        confirmLabel="Cancel run"
+        body={run?.queued ? 'No runner has started it, so it is closed at once.' : 'The runner stops the script and everything it started, usually within a few seconds. Whatever the script already changed stays changed.'}
+        onConfirm={async () => void (run && (await pa.cancel(p.name, run.id)))}
+        onClose={() => setAsk(null)}
+      />
+      <Confirm
         open={ask === 'allow'}
         title={`Allow removing ${refused} ${refused === 1 ? 'file' : 'files'} once?`}
         confirmLabel="Allow once"
@@ -278,7 +363,30 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
 
 // Run history ---------------------------------------------------------------------------
 
-export function History({ runs, loading, more, selected, name, now, onMore }: { runs: Run[]; loading: boolean; more: boolean; selected: number | undefined; name: string; now: number; onMore: () => void }) {
+export function History({
+  runs,
+  loading,
+  more,
+  selected,
+  name,
+  now,
+  onMore,
+  notebookRuns = 0,
+  showNotebook = false,
+  onShowNotebook,
+}: {
+  runs: Run[]
+  loading: boolean
+  more: boolean
+  selected: number | undefined
+  name: string
+  now: number
+  onMore: () => void
+  /** how many runs of the loaded ones came from the script notebook */
+  notebookRuns?: number
+  showNotebook?: boolean
+  onShowNotebook?: (v: boolean) => void
+}) {
   const wide = useWide()
   const [open, setOpen] = useState(false)
   const list = (
@@ -295,15 +403,17 @@ export function History({ runs, loading, more, selected, name, now, onMore }: { 
                 aria-current={r.id === selected ? 'page' : undefined}
                 data-testid="run-item"
                 data-status={r.status}
-                className={cx('block space-y-1 border-l-[3px] px-4 py-3 text-sm hover:bg-surface-2/60', look[r.status as StepStatus]?.rail ?? 'border-l-line', r.id === selected && 'bg-accent-soft')}
+                data-queued={r.queued ? 'true' : undefined}
+                className={cx('block space-y-1 border-l-[3px] px-4 py-3 text-sm hover:bg-surface-2/60', runLook(r).rail, r.id === selected && 'bg-accent-soft')}
               >
                 <span className="flex flex-wrap items-center gap-1.5">
-                  <StatusBadge status={r.status} />
+                  <StatusBadge status={runStatus(r)} />
                   {r.dry_run && <Badge tone="accent">Dry run</Badge>}
                   <span className="ml-auto text-xs text-muted">#{r.id}</span>
                 </span>
                 <span className="block text-xs text-muted" title={when(r.started_at)}>
                   {relative(r.started_at)} · {duration(r.started_at, r.finished_at, now)} · {triggerLabel(r.trigger)}
+                  {r.script_version ? ` · ${scriptLabel(r.script_version)}` : ''}
                 </span>
                 <span className="line-clamp-2 break-words text-xs" title={r.status === 'failed' ? r.error : undefined}>
                   {runSummary(r)}
@@ -312,6 +422,12 @@ export function History({ runs, loading, more, selected, name, now, onMore }: { 
             </li>
           ))}
         </ul>
+      )}
+      {onShowNotebook && notebookRuns > 0 && (
+        <label className="flex cursor-pointer items-center gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">
+          <input type="checkbox" checked={showNotebook} onChange={(e) => onShowNotebook(e.target.checked)} className="size-4 accent-[var(--accent)]" data-testid="show-notebook-runs" />
+          Show notebook runs ({notebookRuns})
+        </label>
       )}
       {more && (
         <div className="border-t border-line p-3">
@@ -345,6 +461,10 @@ const look: Record<StepStatus, { icon: LucideIcon; tile: string; text: string; r
   skipped: { icon: CircleDashed, tile: 'bg-surface-2 text-muted', text: 'text-muted', rail: 'border-l-line' },
 }
 
+const queuedLook = { icon: Clock, tile: 'bg-surface-2 text-muted', text: 'text-muted', rail: 'border-l-line' }
+/** How a run looks: its status, or the waiting look of a queued run (its status is still running). */
+const runLook = (r: Pick<Run, 'status' | 'queued'>) => (r.queued && r.status === 'running' ? queuedLook : (look[r.status as StepStatus] ?? look.pending))
+
 /** The headline numbers of a run, as tiles: [count key, label, colour when above zero, shown even at zero]. */
 const stats: [string, string, 'text-green-700 dark:text-green-400' | 'text-amber-700 dark:text-amber-300' | 'text-red-700 dark:text-red-400' | 'text-accent' | '', boolean][] = [
   ['listed', 'Files', '', true],
@@ -364,20 +484,41 @@ export function runWhere(run: Pick<Run, 'source'>): string {
   return [who, s.command].filter(Boolean).join(': ')
 }
 
-function RunHeader({ run, now }: { run: Run; now: number }) {
-  const l = look[run.status as StepStatus] ?? look.pending
+/** The call to action on a pipeline that something else starts. */
+function LetKeraRun({ onSetUp }: { onSetUp: () => void }) {
+  return (
+    <Notice
+      tone="accent"
+      icon={Server}
+      testId="let-kera-run"
+      actions={
+        <Btn onClick={onSetUp} data-testid="let-kera-run-setup">
+          Set up how it runs
+        </Btn>
+      }
+    >
+      <p className="font-semibold">Let Kera run this</p>
+      <p className="mt-0.5 text-xs">Keep the script and a timetable in Kera instead of a cron job. A runner executes it; the runs, steps and logs look the same as they do now.</p>
+    </Notice>
+  )
+}
+
+export function RunHeader({ run, now, runner, onCancel }: { run: Run; now: number; runner?: string; onCancel?: () => void }) {
+  const l = runLook(run)
+  const waiting = run.queued && run.status === 'running'
   const c = run.counts ?? {}
   const tiles = stats.filter(([k, , , always]) => (always ? c[k] !== undefined : (c[k] ?? 0) > 0))
   return (
     <div className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
       <div className="flex flex-wrap items-center gap-3">
         <span className={cx('grid size-11 shrink-0 place-items-center rounded-xl', l.tile)}>
-          <l.icon size={22} aria-hidden className={run.status === 'running' ? 'animate-spin' : ''} />
+          <l.icon size={22} aria-hidden className={run.status === 'running' && !waiting ? 'animate-spin' : ''} />
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold">
             Run #{run.id}
-            <StatusBadge status={run.status} />
+            <StatusBadge status={runStatus(run)} />
+            {run.cancel_requested && run.status === 'running' && <Badge tone="amber">Stopping…</Badge>}
             {run.dry_run && <Badge tone="accent">Dry run</Badge>}
           </h3>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted" title={when(run.started_at)}>
@@ -386,6 +527,16 @@ function RunHeader({ run, now }: { run: Run; now: number }) {
               <Clock size={11} aria-hidden /> {duration(run.started_at, run.finished_at, now)}
             </span>
             ·<span>{triggerLabel(run.trigger)}</span>
+            {run.script_version ? (
+              <>
+                ·<span data-testid="run-script-version">{scriptLabel(run.script_version)}</span>
+              </>
+            ) : null}
+            {runner ? (
+              <>
+                ·<span data-testid="run-runner">Runner {runner}</span>
+              </>
+            ) : null}
           </p>
           {runWhere(run) && (
             <p className="mt-0.5 truncate font-mono text-xs text-muted" title={runWhere(run)} data-testid="run-where">
@@ -393,6 +544,11 @@ function RunHeader({ run, now }: { run: Run; now: number }) {
             </p>
           )}
         </div>
+        {onCancel && cancellable(run) && (
+          <Btn onClick={onCancel} disabled={run.cancel_requested} data-testid="cancel-run">
+            {run.cancel_requested ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Ban size={14} aria-hidden />} {run.cancel_requested ? 'Stopping…' : 'Cancel run'}
+          </Btn>
+        )}
       </div>
       {tiles.length > 0 && (
         <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6" data-testid="run-stats">
@@ -408,14 +564,21 @@ function RunHeader({ run, now }: { run: Run; now: number }) {
   )
 }
 
-function RunView({ p, run, seq, now, refused, onOpen, onClose, onAllow }: { p: Pipeline; run: Run; seq: number | null; now: number; refused: number; onOpen: (seq: number) => void; onClose: () => void; onAllow?: () => void }) {
+function RunView({ p, run, seq, now, refused, runner, onOpen, onClose, onCancel, onAllow }: { p: Pipeline; run: Run; seq: number | null; now: number; refused: number; runner?: string; onOpen: (seq: number) => void; onClose: () => void; onCancel: () => void; onAllow?: () => void }) {
   const steps = [...(run.steps ?? [])].sort((a, b) => a.seq - b.seq)
   const open = run.status === 'running'
   const blame = failedStep(steps)
   const current = upToDate(run.counts)
   return (
     <div className="space-y-4" data-testid="run-view" data-status={run.status}>
-      <RunHeader run={run} now={now} />
+      <RunHeader run={run} now={now} runner={runner} onCancel={onCancel} />
+
+      {open && run.queued && (
+        <Notice tone="grey" icon={Clock} role="status" testId="queued-notice">
+          <p className="font-medium">{queuedText}</p>
+          <p className="mt-1">A runner picks it up within a few seconds. If none does in 10 minutes, the run fails.</p>
+        </Notice>
+      )}
 
       {isStuck(run, now) && (
         <Notice

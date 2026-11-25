@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import type { NavigateFunction } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
-import { Flow, History, leaveStep, Notice, runWhere, StepBody } from './PipelineRuns'
+import { Flow, History, leaveStep, Notice, RunHeader, runWhere, StepBody } from './PipelineRuns'
 import { CopyBlock, WhereItRuns } from './Pipelines'
 import type { Run, Step } from './pipelines'
 
@@ -150,7 +150,7 @@ describe('leaveStep', () => {
 })
 
 describe('History', () => {
-  const run = (o: Partial<Run>): Run => ({ id: 1, pipeline: 'docs-sync', trigger: 'script', dry_run: false, status: 'ok', client_done: true, error: '', started_at: at('00:00'), active_at: at('00:00'), finished_at: at('02:00'), counts: {}, ...o })
+  const run = (o: Partial<Run>): Run => ({ id: 1, pipeline: 'docs-sync', trigger: 'script', dry_run: false, status: 'ok', client_done: true, error: '', queued: false, cancel_requested: false, started_at: at('00:00'), active_at: at('00:00'), finished_at: at('02:00'), counts: {}, ...o })
   const runs = [run({ id: 12, status: 'running', finished_at: null }), run({ id: 11, counts: { uploaded: 4, removed: 1 } }), run({ id: 10, status: 'failed', trigger: 'push', dry_run: true })]
   const html = (more: boolean) => renderToStaticMarkup(<MemoryRouter><History runs={runs} loading={false} more={more} selected={11} name="docs-sync" now={now} onMore={() => {}} /></MemoryRouter>)
 
@@ -194,5 +194,68 @@ describe('runWhere', () => {
     expect(runWhere({ source: { user: 'root', host: 'rad', command: 'bash x.sh' } })).toBe('root@rad: bash x.sh')
     expect(runWhere({ source: { command: 'bash x.sh' } })).toBe('bash x.sh')
     expect(runWhere({})).toBe('')
+  })
+})
+
+describe('Kera-run runs', () => {
+  const run = (o: Partial<Run>): Run => ({ id: 1, pipeline: 'docs-sync', trigger: 'schedule', dry_run: false, status: 'running', client_done: false, error: '', queued: false, cancel_requested: false, started_at: at('00:00'), active_at: at('00:00'), finished_at: null, counts: {}, ...o })
+  const history = (runs: Run[]) => renderToStaticMarkup(<MemoryRouter><History runs={runs} loading={false} more={false} selected={undefined} name="docs-sync" now={now} onMore={() => {}} /></MemoryRouter>)
+
+  it('shows a queued run as Queued, waiting for a runner, not as Running', () => {
+    const h = history([run({ id: 5, queued: true })])
+    expect(h).toContain('Queued')
+    expect(h).toContain('Queued: waiting for a runner')
+    expect(h).not.toContain('Running')
+    expect(h).not.toContain('In progress')
+    expect(h).toContain('data-queued="true"')
+  })
+  it('shows who started a run and which script version it used', () => {
+    const h = history([run({ id: 4, status: 'ok', finished_at: at('01:00'), script_version: 3 }), run({ id: 3, trigger: 'manual', status: 'ok', finished_at: at('01:00') }), run({ id: 2, trigger: 'script', status: 'ok', finished_at: at('01:00') })])
+    expect(h).toContain('Schedule')
+    expect(h).toContain('script v3')
+    expect(h).toContain('Manual')
+    expect(h).toContain('Script')
+    expect(h.match(/script v/g)).toHaveLength(1) // only the run that used a stored script
+  })
+  it('says Stopping when a stop was asked for', () => {
+    expect(history([run({ id: 6, script_version: 2, cancel_requested: true })])).toContain('Stopping…')
+  })
+})
+
+describe('RunHeader', () => {
+  const run = (o: Partial<Run>): Run => ({ id: 7, pipeline: 'docs-sync', trigger: 'manual', dry_run: false, status: 'running', client_done: false, error: '', queued: false, cancel_requested: false, started_at: at('00:00'), active_at: at('00:00'), finished_at: null, counts: {}, ...o })
+  const header = (r: Run, o: { runner?: string; cancel?: boolean } = {}) => renderToStaticMarkup(<RunHeader run={r} now={now} runner={o.runner} onCancel={o.cancel === false ? undefined : () => {}} />)
+
+  it('has the trigger, script version and runner name in the header line', () => {
+    const h = header(run({ script_version: 3, runner: 'kr1' }), { runner: 'build-server' })
+    expect(h).toContain('Manual')
+    expect(h).toContain('script v3')
+    expect(h).toContain('Runner build-server')
+  })
+  it('reads Queued with a Cancel run button before a runner claims it', () => {
+    const h = header(run({ queued: true }))
+    expect(h).toContain('Queued')
+    expect(h).toContain('Cancel run')
+    expect(h).not.toContain('animate-spin')
+    expect(h).not.toContain('Running')
+  })
+  it('turns the button into a disabled Stopping once a stop is asked for', () => {
+    const h = header(run({ script_version: 3, cancel_requested: true }))
+    expect(h).toMatch(/<button[^>]*disabled=""[^>]*data-testid="cancel-run"|<button[^>]*data-testid="cancel-run"[^>]*disabled=""/)
+    expect(h).toContain('Stopping…')
+    expect(h).not.toContain('Cancel run')
+  })
+  it('offers no Cancel for a run a script reports itself, or one that is over', () => {
+    expect(header(run({ trigger: 'script' }))).not.toContain('Cancel run')
+    expect(header(run({ script_version: 3, status: 'ok', finished_at: at('01:00') }))).not.toContain('Cancel run')
+  })
+})
+
+describe('WhereItRuns for a Kera-run pipeline', () => {
+  it('says the script version and runner come from Kera, not that cron starts it', () => {
+    const h = renderToStaticMarkup(<WhereItRuns kera run={{ started_at: at('00:00'), source: { user: 'build-server', host: 'runner-1', dir: '/work/docs-sync', command: 'run.sh --full', client: 'kera runner v1.3.0' } }} />)
+    expect(h).toContain('Run by Kera: the script version and the runner come from Kera')
+    expect(h).toContain('build-server@runner-1')
+    expect(h).not.toContain('Kera does not start this')
   })
 })

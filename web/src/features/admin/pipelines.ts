@@ -10,7 +10,7 @@ import type { Errors } from './settings/validate'
 export type RunStatus = 'running' | 'ok' | 'warning' | 'failed'
 export type StepStatus = 'pending' | 'running' | 'ok' | 'warning' | 'failed' | 'skipped'
 /** What the list says about a pipeline: its last run, or why that is not the whole story. */
-export type State = RunStatus | 'late' | 'never' | 'off'
+export type State = RunStatus | 'late' | 'never' | 'off' | 'queued'
 export type Tone = 'grey' | 'accent' | 'red' | 'amber' | 'green'
 export type Counts = Record<string, number>
 
@@ -33,6 +33,7 @@ export interface Step {
 export interface Run {
   id: number
   pipeline: string
+  /** schedule | manual (Kera-run), script | push (started from outside) */
   trigger: string
   dry_run: boolean
   status: RunStatus
@@ -43,6 +44,14 @@ export interface Run {
   started_at: string
   active_at: string
   finished_at: string | null
+  /** Kera-run: opened by the timetable or Run now, waiting for a runner to claim it (status is still running) */
+  queued: boolean
+  /** an admin asked to stop it; the runner kills the script at its next check */
+  cancel_requested: boolean
+  /** the script version a Kera-run run used */
+  script_version?: number
+  /** the id of the runner that claimed it */
+  runner?: string
   /** the collection steps' counts added up */
   counts: Counts
   steps?: Step[]
@@ -53,6 +62,19 @@ export interface Target {
   name: string
   /** the collection was deleted */
   missing: boolean
+}
+
+export type RunMode = 'external' | 'kera'
+export type Frequency = 'hourly' | 'daily' | 'weekdays' | 'weekly'
+
+/** The timetable of a Kera-run pipeline. at_minute: minutes after local midnight; for hourly the minute of the hour. weekday: 0 = Sunday. */
+export interface Schedule {
+  scheduled: boolean
+  frequency: Frequency
+  at_minute: number
+  weekday: number
+  timezone: string
+  next_run_at: string | null
 }
 
 export interface Pipeline {
@@ -71,16 +93,19 @@ export interface Pipeline {
   updated_at: string
   late: boolean
   running: boolean
+  /** external: a cron job, CI or script starts the runs; kera: the script and timetable live in Kera */
+  run_mode: RunMode
+  schedule: Schedule
   last_ok_at: string | null
   last_run: Run | null
 }
 
 // Pure helpers ------------------------------------------------------------------------
 
-/** Off, Running, a failed last run, Late, then the last run's status; Never run when there is none. A failure outranks Late: a pipeline that fails every day is late too, and red must not turn amber. */
-export function stateOf(p: Pick<Pipeline, 'enabled' | 'running' | 'late'> & { last_run: Pick<Run, 'status'> | null }): State {
+/** Off, Queued or Running, a failed last run, Late, then the last run's status; Never run when there is none. A failure outranks Late: a pipeline that fails every day is late too, and red must not turn amber. */
+export function stateOf(p: Pick<Pipeline, 'enabled' | 'running' | 'late'> & { last_run: (Pick<Run, 'status'> & { queued?: boolean }) | null }): State {
   if (!p.enabled) return 'off'
-  if (p.running) return 'running'
+  if (p.running) return p.last_run?.queued ? 'queued' : 'running'
   if (p.last_run?.status === 'failed') return 'failed'
   if (p.late) return 'late'
   return p.last_run ? p.last_run.status : 'never'
@@ -88,6 +113,7 @@ export function stateOf(p: Pick<Pipeline, 'enabled' | 'running' | 'late'> & { la
 
 export const statusLabel: Record<State | StepStatus, string> = {
   running: 'Running',
+  queued: 'Queued',
   ok: 'OK',
   warning: 'Warning',
   failed: 'Failed',
@@ -98,11 +124,11 @@ export const statusLabel: Record<State | StepStatus, string> = {
   skipped: 'Skipped',
 }
 
-const tones: Record<State | StepStatus, Tone> = { running: 'accent', ok: 'green', warning: 'amber', late: 'amber', failed: 'red', pending: 'grey', skipped: 'grey', never: 'grey', off: 'grey' }
+const tones: Record<State | StepStatus, Tone> = { running: 'accent', queued: 'grey', ok: 'green', warning: 'amber', late: 'amber', failed: 'red', pending: 'grey', skipped: 'grey', never: 'grey', off: 'grey' }
 /** The Badge tone of a state or step status (the word and icon carry it too, never colour alone). */
 export const toneOf = (s: State | StepStatus): Tone => tones[s]
 
-const attention: State[] = ['failed', 'late', 'warning', 'running', 'never', 'ok', 'off']
+const attention: State[] = ['failed', 'late', 'warning', 'running', 'queued', 'never', 'ok', 'off']
 /** Sort order for the list: what needs a look first, then by name. */
 export const byAttention = (a: Pipeline, b: Pipeline) => attention.indexOf(stateOf(a)) - attention.indexOf(stateOf(b)) || a.name.localeCompare(b.name)
 
@@ -137,8 +163,20 @@ export function changeSummary(c: Counts | null | undefined): string {
   return parts.join(', ') || 'No changes'
 }
 
+export const queuedText = 'Queued: waiting for a runner'
+
+/** What a run shows as its status: an open run that no runner has claimed yet is Queued, not Running. */
+export const runStatus = (r: Pick<Run, 'status'> & { queued?: boolean }): State | StepStatus => (r.status === 'running' && r.queued ? 'queued' : r.status)
+
 /** One line for a run in the list and the history: its error when it failed, else what moved. */
-export const runSummary = (r: Pick<Run, 'status' | 'error' | 'counts'>): string => (r.status === 'running' ? 'In progress' : r.status === 'failed' && r.error ? r.error : changeSummary(r.counts))
+export const runSummary = (r: Pick<Run, 'status' | 'error' | 'counts'> & { queued?: boolean; cancel_requested?: boolean }): string =>
+  r.status === 'running' ? (r.queued ? queuedText : r.cancel_requested ? 'Stopping…' : 'In progress') : r.status === 'failed' && r.error ? r.error : changeSummary(r.counts)
+
+/** Cancel is offered for a Kera-run run that is still open (queued, or claimed by a runner, which records the script version); a run a script reports itself cannot be stopped from here. */
+export const cancellable = (r: Pick<Run, 'status'> & { queued?: boolean; script_version?: number }): boolean => r.status === 'running' && (!!r.queued || (r.script_version ?? 0) > 0)
+
+/** "script v3", or nothing for a run that did not come from a stored script. */
+export const scriptLabel = (v: number | undefined): string => (v ? `script v${v}` : '')
 
 /** How many files were already up to date when the run changed nothing; 0 otherwise. */
 export const upToDate = (c: Counts | null | undefined): number => (changeSummary(c) === 'No changes' ? (c?.listed ?? 0) : 0)
@@ -203,11 +241,14 @@ export const atBottom = (el: { scrollHeight: number; scrollTop: number; clientHe
 export const stuckAfterMin = 5
 
 // ponytail: no Close run once the script is done (client_done): Kera is only indexing behind a shared worker and closes the run itself after 30 minutes without progress. Offer it after 30 minutes if that wait proves too long.
-export function isStuck(r: Pick<Run, 'status' | 'active_at' | 'client_done'>, now = Date.now()): boolean {
-  return r.status === 'running' && !r.client_done && now - new Date(r.active_at).getTime() >= stuckAfterMin * 60_000
+export function isStuck(r: Pick<Run, 'status' | 'active_at' | 'client_done'> & { queued?: boolean }, now = Date.now()): boolean {
+  // a queued run has reported nothing because no runner has it yet: that is the queue's business, not a stuck script
+  return r.status === 'running' && !r.queued && !r.client_done && now - new Date(r.active_at).getTime() >= stuckAfterMin * 60_000
 }
 
-const triggers: Record<string, string> = { script: 'Script', push: 'Push' }
+const triggers: Record<string, string> = { schedule: 'Schedule', manual: 'Manual', script: 'Script', push: 'Push', test: 'Notebook' }
+/** A run behind a notebook session (Test, Run all): it is dry, and is not the pipeline's last run. */
+export const isNotebookRun = (r: Pick<Run, 'trigger'>): boolean => r.trigger === 'test'
 export const triggerLabel = (t: string) => triggers[t] ?? t.charAt(0).toUpperCase() + t.slice(1)
 
 /** Single-quotes a word for a shell unless it is already plain. */
@@ -235,14 +276,513 @@ export const slugRe = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** Lines of a textarea: trimmed, empty ones dropped. */
 export const lines = (s: string) => s.split('\n').map((l) => l.trim()).filter(Boolean)
 
-/** Form rules, keyed by the field names the server's errors use. */
-export function validatePipeline(f: { name: string; every: string; targets: string[]; fresh: string[] }, isNew: boolean): Errors {
+/** Form rules, keyed by the field names the server's errors use. A Kera-run pipeline's expected interval follows its timetable, so it is not checked. */
+export function validatePipeline(f: { name: string; every: string; targets: string[]; fresh: string[]; mode?: RunMode }, isNew: boolean): Errors {
   const e: Errors = {}
   if (isNew && !slugRe.test(f.name)) e.name = 'Use 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit'
   const n = Number(f.every)
-  if (f.every.trim() === '' || !Number.isInteger(n) || n < 0 || n > 525600) e.every_minutes = 'A whole number of minutes, 0 (no expectation) to 525600'
+  if (f.mode !== 'kera' && (f.every.trim() === '' || !Number.isInteger(n) || n < 0 || n > 525600)) e.every_minutes = 'A whole number of minutes, 0 (no expectation) to 525600'
   if (!f.targets.length && !f.fresh.length) e.targets = 'Pick at least one collection, or name a new one'
   return e
+}
+
+// Timetable -------------------------------------------------------------------------------
+
+export const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+export const frequencies: [Frequency, string][] = [
+  ['hourly', 'Every hour'],
+  ['daily', 'Every day'],
+  ['weekdays', 'Every weekday (Mon–Fri)'],
+  ['weekly', 'Every week'],
+]
+
+/** "09:30" for 570 minutes after midnight. */
+export const hhmm = (at: number): string => `${String(Math.floor(at / 60)).padStart(2, '0')}:${String(at % 60).padStart(2, '0')}`
+
+/** Minutes after midnight for "9:30" or "09:30"; null when it is not a time of day. */
+export function parseTime(s: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim())
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null
+  return Number(m[1]) * 60 + Number(m[2])
+}
+
+/** The browser's own time zone, the default for a new timetable. */
+export const browserZone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
+
+/** Whether the runtime knows this IANA name (the server checks again; Go also refuses "Local"). */
+export function validZone(tz: string): boolean {
+  const t = tz.trim()
+  if (!t || t === 'Local') return false
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: t })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** "Every day at 09:30 (Asia/Kolkata)", "Every Monday at 06:15 (UTC)", "Every hour at minute 15". */
+export function scheduleSummary(s: Pick<Schedule, 'frequency' | 'at_minute' | 'weekday' | 'timezone'>): string {
+  const at = `at ${hhmm(s.at_minute)} (${s.timezone})`
+  switch (s.frequency) {
+    case 'hourly':
+      return `Every hour at minute ${s.at_minute}`
+    case 'weekdays':
+      return `Every weekday ${at}`
+    case 'weekly':
+      return `Every ${weekdays[s.weekday] ?? 'week'} ${at}`
+  }
+  return `Every day ${at}`
+}
+
+/** The timetable part of the edit form, as typed (strings) before it is checked. */
+export interface ScheduleForm {
+  mode: RunMode
+  scheduled: boolean
+  frequency: Frequency
+  /** HH:MM, for every frequency but hourly */
+  time: string
+  /** minute of the hour, for hourly */
+  minute: string
+  weekday: number
+  timezone: string
+}
+
+/** The form's start: the saved timetable of a Kera-run pipeline; for any other the stored values with the browser's time zone (the stored one is only the server default). */
+export function scheduleFormOf(p: Pick<Pipeline, 'run_mode' | 'schedule'> | null, zone: string): ScheduleForm {
+  const s = p?.schedule
+  const kera = p?.run_mode === 'kera'
+  const at = s?.at_minute ?? 0
+  return { mode: kera ? 'kera' : 'external', scheduled: kera && !!s?.scheduled, frequency: s?.frequency ?? 'daily', time: hhmm(at), minute: String(at % 60), weekday: s?.weekday ?? 1, timezone: kera && s ? s.timezone : zone }
+}
+
+/** at_minute as the server stores it, or null when the typed time is not valid. */
+export const atMinuteOf = (f: Pick<ScheduleForm, 'frequency' | 'time' | 'minute'>): number | null => {
+  if (f.frequency !== 'hourly') return parseTime(f.time)
+  const n = Number(f.minute)
+  return f.minute.trim() !== '' && Number.isInteger(n) && n >= 0 && n <= 59 ? n : null
+}
+
+/** Rules for the timetable, keyed by the server's field names. Only a Kera-run pipeline has one. */
+export function validateSchedule(f: ScheduleForm): Errors {
+  const e: Errors = {}
+  if (f.mode !== 'kera') return e
+  if (atMinuteOf(f) === null) e.at_minute = f.frequency === 'hourly' ? 'A minute from 0 to 59' : 'Choose a time of day'
+  if (!validZone(f.timezone)) e.timezone = 'Use a time zone name such as Asia/Kolkata or UTC'
+  return e
+}
+
+/** The body of PUT /schedule. A pipeline started from outside is never scheduled. */
+export const scheduleBody = (f: ScheduleForm) => ({
+  run_mode: f.mode,
+  scheduled: f.mode === 'kera' && f.scheduled,
+  frequency: f.frequency,
+  at_minute: atMinuteOf(f) ?? 0,
+  weekday: f.weekday,
+  timezone: f.timezone.trim(),
+})
+
+/** Whether saving must send the timetable: every save recomputes the next run, so an untouched one is left alone. */
+export function scheduleChanged(p: Pick<Pipeline, 'run_mode' | 'schedule'> | null, f: ScheduleForm): boolean {
+  if (f.mode === 'external') return p?.run_mode === 'kera'
+  if (!p || p.run_mode !== 'kera') return true
+  const b = scheduleBody(f)
+  const s = p.schedule
+  return s.scheduled !== b.scheduled || s.frequency !== b.frequency || s.at_minute !== b.at_minute || s.weekday !== b.weekday || s.timezone !== b.timezone
+}
+
+// Script ----------------------------------------------------------------------------------
+
+export interface Script {
+  version: number
+  files: Record<string, string>
+  entry: string
+  args: string
+  note: string
+  created_by: string
+  created_at: string
+}
+
+export interface ScriptVersion {
+  version: number
+  note: string
+  created_by: string
+  created_at: string
+}
+
+/** GET .../script: the newest version in full (null before the first save) and every kept version, newest first (null, not [], when there are none). */
+export interface ScriptList {
+  current: Script | null
+  versions: ScriptVersion[] | null
+}
+
+/** What the editor holds: the files, the entry and the arguments of one version, plus the note for the next save. */
+export interface Draft {
+  files: Record<string, string>
+  entry: string
+  args: string
+  note: string
+}
+
+export const draftOf = (s: Script | null | undefined): Draft => ({ files: { ...(s?.files ?? {}) }, entry: s?.entry ?? '', args: s?.args ?? '', note: '' })
+
+/** The runner starts .sh and .bash with bash and .py with python3; anything else fails the run at start. */
+export const startable = (name: string): boolean => /\.(sh|bash|py)$/i.test(name)
+
+/** Whether the draft differs from what is saved (the note does not count: it is only the label of the next save). */
+export function draftChanged(saved: Script | null | undefined, d: Draft): boolean {
+  const a = Object.keys(d.files)
+  if (!saved) return a.length > 0 || d.entry !== '' || d.args.trim() !== ''
+  return d.entry !== saved.entry || d.args.trim() !== saved.args || a.length !== Object.keys(saved.files).length || a.some((n) => saved.files[n] !== d.files[n])
+}
+
+/** Files that are new or different from the saved version (the editor marks them). */
+export const changedFiles = (saved: Script | null | undefined, files: Record<string, string>): string[] => Object.keys(files).filter((n) => saved?.files[n] !== files[n])
+
+/** An error text for a new file name, or '' when it is fine: a plain relative path, as the server requires. */
+export function fileNameError(name: string, existing: string[]): string {
+  if (!name) return 'Type a file name'
+  if (name.length > 200 || !/^[A-Za-z0-9._][A-Za-z0-9._/ -]*$/.test(name) || name.endsWith('/') || name.split('/').some((p) => p === '' || p === '.' || p === '..'))
+    return 'Use a relative path such as scripts/fetch.py: letters, digits, dot, dash, space and slash, no .. and no leading slash'
+  if (existing.includes(name)) return 'A file with this name exists'
+  return ''
+}
+
+/** Rules for saving a script, keyed by the server's field names. */
+export function validateScript(d: Draft): Errors {
+  const e: Errors = {}
+  if (!Object.keys(d.files).length) e.files = 'Add at least one file'
+  if (!d.entry || !(d.entry in d.files)) e.entry = 'Choose the file that is started'
+  else if (!startable(d.entry)) e.entry = 'The entry file must end in .sh, .bash or .py'
+  if (d.args.length > 500 || d.args.includes('\n')) e.args = 'One line, at most 500 characters'
+  return e
+}
+
+export type DiffLine = { kind: 'same' | 'add' | 'del'; text: string }
+export type DiffItem = DiffLine | { kind: 'skip'; count: number }
+
+/** Two sides this large are not compared line by line (the table would be too big): the middle is shown as all removed, then all added. */
+const lcsLimit = 4_000_000
+
+/**
+ * Line diff from `a` to `b`: the common head and tail are peeled off, the middle goes through a longest-common-subsequence table.
+ * ponytail: O(n*m) on the changed middle only; a Myers diff if edits to huge files ever need to be told line by line.
+ */
+export function diffLines(a: string, b: string): DiffLine[] {
+  const A = a === '' ? [] : a.split('\n')
+  const B = b === '' ? [] : b.split('\n')
+  let head = 0
+  while (head < A.length && head < B.length && A[head] === B[head]) head++
+  let ea = A.length
+  let eb = B.length
+  while (ea > head && eb > head && A[ea - 1] === B[eb - 1]) (ea--, eb--)
+  const x = A.slice(head, ea)
+  const y = B.slice(head, eb)
+  const same = (t: string): DiffLine => ({ kind: 'same', text: t })
+  const mid: DiffLine[] = []
+  if (x.length * y.length > lcsLimit) {
+    mid.push(...x.map((t): DiffLine => ({ kind: 'del', text: t })), ...y.map((t): DiffLine => ({ kind: 'add', text: t })))
+  } else {
+    const w = y.length + 1
+    const t = new Uint32Array((x.length + 1) * w)
+    for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) t[i * w + j] = x[i] === y[j] ? t[(i + 1) * w + j + 1] + 1 : Math.max(t[(i + 1) * w + j], t[i * w + j + 1])
+    let i = 0
+    let j = 0
+    while (i < x.length && j < y.length) {
+      if (x[i] === y[j]) (mid.push(same(x[i])), i++, j++)
+      else if (t[(i + 1) * w + j] >= t[i * w + j + 1]) mid.push({ kind: 'del', text: x[i++] })
+      else mid.push({ kind: 'add', text: y[j++] })
+    }
+    while (i < x.length) mid.push({ kind: 'del', text: x[i++] })
+    while (j < y.length) mid.push({ kind: 'add', text: y[j++] })
+  }
+  return [...A.slice(0, head).map(same), ...mid, ...A.slice(ea).map(same)]
+}
+
+/** Keeps `ctx` unchanged lines around every change and folds the rest into "skip" items (a fold of one line is kept as it is). */
+export function collapseDiff(d: DiffLine[], ctx = 3): DiffItem[] {
+  const keep = d.map((l, i) => l.kind !== 'same' || d.slice(Math.max(0, i - ctx), i + ctx + 1).some((n) => n.kind !== 'same'))
+  const out: DiffItem[] = []
+  for (let i = 0; i < d.length; ) {
+    if (keep[i]) {
+      out.push(d[i++])
+      continue
+    }
+    let j = i
+    while (j < d.length && !keep[j]) j++
+    if (j - i === 1) out.push(d[i])
+    else out.push({ kind: 'skip', count: j - i })
+    i = j
+  }
+  return out
+}
+
+// Notebook ------------------------------------------------------------------------------------
+// The script stays one file. A line "#%% name" starts a cell (a plain comment); the text before the first one is the
+// unnamed first cell, "setup". The runner turns each header into a step marker, so a cell is a pipeline step.
+
+/** One cell. header is the file's own header line (kept so odd spacing survives), null for the setup cell; bare: no lines at all after the header (not even an empty one). */
+export interface Cell {
+  title: string
+  header: string | null
+  code: string
+  bare: boolean
+}
+
+/** The same rule as the runner's cellHeader: the line starts with #%% and the rest is the title. */
+const cellHeaderRe = /^#%%\s*(.*?)\s*$/
+export const headerTitle = (line: string): string | null => cellHeaderRe.exec(line)?.[1] ?? null
+export const isCellHeader = (line: string): boolean => cellHeaderRe.test(line)
+
+/** Splits a script into cells. joinCells(splitCells(t)) === t for every text, CRLF and odd spacing included. */
+export function splitCells(text: string): Cell[] {
+  const cells: Cell[] = []
+  let cur: { title: string; header: string | null; body: string[] } | null = null
+  const close = () => cur && cells.push({ title: cur.title, header: cur.header, code: cur.body.join('\n'), bare: cur.body.length === 0 })
+  for (const l of text.split('\n')) {
+    const t = headerTitle(l)
+    if (t !== null) {
+      close()
+      cur = { title: t, header: l, body: [] }
+    } else {
+      cur ??= { title: '', header: null, body: [] }
+      cur.body.push(l)
+    }
+  }
+  close()
+  return cells
+}
+
+/** The header line a cell is written with: its own when its name is unchanged, else rebuilt. Only the first cell may go without one (anything else would merge into the cell above). */
+function headerLine(c: Cell, i: number): string | null {
+  if (c.header !== null) return headerTitle(c.header) === c.title ? c.header : c.title ? `#%% ${c.title}` : '#%%'
+  return i === 0 ? null : c.title ? `#%% ${c.title}` : '#%%'
+}
+
+export function joinCells(cells: Cell[]): string {
+  const out: string[] = []
+  cells.forEach((c, i) => {
+    const h = headerLine(c, i)
+    if (h !== null) out.push(h)
+    if (!c.bare) for (const l of c.code.split('\n')) out.push(l)
+  })
+  return out.join('\n')
+}
+
+/** The step name the runner gives a header: one word, as in the runner's cellName (n counts header cells from 1). */
+export function cellStep(title: string, n: number): string {
+  const s = title.trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+  return s || `cell-${n}`
+}
+
+/** Step names by cell: null for the setup cell, which has no marker. */
+export function stepNames(cells: Cell[]): (string | null)[] {
+  let n = 0
+  return cells.map((c, i) => (headerLine(c, i) === null ? null : cellStep(c.title, ++n)))
+}
+
+/** Where each cell sits in the file, 1-based: its header line (null for setup) and the first line of its code, and how many code lines it has. */
+export function cellLines(cells: Cell[]): { header: number | null; first: number; count: number }[] {
+  let line = 1
+  return cells.map((c, i) => {
+    const header = headerLine(c, i) === null ? null : line++
+    const first = line
+    const count = c.bare ? 0 : c.code.split('\n').length
+    line += count
+    return { header, first, count }
+  })
+}
+
+/** The cell a file line belongs to and the line within its code (0 = its header line). A line past the end belongs to the last cell. */
+export function locateLine(cells: Cell[], line: number): { cell: number; line: number } | null {
+  if (!cells.length || line < 1) return null
+  const at = cellLines(cells)
+  for (let i = 0; i < at.length; i++) {
+    const { header, first, count } = at[i]
+    if (line === header) return { cell: i, line: 0 }
+    if (line >= first && line < first + count) return { cell: i, line: line - first + 1 }
+  }
+  const last = at.length - 1
+  return { cell: last, line: Math.max(1, at[last].count) }
+}
+
+export type Severity = 'error' | 'warning' | 'info'
+
+export interface Problem {
+  file: string
+  line: number
+  col: number
+  severity: Severity
+  message: string
+  tool: string
+  code?: string
+}
+
+/** POST .../check: what the runner found. */
+export interface CheckResult {
+  problems: Problem[]
+  tools: string[]
+  error?: string
+}
+
+const rank: Record<Severity, number> = { error: 3, warning: 2, info: 1 }
+const worse = (a: Severity | undefined, b: Severity): Severity => (a && rank[a] >= rank[b] ? a : b)
+
+/** The worst severity on each line of a file (the gutter marks these). */
+export function lineSeverities(problems: Problem[], file: string): Record<number, Severity> {
+  const out: Record<number, Severity> = {}
+  for (const p of problems) if (p.file === file && p.line >= 1) out[p.line] = worse(out[p.line], p.severity)
+  return out
+}
+
+export interface CellProblems {
+  errors: number
+  warnings: number
+  /** worst severity by line within the cell's code; 0 is the header line */
+  lines: Record<number, Severity>
+}
+
+/** Maps the entry file's problems (file lines) onto cells (lines within a cell). */
+export function problemsByCell(cells: Cell[], problems: Problem[], entry: string): CellProblems[] {
+  const out: CellProblems[] = cells.map(() => ({ errors: 0, warnings: 0, lines: {} }))
+  for (const p of problems) {
+    if (p.file !== entry) continue
+    const at = locateLine(cells, p.line)
+    if (!at) continue
+    const c = out[at.cell]
+    if (p.severity === 'error') c.errors++
+    else if (p.severity === 'warning') c.warnings++
+    c.lines[at.line] = worse(c.lines[at.line], p.severity)
+  }
+  return out
+}
+
+export type CellStatus = 'queued' | 'running' | 'ok' | 'failed' | 'stopped'
+export type SessionStatus = 'starting' | 'ready' | 'closing' | 'closed'
+
+export const cellStatusLabel: Record<CellStatus, string> = { queued: 'Queued', running: 'Running', ok: 'OK', failed: 'Failed', stopped: 'Stopped' }
+export const cellBusy = (s: CellStatus | undefined): boolean => s === 'queued' || s === 'running'
+
+export type RunAllStep = { action: 'run'; index: number } | { action: 'wait' } | { action: 'done' } | { action: 'stop'; index: number; reason: 'failed' | 'stopped' | 'lost' }
+
+/**
+ * Run all, one cell at a time: `ids` are the cells to run in order, `cursor` the index of the one submitted last (-1 before the first).
+ * The next cell is only sent once the one before it is OK, so a failure stops the run (cells that were already queued would run anyway).
+ */
+export function runAllNext(ids: string[], status: Record<string, CellStatus | undefined>, cursor: number): RunAllStep {
+  if (cursor >= 0) {
+    const s = status[ids[cursor]]
+    if (cellBusy(s)) return { action: 'wait' }
+    if (s === 'failed' || s === 'stopped') return { action: 'stop', index: cursor, reason: s }
+    if (s !== 'ok') return { action: 'stop', index: cursor, reason: 'lost' }
+  }
+  return cursor + 1 >= ids.length ? { action: 'done' } : { action: 'run', index: cursor + 1 }
+}
+
+/** How long after the last edit a check is due, in ms; null when none is wanted: no runner known to be online, nothing startable, one already going, or nothing edited since the last. */
+export function autoCheckIn(s: { online: boolean | undefined; checking: boolean; editedAt: number; checkedAt: number; now: number; entry: string }, delay = 1500): number | null {
+  if (!s.online || !startable(s.entry) || s.checking || s.editedAt <= s.checkedAt) return null
+  return Math.max(0, s.editedAt + delay - s.now)
+}
+
+/** Fractions of a second padded to nanoseconds, so two timestamps compare as text. */
+const stamp = (t: string) => t.replace(/(\.\d+)?Z$/, (_, f: string | undefined) => `${(f ?? '.').padEnd(10, '0').slice(0, 10)}Z`)
+/** The later of two RFC 3339 timestamps; the poll sends the latest back as `since`, so it must stay exactly as the server wrote it. */
+export const laterStamp = (a: string, b: string): string => (!a || stamp(b) > stamp(a) ? b : a)
+
+/** One cell's latest run in a session. The server never sends the code back; `sent` is what was sent. */
+export interface CellRun {
+  /** the server's id for this run; 0 until the request has been answered */
+  server: number
+  status: CellStatus
+  output: string
+  exit_code: number | null
+  sent: string
+}
+
+export interface SessionCell {
+  id: number
+  name: string
+  status: CellStatus
+  output: string
+  exit_code: number | null
+  started_at: string | null
+  finished_at: string | null
+  updated_at: string
+}
+
+/** GET/POST .../sessions: `cells` holds only those changed after `since`, without their code. */
+export interface SessionOut {
+  id: string
+  status: SessionStatus
+  lang: string
+  entry: string
+  real_workspace: boolean
+  error: string
+  run: number
+  created_at: string
+  cells: SessionCell[]
+}
+
+/** Folds the cells of a poll into the runs by the server id each editor cell last got. A run that was replaced meanwhile is ignored. */
+export function applyCells(runs: Record<string, CellRun>, cells: SessionCell[]): Record<string, CellRun> {
+  let next = runs
+  for (const c of cells) {
+    const key = Object.keys(next).find((k) => next[k].server === c.id)
+    if (!key) continue
+    const r = next[key]
+    if (r.status === c.status && r.output === c.output && r.exit_code === c.exit_code) continue
+    next = { ...next, [key]: { ...r, status: c.status, output: c.output, exit_code: c.exit_code } }
+  }
+  return next
+}
+
+/** One line for the toolbar: where the session is, and why it ended. */
+export function sessionLine(s: { status: SessionStatus; error: string } | null, noRunner = false): string {
+  if (noRunner) return 'No runner is online'
+  if (!s) return 'No session yet'
+  const word = { starting: 'Starting…', ready: 'Ready', closing: 'Closing…', closed: 'Closed' }[s.status]
+  return s.error ? `${word}: ${s.error}` : word
+}
+
+export const sessionLive = (s: { status: SessionStatus } | null): boolean => !!s && (s.status === 'starting' || s.status === 'ready')
+
+// Environment ------------------------------------------------------------------------------
+
+/** A stored variable. A secret has no value here: the server never sends it back. */
+export interface EnvVar {
+  name: string
+  secret: boolean
+  value: string | null
+  updated_at: string
+}
+
+// Runners ------------------------------------------------------------------------------------
+
+export interface Runner {
+  id: string
+  name: string
+  token_prefix: string
+  version: string
+  last_seen_at: string | null
+  online: boolean
+  created_at: string
+}
+
+export const noRunnerText = 'No runner is connected, so scheduled runs will fail after 10 minutes. Create one under Runners.'
+
+/** The runner settings for a container's env file. */
+export const runnerEnvFile = (origin: string, token: string) => `KERA_URL=${origin}\nKERA_RUNNER_TOKEN=${token}`
+
+/** Rules for a runner's name (the same slug as a pipeline's). */
+export function validateRunner(f: { name: string }): Errors {
+  return slugRe.test(f.name.trim()) ? {} : { name: 'Use 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit' }
 }
 
 // Hooks -------------------------------------------------------------------------------
@@ -289,12 +829,27 @@ export const useStep = (name: string, run: number | undefined, seq: number | und
     refetchInterval: (q) => (q.state.data && (q.state.data.status === 'running' || q.state.data.status === 'pending') ? 3000 : false),
   })
 
-/** Every write, each refreshing the pipeline queries. */
+/** The stored script: the newest version in full plus the version list. */
+export const useScript = (name: string, enabled = true) => useQuery({ ...live, queryKey: key(name, 'script'), queryFn: () => api<ScriptList>(`${base}/${enc(name)}/script`), enabled })
+
+/** One stored version in full. A version never changes, so it is fetched once. */
+export const useScriptVersion = (name: string, version: number | undefined) =>
+  useQuery({ queryKey: key(name, 'script', version ?? 0), queryFn: () => api<Script>(`${base}/${enc(name)}/script/${version}`), enabled: version != null, staleTime: Infinity })
+
+/** The variables of a pipeline: secrets without values. */
+export const useEnv = (name: string, enabled = true) => useQuery({ ...live, queryKey: key(name, 'env'), queryFn: () => api<{ env: EnvVar[] }>(`${base}/${enc(name)}/env`), enabled })
+
+const runnersKey = ['admin', 'pipeline-runners']
+
+/** Every runner; polled, because "Online" is a matter of the last two minutes. */
+export const useRunners = (enabled = true) => useQuery({ ...live, queryKey: runnersKey, queryFn: () => api<{ runners: Runner[] }>('/api/v1/admin/pipeline-runners'), refetchInterval: 15_000, enabled })
+
+/** Every write, each refreshing the pipeline queries (and the runners). */
 export function usePipelineApi() {
   const qc = useQueryClient()
   const call = async <T>(path: string, method: string, json?: unknown) => {
-    const r = await api<T>(base + path, { method, json })
-    await qc.invalidateQueries({ queryKey: key() })
+    const r = await api<T>(path.startsWith('/api/') ? path : base + path, { method, json })
+    await Promise.all([qc.invalidateQueries({ queryKey: key() }), qc.invalidateQueries({ queryKey: runnersKey })])
     return r
   }
   return {
@@ -304,6 +859,20 @@ export function usePipelineApi() {
     rotate: (name: string) => call<{ token: string; token_prefix: string }>(`/${enc(name)}/token`, 'POST'),
     once: (name: string, flags: { adopt?: boolean; mass_delete?: boolean }) => call<Pipeline>(`/${enc(name)}/once`, 'POST', flags),
     close: (name: string, run: number) => call<Run>(`/${enc(name)}/runs/${run}/close`, 'POST'),
+    /** How the pipeline is started and its timetable; answers the pipeline */
+    schedule: (name: string, body: ReturnType<typeof scheduleBody> | { run_mode?: RunMode; scheduled?: boolean }) => call<Pipeline>(`/${enc(name)}/schedule`, 'PUT', body),
+    /** Queues a run now (409 run_active while one is open); answers the new run */
+    runNow: (name: string) => call<Run>(`/${enc(name)}/run`, 'POST'),
+    /** A queued run closes at once; a running one is asked to stop */
+    cancel: (name: string, run: number) => call<Run>(`/${enc(name)}/runs/${run}/cancel`, 'POST'),
+    /** Stores a new version; answers it */
+    saveScript: (name: string, body: { files: Record<string, string>; entry: string; args: string; note: string }) => call<Script>(`/${enc(name)}/script`, 'PUT', body),
+    setEnv: (name: string, body: { name: string; value: string; secret: boolean }) => call<{ env: EnvVar[] }>(`/${enc(name)}/env`, 'PUT', body),
+    deleteEnv: (name: string, variable: string) => call<{ env: EnvVar[] }>(`/${enc(name)}/env/${enc(variable)}`, 'DELETE'),
+    /** The token is in the answer once; Kera keeps a hash */
+    createRunner: (runnerName: string) => call<{ runner: Runner; token: string }>('/api/v1/admin/pipeline-runners', 'POST', { name: runnerName }),
+    rotateRunner: (id: string) => call<{ token: string; token_prefix: string }>(`/api/v1/admin/pipeline-runners/${enc(id)}/token`, 'POST'),
+    deleteRunner: (id: string) => call<undefined>(`/api/v1/admin/pipeline-runners/${enc(id)}`, 'DELETE'),
   }
 }
 

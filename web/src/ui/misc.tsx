@@ -7,14 +7,15 @@ export function Spinner({ size = 14, className }: { size?: number; className?: s
   return <span role="status" aria-label="Loading" className={cx('inline-block animate-spin rounded-full border-2 border-current border-t-transparent', className)} style={{ width: size, height: size }} />
 }
 
-export function Switch({ checked, onChange, label, testId }: { checked: boolean; onChange: (v: boolean) => void; label: string; testId?: string }) {
+export function Switch({ checked, onChange, label, testId, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; testId?: string; disabled?: boolean }) {
   return (
     <RSwitch.Root
       checked={checked}
       onCheckedChange={onChange}
+      disabled={disabled}
       aria-label={label}
       data-testid={testId}
-      className="relative h-5 w-9 shrink-0 rounded-full bg-gray-300 transition-colors data-[state=checked]:bg-accent"
+      className="relative h-5 w-9 shrink-0 rounded-full bg-gray-300 transition-colors data-[state=checked]:bg-accent disabled:opacity-50"
     >
       <RSwitch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow transition-transform data-[state=checked]:translate-x-[18px]" />
     </RSwitch.Root>

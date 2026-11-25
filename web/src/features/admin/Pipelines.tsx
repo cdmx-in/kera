@@ -1,8 +1,8 @@
 // Admin > Pipelines: the list, the create and edit form, and the one-time token
 // dialog. The detail page with the flow run view is PipelineRuns.tsx.
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { ArrowLeftRight, Check as CheckIcon, ChevronLeft, ChevronRight, Circle, CircleAlert, CircleDashed, CircleOff, Clock, Copy, FileText, FolderPlus, Info, KeyRound, Library, MapPin, Pencil, Plus, Power, RefreshCw, Terminal, TriangleAlert, UserRound, Workflow, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Check as CheckIcon, ChevronLeft, ChevronRight, Circle, CircleAlert, CircleDashed, CircleOff, Clock, Copy, FileText, FolderPlus, Info, KeyRound, Library, MapPin, Pencil, Play, Plus, Power, RefreshCw, Server, Terminal, TriangleAlert, UserRound, Workflow, type LucideIcon } from 'lucide-react'
 import { useCollections } from '@/features/workspace/api'
 import { Chip, Empty } from '@/features/workspace/ui'
 import { cx, copyText } from '@/lib/format'
@@ -13,12 +13,40 @@ import { attempt, Badge, Btn, Card, Confirm, inputCls, Loading, Page, tdCls, thC
 import { UserPicker } from './UserPicker'
 import { bad, EditorDialog, useFormErrors, VField } from './settings/dialogKit'
 import { relative, when } from './settings/Integrations'
-import { byAttention, dockerPush, envFile, everyText, lines, runSummary, stateOf, statusLabel, toneOf, usePipelineApi, usePipelines, validatePipeline, type Pipeline, type Run, type State, type StepStatus } from './pipelines'
+import { HowItRuns } from './PipelineSchedule'
+import {
+  browserZone,
+  byAttention,
+  dockerPush,
+  envFile,
+  everyText,
+  lines,
+  runSummary,
+  scheduleBody,
+  scheduleChanged,
+  scheduleFormOf,
+  scheduleSummary,
+  stateOf,
+  statusLabel,
+  toneOf,
+  useScript,
+  usePipelineApi,
+  usePipelines,
+  validatePipeline,
+  validateSchedule,
+  type Pipeline,
+  type Run,
+  type ScheduleForm,
+  type State,
+  type StepStatus,
+} from './pipelines'
 
 export const pipelinesBase = '/admin/pipelines'
 export const pipelineUrl = (name: string) => `${pipelinesBase}/${encodeURIComponent(name)}`
 export const editUrl = (name: string) => `${pipelineUrl(name)}/edit`
 export const newUrl = `${pipelinesBase}?new`
+export const runnersUrl = `${pipelinesBase}?runners`
+export const scriptUrl = (name: string) => `${pipelineUrl(name)}?tab=script`
 
 /** /admin/pipelines/:name/edit, and /admin/pipelines?new for a new one: the form had outgrown a dialog. */
 export function PipelineEditPage({ name }: { name: string | null }) {
@@ -49,6 +77,11 @@ export function PipelineEditPage({ name }: { name: string | null }) {
         onClose={() => nav(p ? pipelineUrl(p.name) : pipelinesBase)}
         onSaved={(saved, token) => {
           if (token) return setShown({ pipeline: saved, token })
+          // a new Kera-run pipeline has no script yet: that is the next step
+          if (!p && saved.run_mode === 'kera') {
+            toast('Created. Add its script next.')
+            return nav(scriptUrl(saved.name))
+          }
           toast('Saved')
           nav(pipelineUrl(saved.name))
         }}
@@ -58,7 +91,7 @@ export function PipelineEditPage({ name }: { name: string | null }) {
   )
 }
 
-const icons = { pending: Circle, never: Circle, ok: CheckIcon, warning: TriangleAlert, late: TriangleAlert, failed: CircleAlert, skipped: CircleDashed, off: CircleOff }
+const icons = { pending: Circle, never: Circle, queued: Clock, ok: CheckIcon, warning: TriangleAlert, late: TriangleAlert, failed: CircleAlert, skipped: CircleDashed, off: CircleOff }
 
 /** Status is never colour alone: an icon per status (a spinner while running) next to the word. */
 export function StatusIcon({ status, size = 14 }: { status: State | StepStatus; size?: number }) {
@@ -122,7 +155,7 @@ export function TokenDialog({ pipeline, token, onClose }: { pipeline: Pipeline; 
 
 // Form ----------------------------------------------------------------------------------
 
-const formFields = ['name', 'title', 'targets', 'new_collections', 'every_minutes', 'owner_id']
+const formFields = ['name', 'title', 'targets', 'new_collections', 'every_minutes', 'owner_id', 'run_mode', 'frequency', 'at_minute', 'weekday', 'timezone', 'scheduled']
 
 export const tones = {
   accent: 'bg-accent-soft text-accent',
@@ -132,9 +165,9 @@ export const tones = {
 }
 
 /** A panel of the form: coloured icon tile, title and one line of help. */
-function Section({ icon: Icon, tone, title, hint, aside, children }: { icon: LucideIcon; tone: keyof typeof tones; title: string; hint: string; aside?: ReactNode; children: ReactNode }) {
+export function Section({ id, icon: Icon, tone, title, hint, aside, children }: { id?: string; icon: LucideIcon; tone: keyof typeof tones; title: string; hint: string; aside?: ReactNode; children: ReactNode }) {
   return (
-    <section className="space-y-3 rounded-xl border border-line bg-surface-2/40 p-4">
+    <section id={id} className="scroll-mt-4 space-y-3 rounded-xl border border-line bg-surface-2/40 p-4">
       <header className="flex items-start gap-3">
         <span className={cx('grid size-8 shrink-0 place-items-center rounded-lg', tones[tone])}>
           <Icon size={16} aria-hidden />
@@ -151,7 +184,7 @@ function Section({ icon: Icon, tone, title, hint, aside, children }: { icon: Luc
 }
 
 /** Where a pipeline's script lives, as its last run reported it. Kera never starts a script, so this is read-only. */
-export function WhereItRuns({ run }: { run: Pick<Run, 'source' | 'started_at'> | null }) {
+export function WhereItRuns({ run, kera }: { run: Pick<Run, 'source' | 'started_at'> | null; kera?: boolean }) {
   const s = run?.source ?? {}
   const rows: [string, string | undefined, boolean][] = [
     ['Machine', [s.user, s.host].filter(Boolean).join('@') || undefined, false],
@@ -163,7 +196,15 @@ export function WhereItRuns({ run }: { run: Pick<Run, 'source' | 'started_at'> |
   return (
     <div data-testid="where-it-runs">
       {shown.length === 0 ? (
-        <p className="text-sm text-muted">Not reported yet. A run from the kera command (current version) or a script that sends <code>source</code> when it opens a run fills this in.</p>
+        <p className="text-sm text-muted">
+          {kera ? (
+            'No run has started yet.'
+          ) : (
+            <>
+              Not reported yet. A run from the kera command (current version) or a script that sends <code>source</code> when it opens a run fills this in.
+            </>
+          )}
+        </p>
       ) : (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
           {shown.map(([k, v, mono]) => (
@@ -180,7 +221,9 @@ export function WhereItRuns({ run }: { run: Pick<Run, 'source' | 'started_at'> |
           )}
         </dl>
       )}
-      <p className="mt-3 text-xs text-muted">Kera does not start this. A cron job, CI or a person on that machine does; change the schedule or the script there.</p>
+      <p className="mt-3 text-xs text-muted">
+        {kera ? 'Run by Kera: the script version and the runner come from Kera. Change the script on its Script tab and the timetable under How it runs.' : 'Kera does not start this. A cron job, CI or a person on that machine does; change the schedule or the script there.'}
+      </p>
     </div>
   )
 }
@@ -199,7 +242,12 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
   const [owner, setOwner] = useState<AdminUser | null>(null)
   const [adopt, setAdopt] = useState(pipeline?.adopt ?? false)
   const [ask, setAsk] = useState(false)
-  const form = useFormErrors(validatePipeline({ name, every, targets, fresh: lines(fresh) }, !pipeline), !!pipeline)
+  const [sched, setSched] = useState<ScheduleForm>(() => scheduleFormOf(pipeline, browserZone()))
+  const kera = sched.mode === 'kera'
+  // whether a script is saved: the timetable cannot be switched on without one (the server refuses with no_script)
+  const script = useScript(pipeline?.name ?? '', !!pipeline && kera)
+  const noScript = kera && (!pipeline || (script.data !== undefined && script.data.current === null))
+  const form = useFormErrors({ ...validatePipeline({ name, every, targets, fresh: lines(fresh), mode: sched.mode }, !pipeline), ...validateSchedule(sched) }, !!pipeline)
   const dropped = pipeline?.targets.filter((t) => t.missing).length ?? 0
   const n = Number(every)
   const current = owner ?? pipeline?.owner
@@ -208,11 +256,16 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
     const body = { title, targets, new_collections: lines(fresh), every_minutes: n, enabled }
     let saved: Pipeline
     let token: string | undefined
-    if (pipeline) saved = await pa.update(pipeline.name, owner ? { ...body, owner_id: owner.id } : body)
-    else {
+    if (pipeline) {
+      saved = await pa.update(pipeline.name, owner ? { ...body, owner_id: owner.id } : body)
+      // after the update: a Kera-run pipeline's expected interval is set from its timetable, and this must have the last word
+      if (scheduleChanged(pipeline, sched)) saved = await pa.schedule(pipeline.name, scheduleBody(sched))
+    } else {
       const r = await pa.create({ name, ...body })
       saved = r.pipeline
       token = r.token
+      // nothing is scheduled yet: there is no script. A Kera-run pipeline does not need the token (its runs carry their own), so the one-time dialog is skipped
+      if (kera && (await attempt(async () => void (saved = await pa.schedule(saved.name, { ...scheduleBody(sched), scheduled: false }))))) token = undefined
     }
     if (adopt !== (pipeline?.adopt ?? false)) await attempt(() => pa.once(saved.name, { adopt }))
     onSaved(saved, token)
@@ -228,6 +281,11 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
   }
 
   const presets: [string, number][] = [['Hourly', 60], ['Daily', 1440], ['Weekly', 10080], ['No expectation', 0]]
+  // the page can be opened at #how-it-runs (the call to action on a pipeline started from outside)
+  useEffect(() => {
+    if (location.hash === '#how-it-runs') document.getElementById('how-it-runs')?.scrollIntoView({ block: 'start' })
+  }, [])
+  const saved = pipeline?.run_mode === 'kera' && pipeline.schedule.scheduled && pipeline.schedule.next_run_at ? pipeline.schedule : null
   return (
     <>
       <EditorDialog
@@ -254,9 +312,15 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
         {!pipeline && (
           <p className="flex items-start gap-2.5 rounded-xl border border-accent/30 bg-accent-soft px-3.5 py-3 text-sm">
             <Info size={16} className="mt-0.5 shrink-0 text-accent" aria-hidden />
-            <span>
-              After you save, Kera shows this pipeline&apos;s <b>token once</b>. Put it in the cron job, CI or script that fills the collections; every run then shows up here as a flow of steps with logs.
-            </span>
+            {kera ? (
+              <span>
+                After you save, you add the <b>script</b> on its Script tab and switch the timetable on. A run carries its own credentials, so there is no token to copy; you can still rotate one later for pushes from outside.
+              </span>
+            ) : (
+              <span>
+                After you save, Kera shows this pipeline&apos;s <b>token once</b>. Put it in the cron job, CI or script that fills the collections; every run then shows up here as a flow of steps with logs.
+              </span>
+            )}
           </p>
         )}
         <div className="grid items-start gap-4 lg:grid-cols-2">
@@ -272,27 +336,52 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
               </div>
             </Section>
 
-            <Section icon={Clock} tone="violet" title="Schedule" hint="Your cron job or CI starts the runs. Kera only watches that they happen.">
-              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Common schedules">
-                {presets.map(([label, v]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={n === v}
-                    onClick={() => (setEvery(String(v)), form.touch('every_minutes'))}
-                    className={cx('rounded-full border px-3 py-1 text-xs font-medium transition-colors', n === v ? 'border-accent bg-accent-soft text-accent' : 'border-line text-muted hover:bg-surface-2 hover:text-fg')}
+            <Section
+              id="how-it-runs"
+              icon={Play}
+              tone="accent"
+              title="How it runs"
+              hint="Who starts the runs: your own scheduler, or Kera with a script and timetable stored here."
+            >
+              <HowItRuns
+                value={sched}
+                onChange={(patch) => setSched((s) => ({ ...s, ...patch }))}
+                form={form}
+                saved={saved}
+                scriptHref={pipeline ? scriptUrl(pipeline.name) : null}
+                noScript={noScript}
+              />
+            </Section>
+
+            <Section icon={Clock} tone="violet" title="Schedule" hint={kera ? 'Kera starts the runs, so a good run is expected as often as the timetable says.' : 'Your cron job or CI starts the runs. Kera only watches that they happen.'}>
+              {kera ? (
+                <p className="text-sm text-muted" data-testid="expected-follows">
+                  Expected every: follows the timetable above. A run that is a little overdue shows Late.
+                </p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Common schedules">
+                    {presets.map(([label, v]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={n === v}
+                        onClick={() => (setEvery(String(v)), form.touch('every_minutes'))}
+                        className={cx('rounded-full border px-3 py-1 text-xs font-medium transition-colors', n === v ? 'border-accent bg-accent-soft text-accent' : 'border-line text-muted hover:bg-surface-2 hover:text-fg')}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <VField
+                    label="Expected every (minutes)"
+                    hint={Number.isInteger(n) && n > 0 ? `A good run is expected every ${everyText(n)}; a little later it shows Late.` : 'Kera never shows Late. 1440 is daily, 10080 weekly.'}
+                    error={form.err('every_minutes')}
                   >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <VField
-                label="Expected every (minutes)"
-                hint={Number.isInteger(n) && n > 0 ? `A good run is expected every ${everyText(n)}; a little later it shows Late.` : 'Kera never shows Late. 1440 is daily, 10080 weekly.'}
-                error={form.err('every_minutes')}
-              >
-                <input name="every_minutes" type="number" min={0} step={1} value={every} onChange={(e) => setEvery(e.target.value)} className={inputCls + bad(form.err('every_minutes'))} />
-              </VField>
+                    <input name="every_minutes" type="number" min={0} step={1} value={every} onChange={(e) => setEvery(e.target.value)} className={inputCls + bad(form.err('every_minutes'))} />
+                  </VField>
+                </>
+              )}
               <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-surface p-3 has-[:checked]:border-green-500/50 has-[:checked]:bg-green-500/5">
                 <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="mt-0.5 size-4 accent-[var(--accent)]" />
                 <span className="min-w-0">
@@ -370,8 +459,8 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
               </VField>
             </Section>
             {pipeline && (
-              <Section icon={MapPin} tone="sky" title="Where it runs" hint="The machine, folder and command of the last run. Reported by the script; not editable here.">
-                <WhereItRuns run={pipeline.last_run} />
+              <Section icon={MapPin} tone="sky" title="Where it runs" hint={`The machine, folder and command of the last run. Reported by the ${pipeline.run_mode === 'kera' ? 'runner' : 'script'}; not editable here.`}>
+                <WhereItRuns run={pipeline.last_run} kera={pipeline.run_mode === 'kera'} />
               </Section>
             )}
           </div>
@@ -420,6 +509,9 @@ export function PipelinesPage() {
           <Btn variant="ghost" onClick={() => void q.refetch()} aria-label="Refresh">
             <RefreshCw size={14} />
           </Btn>
+          <Btn onClick={() => nav(runnersUrl)} data-testid="runners">
+            <Server size={14} aria-hidden /> Runners
+          </Btn>
           {add('new-pipeline')}
         </>
       }
@@ -441,7 +533,7 @@ export function PipelinesPage() {
                 <tr>
                   <th className={thCls}>Pipeline</th>
                   <th className={thCls}>State</th>
-                  <th className={cx(thCls, 'hidden md:table-cell')}>Expected every</th>
+                  <th className={cx(thCls, 'hidden md:table-cell')}>Schedule</th>
                   <th className={cx(thCls, 'hidden sm:table-cell')}>Last run</th>
                   <th className={cx(thCls, 'w-px')}>
                     <span className="sr-only">Actions</span>
@@ -468,6 +560,7 @@ export function PipelinesPage() {
                           <code>{p.name}</code>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-1">
+                          {p.run_mode === 'kera' && <Chip icon={Server} tone="accent">Run by Kera</Chip>}
                           {p.targets.map((t) => (
                             <Chip key={t.id} tone={t.missing ? 'red' : 'grey'} title={t.missing ? 'This collection was deleted' : undefined}>
                               {t.missing ? 'Deleted collection' : t.name}
@@ -482,7 +575,22 @@ export function PipelinesPage() {
                           {state === 'failed' && p.late && <StatusBadge status="late" title={lateText(p)} />}
                         </span>
                       </td>
-                      <td className={cx(tdCls, 'hidden whitespace-nowrap md:table-cell')}>{p.every_minutes > 0 ? everyText(p.every_minutes) : <span className="text-muted">No expectation</span>}</td>
+                      <td className={cx(tdCls, 'hidden md:table-cell')}>
+                        {p.run_mode === 'kera' ? (
+                          p.schedule.scheduled ? (
+                            <span title={p.schedule.next_run_at ? `Next run ${when(p.schedule.next_run_at)}` : undefined}>
+                              {scheduleSummary(p.schedule)}
+                              {p.schedule.next_run_at && <span className="block text-xs text-muted">Next run {relative(p.schedule.next_run_at)}</span>}
+                            </span>
+                          ) : (
+                            <span className="text-muted">Not scheduled</span>
+                          )
+                        ) : p.every_minutes > 0 ? (
+                          <span className="whitespace-nowrap">Expected every {everyText(p.every_minutes)}</span>
+                        ) : (
+                          <span className="text-muted">No expectation</span>
+                        )}
+                      </td>
                       <td className={cx(tdCls, 'hidden sm:table-cell')}>
                         {r ? (
                           <span title={when(r.started_at)}>
