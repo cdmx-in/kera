@@ -451,6 +451,7 @@ func TestIsContextOverflow(t *testing.T) {
 		{"plain 500", &HTTPError{Status: 500, Body: "internal error"}, false},
 		{"bad gateway", &HTTPError{Status: 502, Body: "bad gateway"}, false},
 		{"rate limit", &HTTPError{Status: 429, Body: "slow down"}, false},
+		{"token rate limit", &HTTPError{Status: 429, Body: `{"error":"Too many tokens per minute, retry later"}`}, false},
 		{"auth", &HTTPError{Status: 401, Body: "bad key"}, false},
 		{"the url names a context path", &HTTPError{Method: "POST", URL: "http://x/context-window/chat", Status: 500, Body: "oops"}, false},
 		{"idle timeout", ErrIdleTimeout, false},

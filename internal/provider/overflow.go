@@ -38,6 +38,9 @@ func IsContextOverflow(err error) bool {
 		if he.Status == http.StatusRequestEntityTooLarge {
 			return true
 		}
+		if he.Status == http.StatusTooManyRequests { // "too many tokens per minute" is a rate limit, not a long prompt
+			return false
+		}
 		text = he.Body // the URL and status text must not match
 	}
 	text = strings.ToLower(text)
