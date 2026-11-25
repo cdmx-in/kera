@@ -17,6 +17,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -27,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -161,16 +163,17 @@ type run struct {
 	ClientDone bool // the script finished; Kera may still be indexing
 	Targets    map[string]target
 	Error      string
+	Source     map[string]string // where the script runs, as it reported (may be empty)
 	StartedAt  time.Time
 	ActiveAt   time.Time
 	FinishedAt *time.Time
 }
 
-const runCols = `id, pipeline_id, trigger, dry_run, status, client_done, targets, error, started_at, active_at, finished_at`
+const runCols = `id, pipeline_id, trigger, dry_run, status, client_done, targets, error, source, started_at, active_at, finished_at`
 
 func scanRun(row pgx.Row) (*run, error) {
 	r := &run{}
-	err := row.Scan(&r.ID, &r.PipelineID, &r.Trigger, &r.DryRun, &r.Status, &r.ClientDone, &r.Targets, &r.Error, &r.StartedAt, &r.ActiveAt, &r.FinishedAt)
+	err := row.Scan(&r.ID, &r.PipelineID, &r.Trigger, &r.DryRun, &r.Status, &r.ClientDone, &r.Targets, &r.Error, &r.Source, &r.StartedAt, &r.ActiveAt, &r.FinishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNoRun
 	}
@@ -235,9 +238,32 @@ func (s *Service) collectionsOf(ctx context.Context, q dbq, targets []string) ([
 
 // startIn is the body of a run start.
 type startIn struct {
-	Trigger string   `json:"trigger"`
-	Steps   []string `json:"steps"`
-	DryRun  bool     `json:"dry_run"`
+	Trigger string            `json:"trigger"`
+	Steps   []string          `json:"steps"`
+	DryRun  bool              `json:"dry_run"`
+	Source  map[string]string `json:"source,omitempty"` // where the script runs; see cleanSource
+}
+
+// sourceKeys are the facts a script may report about where it runs; anything else is dropped.
+var sourceKeys = []string{"host", "command", "dir", "user", "client"}
+
+const maxSourceValue = 300
+
+// cleanSource keeps the known keys and runs each value through capText (secret mask, cap), so what a
+// script says about itself is safe to store and show; a command line can carry a token.
+func cleanSource(in map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, k := range sourceKeys {
+		if v := strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return ' '
+			}
+			return r
+		}, capText(in[k], maxSourceValue)); strings.TrimSpace(v) != "" {
+			out[k] = strings.TrimSpace(v)
+		}
+	}
+	return out
 }
 
 // startRun opens a run: old runs beyond maxRuns are trimmed, the declared script
@@ -258,6 +284,7 @@ func (s *Service) startRun(ctx context.Context, p *Pipeline, in startIn) (*run, 
 	if err != nil {
 		return nil, nil, err
 	}
+	src, _ := json.Marshal(cleanSource(in.Source))
 	now := s.now()
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -269,8 +296,8 @@ func (s *Service) startRun(ctx context.Context, p *Pipeline, in startIn) (*run, 
 		return nil, nil, fmt.Errorf("trim old runs: %w", err)
 	}
 	var id int64
-	err = tx.QueryRow(ctx, `INSERT INTO pipeline_run (pipeline_id, trigger, dry_run, started_at, active_at) VALUES ($1, $2, $3, $4, $4) RETURNING id`,
-		p.ID, in.Trigger, in.DryRun, now).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO pipeline_run (pipeline_id, trigger, dry_run, started_at, active_at, source) VALUES ($1, $2, $3, $4, $4, $5::jsonb) RETURNING id`,
+		p.ID, in.Trigger, in.DryRun, now, string(src)).Scan(&id)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" {
 		return nil, nil, s.holder(ctx, p.ID)

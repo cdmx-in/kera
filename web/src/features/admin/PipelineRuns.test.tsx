@@ -3,8 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import type { NavigateFunction } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
-import { Flow, History, leaveStep, Notice, StepBody } from './PipelineRuns'
-import { CopyBlock } from './Pipelines'
+import { Flow, History, leaveStep, Notice, runWhere, StepBody } from './PipelineRuns'
+import { CopyBlock, WhereItRuns } from './Pipelines'
 import type { Run, Step } from './pipelines'
 
 const at = (s: string) => `2026-03-10T06:${s}Z`
@@ -174,5 +174,25 @@ describe('History', () => {
     expect(html(false).match(/aria-current="page"/g)).toHaveLength(1)
     expect(html(false)).not.toContain('Load older')
     expect(html(true)).toContain('Load older')
+  })
+})
+
+describe('WhereItRuns', () => {
+  const run = { started_at: new Date(Date.now() - 3600_000).toISOString() }
+  it('shows machine, folder and command, and says Kera does not start it', () => {
+    const html = renderToStaticMarkup(<WhereItRuns run={{ ...run, source: { host: 'rad.cdmx.in', user: 'root', dir: '/root/ollama/astra-kb', command: 'bash refresh.sh', client: 'kera v1.2.1' } }} />)
+    for (const s of ['root@rad.cdmx.in', '/root/ollama/astra-kb', 'bash refresh.sh', 'kera v1.2.1', 'Kera does not start this']) expect(html).toContain(s)
+  })
+  it('says so when nothing was reported (a pipeline that never ran, or an older run)', () => {
+    expect(renderToStaticMarkup(<WhereItRuns run={null} />)).toContain('Not reported yet')
+    expect(renderToStaticMarkup(<WhereItRuns run={{ ...run, source: {} }} />)).toContain('Not reported yet')
+  })
+})
+
+describe('runWhere', () => {
+  it('joins who and the command, and is empty without a source', () => {
+    expect(runWhere({ source: { user: 'root', host: 'rad', command: 'bash x.sh' } })).toBe('root@rad: bash x.sh')
+    expect(runWhere({ source: { command: 'bash x.sh' } })).toBe('bash x.sh')
+    expect(runWhere({})).toBe('')
   })
 })

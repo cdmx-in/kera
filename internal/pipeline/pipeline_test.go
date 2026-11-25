@@ -1622,3 +1622,30 @@ func TestStartReturnsLinkAndCollections(t *testing.T) {
 		t.Errorf("fresh run: %+v", *rv.Steps)
 	}
 }
+
+func TestStartRecordsWhereTheScriptRuns(t *testing.T) {
+	e := newEnv(t, true)
+	p, _ := e.mkPipe("docs-sync", "Product docs")
+	var out struct{ Run int64 }
+	e.call(p.tok, "POST", p.path("/runs"), startIn{Source: map[string]string{
+		"host": "rad.cdmx.in", "dir": "/srv/docs", "command": "bash refresh.sh --token=kp-" + strings.Repeat("a", 40),
+		"user": "root\x00\n", "client": "kera v1", "evil": "dropped", "extra": strings.Repeat("x", 900),
+	}}, http.StatusCreated, &out)
+	src := p.get(out.Run).Source
+	if src["host"] != "rad.cdmx.in" || src["dir"] != "/srv/docs" || src["user"] != "root" || src["client"] != "kera v1" {
+		t.Errorf("source: %+v", src)
+	}
+	if strings.Contains(src["command"], "kp-aaaa") || !strings.Contains(src["command"], "refresh.sh") {
+		t.Errorf("command not masked: %q", src["command"])
+	}
+	if _, ok := src["evil"]; ok || len(src) != 5 {
+		t.Errorf("unknown keys must be dropped: %+v", src)
+	}
+	// no source at all: an empty object, never null
+	p.finish(out.Run, "")
+	var out2 struct{ Run int64 }
+	e.call(p.tok, "POST", p.path("/runs"), startIn{}, http.StatusCreated, &out2)
+	if s := p.get(out2.Run).Source; s == nil || len(s) != 0 {
+		t.Errorf("empty source: %#v", s)
+	}
+}

@@ -359,6 +359,13 @@ const stats: [string, string, 'text-green-700 dark:text-green-400' | 'text-amber
   ['waiting', 'Waiting', 'text-accent', false],
 ]
 
+/** "root@rad.cdmx.in: bash /srv/refresh.sh" for the run header; empty for a run that reported nothing. */
+export function runWhere(run: Pick<Run, 'source'>): string {
+  const s = run.source ?? {}
+  const who = [s.user, s.host].filter(Boolean).join('@')
+  return [who, s.command].filter(Boolean).join(': ')
+}
+
 function RunHeader({ run, now }: { run: Run; now: number }) {
   const l = look[run.status as StepStatus] ?? look.pending
   const c = run.counts ?? {}
@@ -382,6 +389,11 @@ function RunHeader({ run, now }: { run: Run; now: number }) {
             </span>
             ·<span>{triggerLabel(run.trigger)}</span>
           </p>
+          {runWhere(run) && (
+            <p className="mt-0.5 truncate font-mono text-xs text-muted" title={runWhere(run)} data-testid="run-where">
+              {runWhere(run)}
+            </p>
+          )}
         </div>
       </div>
       {tiles.length > 0 && (

@@ -2,7 +2,7 @@
 // dialog. The detail page with the flow run view is PipelineRuns.tsx.
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { ArrowLeftRight, Check as CheckIcon, ChevronRight, Circle, CircleAlert, CircleDashed, CircleOff, Clock, Copy, FileText, FolderPlus, Info, KeyRound, Library, Pencil, Plus, Power, RefreshCw, Terminal, TriangleAlert, UserRound, Workflow, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Check as CheckIcon, ChevronRight, Circle, CircleAlert, CircleDashed, CircleOff, Clock, Copy, FileText, FolderPlus, Info, KeyRound, Library, MapPin, Pencil, Plus, Power, RefreshCw, Terminal, TriangleAlert, UserRound, Workflow, type LucideIcon } from 'lucide-react'
 import { useCollections } from '@/features/workspace/api'
 import { Chip, Empty } from '@/features/workspace/ui'
 import { cx, copyText } from '@/lib/format'
@@ -13,7 +13,7 @@ import { attempt, Badge, Btn, Card, Confirm, inputCls, Loading, Page, tdCls, thC
 import { UserPicker } from './UserPicker'
 import { bad, EditorDialog, useFormErrors, VField } from './settings/dialogKit'
 import { relative, when } from './settings/Integrations'
-import { byAttention, dockerPush, envFile, everyText, lines, runSummary, stateOf, statusLabel, toneOf, usePipelineApi, usePipelines, validatePipeline, type Pipeline, type State, type StepStatus } from './pipelines'
+import { byAttention, dockerPush, envFile, everyText, lines, runSummary, stateOf, statusLabel, toneOf, usePipelineApi, usePipelines, validatePipeline, type Pipeline, type Run, type State, type StepStatus } from './pipelines'
 
 export const pipelinesBase = '/admin/pipelines'
 
@@ -106,6 +106,41 @@ function Section({ icon: Icon, tone, title, hint, aside, children }: { icon: Luc
       </header>
       {children}
     </section>
+  )
+}
+
+/** Where a pipeline's script lives, as its last run reported it. Kera never starts a script, so this is read-only. */
+export function WhereItRuns({ run }: { run: Pick<Run, 'source' | 'started_at'> | null }) {
+  const s = run?.source ?? {}
+  const rows: [string, string | undefined, boolean][] = [
+    ['Machine', [s.user, s.host].filter(Boolean).join('@') || undefined, false],
+    ['Folder', s.dir, true],
+    ['Command', s.command, true],
+    ['Reported by', s.client, false],
+  ]
+  const shown = rows.filter(([, v]) => v)
+  return (
+    <div data-testid="where-it-runs">
+      {shown.length === 0 ? (
+        <p className="text-sm text-muted">Not reported yet. A run from the kera command (current version) or a script that sends <code>source</code> when it opens a run fills this in.</p>
+      ) : (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+          {shown.map(([k, v, mono]) => (
+            <div key={k} className="contents">
+              <dt className="text-muted">{k}</dt>
+              <dd className={cx('min-w-0 break-all', mono && 'font-mono text-xs leading-5')}>{v}</dd>
+            </div>
+          ))}
+          {run && (
+            <div className="contents">
+              <dt className="text-muted">Last run</dt>
+              <dd title={when(run.started_at)}>{relative(run.started_at)}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+      <p className="mt-3 text-xs text-muted">Kera does not start this. A cron job, CI or a person on that machine does; change the schedule or the script there.</p>
+    </div>
   )
 }
 
@@ -239,48 +274,55 @@ export function PipelineForm({ pipeline, onClose, onSaved }: { pipeline: Pipelin
             )}
           </div>
 
-          <Section
-            icon={Library}
-            tone="sky"
-            title="Collections"
-            hint="Where the synced files go. The pipeline can write to these and nothing else."
-            aside={targets.length > 0 ? <Badge tone="accent">{targets.length} selected</Badge> : undefined}
-          >
-            <fieldset className="space-y-1.5">
-              <legend className="sr-only">Collections this pipeline writes to</legend>
-              <div className={'max-h-60 space-y-1.5 overflow-y-auto rounded-lg' + bad(form.err('targets'))}>
-                {cols.data?.length ? (
-                  cols.data.map((c) => (
-                    <label key={c.id} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-surface-2 has-[:checked]:border-accent has-[:checked]:bg-accent-soft">
-                      <input type="checkbox" checked={targets.includes(c.id)} onChange={(e) => pick(c.id, e.target.checked)} className="size-4 accent-[var(--accent)]" />
-                      <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                    </label>
-                  ))
-                ) : (
-                  <p className="rounded-lg border border-dashed border-line p-3 text-xs text-muted">{cols.isLoading ? 'Loading collections…' : 'No collections yet. Name a new one below.'}</p>
-                )}
-              </div>
-              {dropped > 0 && <p className="text-xs text-amber-700 dark:text-amber-400">{dropped === 1 ? 'A collection of this pipeline was deleted; saving drops it.' : `${dropped} collections of this pipeline were deleted; saving drops them.`}</p>}
-            </fieldset>
-            <VField
-              label={
-                <span className="inline-flex items-center gap-1.5">
-                  <FolderPlus size={13} aria-hidden /> Or create new collections
-                </span>
-              }
-              hint="One name per line. Created now and owned by you. Names must differ within a pipeline."
-              error={form.err('targets') ?? form.err('new_collections')}
+          <div className="space-y-4">
+            <Section
+              icon={Library}
+              tone="sky"
+              title="Collections"
+              hint="Where the synced files go. The pipeline can write to these and nothing else."
+              aside={targets.length > 0 ? <Badge tone="accent">{targets.length} selected</Badge> : undefined}
             >
-              <textarea
-                name="targets"
-                rows={2}
-                value={fresh}
-                placeholder="Product docs"
-                onChange={(e) => (setFresh(e.target.value), form.touch('new_collections'))}
-                className={inputCls + bad(form.err('targets') ?? form.err('new_collections'))}
-              />
-            </VField>
-          </Section>
+              <fieldset className="space-y-1.5">
+                <legend className="sr-only">Collections this pipeline writes to</legend>
+                <div className={'max-h-60 space-y-1.5 overflow-y-auto rounded-lg' + bad(form.err('targets'))}>
+                  {cols.data?.length ? (
+                    cols.data.map((c) => (
+                      <label key={c.id} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:bg-surface-2 has-[:checked]:border-accent has-[:checked]:bg-accent-soft">
+                        <input type="checkbox" checked={targets.includes(c.id)} onChange={(e) => pick(c.id, e.target.checked)} className="size-4 accent-[var(--accent)]" />
+                        <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-line p-3 text-xs text-muted">{cols.isLoading ? 'Loading collections…' : 'No collections yet. Name a new one below.'}</p>
+                  )}
+                </div>
+                {dropped > 0 && <p className="text-xs text-amber-700 dark:text-amber-400">{dropped === 1 ? 'A collection of this pipeline was deleted; saving drops it.' : `${dropped} collections of this pipeline were deleted; saving drops them.`}</p>}
+              </fieldset>
+              <VField
+                label={
+                  <span className="inline-flex items-center gap-1.5">
+                    <FolderPlus size={13} aria-hidden /> Or create new collections
+                  </span>
+                }
+                hint="One name per line. Created now and owned by you. Names must differ within a pipeline."
+                error={form.err('targets') ?? form.err('new_collections')}
+              >
+                <textarea
+                  name="targets"
+                  rows={2}
+                  value={fresh}
+                  placeholder="Product docs"
+                  onChange={(e) => (setFresh(e.target.value), form.touch('new_collections'))}
+                  className={inputCls + bad(form.err('targets') ?? form.err('new_collections'))}
+                />
+              </VField>
+            </Section>
+            {pipeline && (
+              <Section icon={MapPin} tone="sky" title="Where it runs" hint="The machine, folder and command of the last run. Reported by the script; not editable here.">
+                <WhereItRuns run={pipeline.last_run} />
+              </Section>
+            )}
+          </div>
         </div>
 
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 has-[:checked]:border-amber-500/70 has-[:checked]:bg-amber-500/10">

@@ -434,18 +434,19 @@ func stepView(st step, withLog bool) stepOut {
 }
 
 type runOut struct {
-	ID         int64            `json:"id"`
-	Pipeline   string           `json:"pipeline"`
-	Trigger    string           `json:"trigger"`
-	DryRun     bool             `json:"dry_run"`
-	Status     string           `json:"status"` // running | ok | warning | failed
-	ClientDone bool             `json:"client_done"`
-	Error      string           `json:"error"`
-	StartedAt  time.Time        `json:"started_at"`
-	ActiveAt   time.Time        `json:"active_at"`
-	FinishedAt *time.Time       `json:"finished_at"`
-	Counts     map[string]int64 `json:"counts"` // the collection steps' counts added up
-	Steps      *[]stepOut       `json:"steps,omitempty"`
+	ID         int64             `json:"id"`
+	Pipeline   string            `json:"pipeline"`
+	Trigger    string            `json:"trigger"`
+	DryRun     bool              `json:"dry_run"`
+	Status     string            `json:"status"` // running | ok | warning | failed
+	ClientDone bool              `json:"client_done"`
+	Error      string            `json:"error"`
+	Source     map[string]string `json:"source"` // where the script runs, as it reported
+	StartedAt  time.Time         `json:"started_at"`
+	ActiveAt   time.Time         `json:"active_at"`
+	FinishedAt *time.Time        `json:"finished_at"`
+	Counts     map[string]int64  `json:"counts"` // the collection steps' counts added up
+	Steps      *[]stepOut        `json:"steps,omitempty"`
 }
 
 // sumCounts adds up the counts of the collection steps.
@@ -459,8 +460,15 @@ func sumCounts(counts ...map[string]int64) map[string]int64 {
 	return out
 }
 
+func orEmpty(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
+}
+
 func runView(r *run, name string, steps []step) runOut {
-	o := runOut{ID: r.ID, Pipeline: name, Trigger: r.Trigger, DryRun: r.DryRun, Status: r.Status, ClientDone: r.ClientDone, Error: r.Error,
+	o := runOut{ID: r.ID, Pipeline: name, Trigger: r.Trigger, DryRun: r.DryRun, Status: r.Status, ClientDone: r.ClientDone, Error: r.Error, Source: orEmpty(r.Source),
 		StartedAt: r.StartedAt, ActiveAt: r.ActiveAt, FinishedAt: r.FinishedAt, Counts: map[string]int64{}}
 	if steps != nil {
 		list := make([]stepOut, len(steps))

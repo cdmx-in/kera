@@ -28,6 +28,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -609,6 +610,20 @@ func (r *reporter) loop(ctx context.Context, stop <-chan struct{}, done chan<- s
 
 // run -----------------------------------------------------------------------------
 
+// sourceOf says where this command runs, for the run page: machine, user, folder and the command line.
+// dir "" means the working directory. The server masks secrets in it and drops what it does not know.
+func sourceOf(command, dir string) map[string]string {
+	host, _ := os.Hostname()
+	if dir == "" {
+		dir, _ = os.Getwd()
+	}
+	who := ""
+	if u, err := user.Current(); err == nil {
+		who = u.Username
+	}
+	return map[string]string{"host": host, "user": who, "dir": dir, "command": command, "client": "kera " + version.Version}
+}
+
 // newMark returns a random marker prefix: "::kera-<32 hex>::".
 func newMark() (string, error) {
 	b := make([]byte, 16)
@@ -654,7 +669,7 @@ func runCmd(ctx context.Context, args []string, e cliEnv, tm timing, stdout, std
 	c, err = newClient(e, *name)
 	if err == nil {
 		sctx, cancel := context.WithTimeout(ctx, tm.hangFor(1))
-		started, err = c.start(sctx, startIn{Trigger: "script"})
+		started, err = c.start(sctx, startIn{Trigger: "script", Source: sourceOf(strings.Join(argv, " "), "")})
 		cancel()
 	}
 	if berr := busy(err, stderr); berr != nil {
@@ -902,7 +917,8 @@ func pushCmd(ctx context.Context, args []string, e cliEnv, tm timing, stdout, st
 		}
 		return pu.push(ctx)
 	}
-	started, err := c.start(ctx, startIn{Trigger: "push", DryRun: *dry})
+	abs, _ := filepath.Abs(*dir)
+	started, err := c.start(ctx, startIn{Trigger: "push", DryRun: *dry, Source: sourceOf(fmt.Sprintf("kera pipeline push --collection %q --dir %s", *coll, abs), abs)})
 	if berr := busy(err, stderr); berr != nil {
 		return berr
 	}

@@ -38,6 +38,8 @@ export interface Run {
   status: RunStatus
   client_done: boolean
   error: string
+  /** where the script runs, as it reported when it opened the run (host, user, dir, command, client); empty for older runs */
+  source?: Partial<Record<'host' | 'user' | 'dir' | 'command' | 'client', string>>
   started_at: string
   active_at: string
   finished_at: string | null

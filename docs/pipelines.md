@@ -78,7 +78,7 @@ KERA_URL=https://kera.example.com KERA_PIPELINE=docs-sync KERA_PIPELINE_TOKEN=kp
 
 `kera pipeline run [--name NAME] -- COMMAND [ARGS...]`:
 
-- opens a run, prints its link, runs the command with `KERA_RUN` and `KERA_MARK` set, prints the link again at the end;
+- opens a run (reporting the machine, user, folder and command line, so the admin pages can say where the script lives), prints its link, runs the command with `KERA_RUN` and `KERA_MARK` set, prints the link again at the end;
 - reads the command's stdout and stderr on **one** pipe, so lines keep the order they were written, and copies them to its own stdout;
 - turns [marker lines](#the-marker-protocol) into steps and sends everything else to the current step's log (output before the first marker goes to a step called `start`);
 - sends a report every 5 seconds or 16 KiB, a heartbeat every 60 seconds, and everything that is left before it closes the run;
@@ -145,7 +145,7 @@ curl -sS -X POST "$KERA_URL/api/v1/pipelines/docs-sync/runs" \
   -d '{"steps": ["fetch", "convert", "upload"]}'
 ```
 
-Body (all optional): `{"trigger": "script" | "push", "steps": ["fetch", ...], "dry_run": false}`. A dry run lists, plans and writes nothing: uploads are refused (`400 dry_run`), nothing is adopted or removed, and the one-shot flags stay on.
+Body (all optional): `{"trigger": "script" | "push", "steps": ["fetch", ...], "dry_run": false, "source": {...}}`. `source` says where the script runs, so **Admin > Pipelines** can show it (Kera never starts scripts): `host`, `user`, `dir`, `command` and `client`, strings of at most 300 characters. Other keys are dropped, secrets are masked, and it shows on the run page and in the pipeline's edit form under "Where it runs". `kera pipeline run` and `push` fill it in themselves; a script that calls the API directly sends it if it wants to be found. A dry run lists, plans and writes nothing: uploads are refused (`400 dry_run`), nothing is adopted or removed, and the one-shot flags stay on.
 
 `201`:
 
@@ -215,6 +215,7 @@ The body is the file's bytes. The server checks the SHA-256 (`400 checksum_misma
 ```json
 {"id": 12, "pipeline": "docs-sync", "trigger": "script", "dry_run": false,
  "status": "running", "client_done": true, "error": "",
+ "source": {"host": "rad", "user": "root", "dir": "/srv/docs", "command": "kera pipeline push ...", "client": "kera v1.4.0"},
  "started_at": "...", "active_at": "...", "finished_at": null,
  "counts": {"listed": 25, "unchanged": 22, "uploaded": 3, "indexed": 25, "failed": 0, "removed": 0},
  "steps": [
