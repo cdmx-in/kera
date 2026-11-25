@@ -1,4 +1,6 @@
-import type { Model, Suggestion } from '@/api/types'
+import type { Model, Suggestion, ToolServer } from '@/api/types'
+import type { Integration } from '@/lib/ui-config'
+import { toolKey } from '@/features/tools/ids'
 
 /** Embedding and rerank models are listed for admins only and never chat. */
 export const isChatModel = (m: Model) => !m.kind || m.kind === 'chat'
@@ -40,3 +42,16 @@ export function nextModel(
   if (s.requested.length === 0 && s.current && !s.auto && usable) return null
   return { id, auto: !s.requested.includes(id) && id !== chatModel }
 }
+
+/** The tools a model starts with: its own, plus connected apps that switch on by themselves (an integration's autoEnable, a server's auto_enable). */
+export function defaultToolIds(m: Model, servers: ToolServer[] | undefined, integrations: Integration[]): string[] {
+  const connected = (id: string) => servers?.some((t) => t.id === id && t.authenticated)
+  const auto = [
+    ...integrations.flatMap((i) => (i.kind === 'oauthToolServer' && i.autoEnable && connected(i.toolServerId) ? [i.toolServerId] : [])),
+    ...(servers ?? []).filter((t) => t.auto_enable && t.authenticated).map((t) => t.id),
+  ]
+  return [...(m.toolIds ?? []).map(toolKey), ...auto]
+}
+
+/** The ability switches a model starts with (its own defaults). */
+export const defaultFeatures = (m: Model): Record<string, boolean> => Object.fromEntries((m.features ?? []).map((f) => [f.id, !!f.default]))

@@ -18,7 +18,7 @@ import { EmptyState } from './EmptyState'
 import { AskUserCard } from './AskUserCard'
 import { ConfirmDialog } from './ConfirmDialog'
 import { sendMessage } from './actions'
-import { nextModel } from './model-select'
+import { defaultFeatures, defaultToolIds, nextModel } from './model-select'
 import { resumeStream } from './stream'
 
 interface ChatJSON {
@@ -122,14 +122,9 @@ export function useModelSetup(requestedModels: string[], chatId: string | undefi
     if (!m) return
     const c = useComposer.getState()
     const own = preset?.model_id === model ? preset : undefined
-    c.setFeatures(own?.features ?? Object.fromEntries((m.features ?? []).map((f) => [f.id, !!f.default])))
+    c.setFeatures(own?.features ?? defaultFeatures(m))
     if (own) return c.setToolIds(own.tool_ids.map(toolKey))
-    const connected = (id: string) => tools.data?.some((t) => t.id === id && t.authenticated)
-    const auto = [
-      ...uiConfig().integrations.flatMap((i) => (i.kind === 'oauthToolServer' && i.autoEnable && connected(i.toolServerId) ? [i.toolServerId] : [])),
-      ...(tools.data ?? []).filter((t) => t.auto_enable && t.authenticated).map((t) => t.id),
-    ]
-    c.setToolIds([...(m.toolIds ?? []).map(toolKey), ...auto, ...urlTools.current])
+    c.setToolIds([...defaultToolIds(m, tools.data, uiConfig().integrations), ...urlTools.current])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, models.data, tools.data, toolsParam, preset?.model_id])
 }
