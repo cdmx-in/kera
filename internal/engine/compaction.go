@@ -11,12 +11,12 @@ import (
 	"github.com/cdmx-in/kera/internal/provider"
 )
 
-// estimateTokens is a conservative chars/4 estimate of the conversation.
+// estimateTokens is a conservative estimate of the conversation: charsPerToken characters per token (budget.go).
 // ponytail: no tokenizer; thresholds are set with headroom instead.
 func estimateTokens(ts []turn) int {
 	n := 0
 	for _, t := range ts {
-		n += len(t.msg.Content)/4 + 4
+		n += int(float64(len(t.msg.Content))/charsPerToken) + 4
 	}
 	return n
 }
@@ -24,7 +24,7 @@ func estimateTokens(ts []turn) int {
 // overheadTokens estimates what every request carries besides the turns: the system prompt and the tool definitions.
 func (x *exec) overheadTokens(specs []provider.Tool) int {
 	b, _ := json.Marshal(specs)
-	return (len(strings.Join(x.system, "\n\n")) + len(x.data) + len(b)) / 4
+	return int(float64(len(strings.Join(x.system, "\n\n"))+len(x.data)+len(b)) / charsPerToken)
 }
 
 // compactionThreshold: the model's params.compact_token_threshold (or compaction_threshold) wins; then,

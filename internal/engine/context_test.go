@@ -835,12 +835,13 @@ func TestWindowResolutionOrder(t *testing.T) {
 func TestBudgetSizeUsesReportedPromptPlusNewMessages(t *testing.T) {
 	msgs := []provider.Message{{Role: "system", Content: strings.Repeat("s", 400)}, {Role: "user", Content: strings.Repeat("u", 400)}}
 	b := &runBudget{toolChars: 800}
-	if got, want := b.size(msgs), (400/4+4)*2+200; got != want {
+	tok := func(chars int) int { return int(float64(chars) / charsPerToken) }
+	if got, want := b.size(msgs), (tok(400)+4)*2+tok(800); got != want {
 		t.Fatalf("estimate before any report: %d, want %d", got, want)
 	}
 	b.lastPrompt, b.lastLen = 1000, 2
 	msgs = append(msgs, provider.Message{Role: "tool", Content: strings.Repeat("t", 4000)})
-	if got, want := b.size(msgs), 1000+4000/4+4; got != want {
+	if got, want := b.size(msgs), 1000+tok(4000)+4; got != want {
 		t.Fatalf("reported + added: %d, want %d", got, want)
 	}
 	b.lastPrompt = 10 // a server that reports far too little is not trusted

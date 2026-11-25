@@ -25,6 +25,15 @@ const compactKeepRounds = 2
 // server probably cut the prompt": Ollama drops the oldest messages and still answers.
 const overflowAt = 0.97
 
+// The size of a prompt is estimated, not counted. charsPerToken is the estimate until a server's report calibrates
+// it: markdown and JSON run near 3.3 characters per token (52,135 characters measured 15,583 tokens), English prose
+// near 4, so the estimate errs towards "bigger". A calibrated value stays between the two limits.
+const (
+	charsPerToken    = 3.3
+	minCharsPerToken = 1.5
+	maxCharsPerToken = 4.0
+)
+
 // runBudget is what the loop knows about the model's window during one run.
 type runBudget struct {
 	manage     bool    // size tracking, clearing and mid-run compaction are on
@@ -38,8 +47,9 @@ type runBudget struct {
 	toolChars  int     // size of the tool definitions
 	base       int     // index in the message list where this run's own messages start
 
-	lastPrompt int // prompt tokens the server reported for the last call (or the estimate after a rewrite)
-	lastLen    int // number of messages that call carried
+	lastPrompt int     // prompt tokens the server reported for the last call (or the estimate after a rewrite)
+	lastLen    int     // number of messages that call carried
+	cpt        float64 // characters per token, calibrated from the server's report (0 = charsPerToken)
 
 	mu      sync.Mutex
 	spilled map[string]string // tool call id -> "file name (id ...)" of the spilled full text
@@ -108,12 +118,24 @@ func msgChars(m provider.Message) int {
 	return n
 }
 
-// charsTokens is the chars/4 estimate with a few tokens per message for the framing.
-// ponytail: no tokenizer; JSON and non-English text run closer to 3 characters per token, so the thresholds leave headroom.
-func charsTokens(msgs []provider.Message) int {
+// perToken is the characters per token the estimate uses.
+func (b *runBudget) perToken() float64 {
+	if b.cpt > 0 {
+		return b.cpt
+	}
+	return charsPerToken
+}
+
+// tokens converts characters to estimated tokens; chars is the other way.
+func (b *runBudget) tokens(chars int) int { return int(float64(chars) / b.perToken()) }
+func (b *runBudget) chars(tokens int) int { return int(float64(tokens) * b.perToken()) }
+
+// estimate is the token estimate of msgs: their characters at perToken, and a few tokens per message for the framing.
+// ponytail: no tokenizer; the ratio follows the server's reports and the thresholds leave headroom.
+func (b *runBudget) estimate(msgs []provider.Message) int {
 	n := 0
 	for _, m := range msgs {
-		n += msgChars(m)/4 + 4
+		n += b.tokens(msgChars(m)) + 4
 	}
 	return n
 }
@@ -123,23 +145,39 @@ func charsTokens(msgs []provider.Message) int {
 // and after a rewrite. A reported size under half the estimate is not trusted (a server that
 // counts only the uncached part of the prompt).
 func (b *runBudget) size(msgs []provider.Message) int {
-	all := charsTokens(msgs) + b.toolChars/4
+	all := b.estimate(msgs) + b.tokens(b.toolChars)
 	if b.lastPrompt == 0 || b.lastLen > len(msgs) {
 		return all
 	}
-	n := b.lastPrompt + charsTokens(msgs[b.lastLen:])
+	n := b.lastPrompt + b.estimate(msgs[b.lastLen:])
 	if n*2 < all {
 		return all
 	}
 	return n
 }
 
+// calibrate sets the characters per token from what the server reported for msgs (and the tool definitions), so the
+// estimate for the messages added after that call follows this tokenizer and this content. A report under half the
+// estimate (a server that counts only the uncached part) and a small prompt say nothing.
+func (b *runBudget) calibrate(msgs []provider.Message, prompt int) {
+	chars := b.toolChars
+	for _, m := range msgs {
+		chars += msgChars(m)
+	}
+	body := prompt - 4*len(msgs)
+	if prompt < 1000 || body <= 0 || prompt*2 < b.estimate(msgs)+b.tokens(b.toolChars) {
+		return
+	}
+	b.cpt = min(max(float64(chars)/float64(body), minCharsPerToken), maxCharsPerToken)
+}
+
 // rebase records an estimate as the new baseline after the messages were rewritten.
 func (b *runBudget) rebase(tokens, msgs int) { b.lastPrompt, b.lastLen = tokens, msgs }
 
 // observe takes the prompt size a call reported and notes a suspected overflow in the trace.
-func (b *runBudget) observe(x *exec, round, msgs, prompt int) {
-	b.lastPrompt, b.lastLen = prompt, msgs
+func (b *runBudget) observe(x *exec, round int, msgs []provider.Message, prompt int) {
+	b.calibrate(msgs, prompt)
+	b.lastPrompt, b.lastLen = prompt, len(msgs)
 	if b.window <= 0 || float64(prompt) < overflowAt*float64(b.window) {
 		return
 	}
@@ -241,7 +279,7 @@ func (e *Engine) clearOld(x *exec, b *runBudget, msgs []provider.Message, round,
 			if len(note) >= len(m.Content) {
 				continue
 			}
-			size -= (len(m.Content) - len(note)) / 4
+			size -= b.tokens(len(m.Content) - len(note))
 			out[i].Content = note
 			cleared++
 		}
@@ -286,7 +324,7 @@ func (e *Engine) compactRun(ctx context.Context, x *exec, b *runBudget, msgs []p
 	files := b.filesIn(msgs[b.base:cut])
 	out := append(append([]provider.Message(nil), msgs[:b.base]...), provider.Message{Role: "user", Data: true, Content: runSummaryBlock(summary, files)})
 	out = append(out, msgs[cut:]...)
-	after := charsTokens(out) + b.toolChars/4
+	after := b.estimate(out) + b.tokens(b.toolChars)
 	b.rebase(after, len(out))
 	step.Duration = time.Since(started)
 	step.Detail["tokens_after"] = after

@@ -382,7 +382,7 @@ func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client,
 		again := a.err != nil && !a.got && try < retries && ctx.Err() == nil && retryable(a.err)
 		x.traceModel(round, req, started, a, modelTrace{attempt: try + 1, retry: again, final: final})
 		if a.use != nil {
-			b.observe(x, round, len(req.Messages), a.use.PromptTokens)
+			b.observe(x, round, req.Messages, a.use.PromptTokens)
 		}
 		if !again {
 			return a.calls, a.finish, a.err
