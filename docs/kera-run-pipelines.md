@@ -2,7 +2,7 @@
 
 A [pipeline](pipelines.md) normally reports runs that something else starts (cron, CI). A **Kera-run** pipeline moves that something into Kera: the script, its environment and its timetable are stored in Kera and edited in **Admin > Pipelines**, Kera queues a run when the timetable says so, and a **runner** executes it. The run, its steps, logs and errors look the same as for any pipeline.
 
-Kera itself never executes a script: its image has no shell and no Docker socket. The runner is a separate container (or any machine with the `kera` binary) that only makes outgoing calls to Kera.
+Kera itself never executes a script: its image has no shell and no Docker socket. The runner is a separate container (or any machine with the `kera` binary) that only makes outgoing calls to Kera. The Compose stack in `deploy/` already runs one, so Kera-run pipelines work as soon as it is up.
 
 - [How it works](#how-it-works)
 - [Set one up](#set-one-up)
@@ -24,7 +24,7 @@ Kera itself never executes a script: its image has no shell and no Docker socket
 
 ## Set one up
 
-1. **Runner.** Admin > Pipelines > **Runners** > New runner. Copy the `kr-` token (shown once). Start the container from `sidecars/runner/` (see `docker-compose.example.yml`): `KERA_URL`, `KERA_RUNNER_TOKEN`, and a volume for `/work`. Mount only what the scripts must read or change.
+1. **Runner.** Nothing to do with the Compose stack in `deploy/` ([Pipelines run by Kera](deploy.md#pipelines-run-by-kera)): its `runner` service signs in with a token Kera makes itself and shows as `builtin` under Admin > Pipelines > **Runners**. For another machine, or a runner that needs other mounts: Runners > New runner, copy the `kr-` token (shown once) and start the container from `sidecars/runner/` (see `docker-compose.example.yml`) with `KERA_URL`, `KERA_RUNNER_TOKEN` and a volume for `/work`. Mount only what the scripts must read or change.
 2. **Pipeline.** Create it as usual; in its edit page choose **How it runs: Run by Kera**.
 3. **Script.** Open the pipeline's **Script** tab, add files, pick the entry file (`.sh` or `.py`), save. Add variables on the **Environment** tab.
 4. **Timetable** in the edit page, then **Run now** to try it.
@@ -84,12 +84,12 @@ Set the setting `pipelines.alert_url` to an Alertmanager `/api/v2/alerts` URL. E
 
 ## Security
 
-- Script, environment and runner routes are admin-only. A script is **code execution on the runner by design**: give the runner container only the mounts, networks and capabilities its scripts need; it has no Docker socket and publishes no port.
-- Runner tokens (`kr-`) are stored as hashes and can be rotated. Job tokens are signed per run and stop working when the run closes; nothing is stored.
+- Script, environment and runner routes are admin-only. A script is **code execution on the runner by design**: give the runner container only the mounts, networks and capabilities its scripts need; it has no Docker socket and publishes no port. The image runs as an unprivileged user (uid 10002), and the built-in runner has only `/work` and `/tmp` to write to.
+- Runner tokens (`kr-`) are stored as hashes and can be rotated. The built-in runner's token sits in a file the runner reads (`KERA_RUNNER_TOKEN_FILE`, mounted read-only), which its scripts can read too, as they could read a token in its environment: a runner is as trusted as the people who write its scripts.
 - Changes to scripts are recorded in the version history (who, when, note); environment changes are logged without values.
 
 ## Moving a cron job over
 
-1. Create the runner and the pipeline; paste the script files; copy the variables from the env files the cron job sourced (only the ones the script uses).
+1. Create the pipeline (and a runner, if you do not use the built-in one); paste the script files; copy the variables from the env files the cron job sourced (only the ones the script uses).
 2. Point the paths at what the runner mounts (a workspace under `/work/<pipeline>`, read-only mounts for repositories).
 3. **Run now** and compare with the cron run; keep the cron line until two runs from Kera are good, then remove it.

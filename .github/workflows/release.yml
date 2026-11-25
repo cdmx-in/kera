@@ -38,3 +38,24 @@ jobs:
           tags: |
             ghcr.io/cdmx-in/kera-extract:${{ github.ref_name }}
             ghcr.io/cdmx-in/kera-extract:latest
+  # The script runner that deploy/docker-compose.yml runs next to Kera (sidecars/runner), same tags. It copies the kera binary out of
+  # the Kera image of this same version, so it waits for that image.
+  runner-image:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # apt runs for arm64 under QEMU emulation, as for the extract image
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v4
+        with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
+      - uses: docker/build-push-action@v7
+        with:
+          context: sidecars/runner
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: KERA_IMAGE=ghcr.io/cdmx-in/kera:${{ github.ref_name }}
+          tags: |
+            ghcr.io/cdmx-in/kera-runner:${{ github.ref_name }}
+            ghcr.io/cdmx-in/kera-runner:latest

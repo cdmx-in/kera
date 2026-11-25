@@ -1,4 +1,6 @@
-# A runner next to Kera. Create the token under Admin > Pipelines > Runners and put it in .env as KERA_RUNNER_TOKEN.
+# An extra runner on another machine (or with other mounts), next to a Kera that is reachable from it. The default stack
+# (deploy/docker-compose.yml) already has a runner called "builtin" with no setup; add this one only for what that one cannot see.
+# Create the token under Admin > Pipelines > Runners (shown once) and put it in .env as KERA_RUNNER_TOKEN.
 # Mount only the folders the scripts need: that is the whole of what a script can read or change.
 services:
   kera-runner:
@@ -7,8 +9,9 @@ services:
       dockerfile: sidecars/runner/Dockerfile
       args: {KERA_IMAGE: "ghcr.io/cdmx-in/kera:latest"}
     restart: unless-stopped
+    user: "10002:10002"               # what the image runs as; the folders mounted below must be writable by it (chown 10002 ./workspaces)
     environment:
-      KERA_URL: http://kera:8080
+      KERA_URL: http://kera:8080      # the address of Kera as seen from here, for example https://chat.example.com
       KERA_RUNNER_TOKEN: ${KERA_RUNNER_TOKEN}
       TZ: Asia/Kolkata
     volumes:
