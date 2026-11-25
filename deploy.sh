@@ -26,7 +26,7 @@ fi
 version=$(git describe --tags --always --dirty)
 
 if [ $tests = 1 ]; then
-  make test   # vet, race tests incl. database tests (make testdb), typecheck, vitest
+  make test   # vet, race tests incl. database tests (make testdb), typecheck, vitest (web/node_modules/.bin when pnpm is missing)
 fi
 
 cd "$ROOT"
