@@ -184,15 +184,29 @@ func (t *toolSet) query(ctx context.Context, c tools.Call, cs []*Collection, que
 	if count > 0 {
 		cfg.TopKRerank = min(count, 50)
 	}
-	hits, err := t.s.search(ctx, cs, query, cfg)
+	hits, err := t.s.search(ctx, cs, []string{query}, cfg)
 	if err != nil {
 		return tools.Result{}, err
 	}
 	c.Emit(tools.Event{Type: "status", Data: map[string]any{"action": "knowledge_search", "description": "Searched knowledge", "query": query, "count": len(hits), "done": true}})
+	// the number to cite a passage by: the run's own numbering (the same
+	// passage keeps its number in the prompt and in every search), from 1
+	// when called without an engine
+	local := map[string]int{}
+	cite := c.Cite
+	if cite == nil {
+		cite = func(key string) int {
+			if _, ok := local[key]; !ok {
+				local[key] = len(local) + 1
+			}
+			return local[key]
+		}
+	}
 	res := tools.Result{}
 	out := make([]map[string]any, 0, len(hits))
-	for i, h := range hits {
-		item := map[string]any{"source": i + 1, "file": h.FileName, "file_id": h.FileID, "text": h.Text}
+	for _, h := range hits {
+		n := cite(h.CiteKey())
+		item := map[string]any{"source": n, "file": h.FileName, "file_id": h.FileID, "text": h.Text}
 		if h.Page > 0 {
 			item["page"] = h.Page
 		}
@@ -200,7 +214,7 @@ func (t *toolSet) query(ctx context.Context, c tools.Call, cs []*Collection, que
 			item["section"] = strings.Join(h.Headers, " > ")
 		}
 		out = append(out, item)
-		res.Sources = append(res.Sources, tools.Source{Name: h.FileName, FileID: h.FileID, Page: h.Page, Snippet: truncate(h.Text, 300)})
+		res.Sources = append(res.Sources, tools.Source{Cite: n, Name: h.FileName, FileID: h.FileID, Page: h.Page, Snippet: truncate(h.Text, 300)})
 	}
 	b, _ := json.Marshal(out)
 	res.Content = string(b)

@@ -54,7 +54,7 @@ func stepDigest(parts json.RawMessage, detail bool) string {
 			continue
 		}
 		fmt.Fprintf(&b, " %s", oneLine(stepArgs(s.Args), digestArgs))
-		out := oneLine(s.Output, digestResult)
+		out := oneLine(citeRe.ReplaceAllString(s.Output, ""), digestResult) // source numbers belong to that run's list, not the next one's
 		switch {
 		case s.Status == "error":
 			fmt.Fprintf(&b, " -> failed: %s", out)

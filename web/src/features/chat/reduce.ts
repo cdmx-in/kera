@@ -3,6 +3,7 @@
 // components as a live stream.
 
 import type { FileRef, Message, Part, PendingCall, Source, StreamEvent, ToolStep } from '@/api/types'
+import { sourceKey } from './citations'
 
 type Steps = Extract<Part, { type: 'steps' }>
 type Reasoning = Extract<Part, { type: 'reasoning' }>
@@ -109,7 +110,7 @@ export function applyEvent(m: Message, ev: StreamEvent, now = Date.now()): Messa
       break
     }
     case 'sources':
-      next.sources = mergeBy(m.sources, (Array.isArray(ev.sources) ? ev.sources : []) as Source[], (s) => s.url ?? s.fileId ?? s.id ?? s.name ?? '')
+      next.sources = mergeBy(m.sources, (Array.isArray(ev.sources) ? ev.sources : []) as Source[], sourceKey)
       break
     case 'files':
       next.files = mergeBy(m.files, (Array.isArray(ev.files) ? ev.files : []).map((f) => toFileRef(f as Record<string, unknown>)), (f) => f.id)

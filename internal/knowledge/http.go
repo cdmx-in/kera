@@ -528,7 +528,7 @@ func (s *Service) hQuery(w http.ResponseWriter, r *http.Request) {
 	if k <= 0 {
 		k = f.K
 	}
-	hits, err := s.Search(ctx, u, f.CollectionNames, f.Query, k)
+	hits, err := s.Search(ctx, u, f.CollectionNames, []string{f.Query}, k)
 	if err != nil {
 		api.Fail(w, r, err)
 		return
@@ -536,7 +536,8 @@ func (s *Service) hQuery(w http.ResponseWriter, r *http.Request) {
 	docs, metas, dists := []string{}, []map[string]any{}, []float64{}
 	for _, h := range hits {
 		docs = append(docs, h.Text)
-		m := map[string]any{"name": h.FileName, "source": h.FileName, "file_id": h.FileID, "knowledge_id": h.KnowledgeID}
+		m := map[string]any{"name": h.FileName, "source": h.FileName, "file_id": h.FileID, "knowledge_id": h.KnowledgeID,
+			"chunk": h.Chunk, "chunk_end": h.ChunkEnd}
 		if h.Page > 0 {
 			m["page"] = h.Page
 		}

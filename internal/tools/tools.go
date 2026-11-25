@@ -55,12 +55,17 @@ type Call struct {
 	// Authorization: Bearer {CallbackToken}) or upload a file (POST {CallbackURL}/files).
 	CallbackURL   string
 	CallbackToken string
-	Emit          func(Event)                                                      // never nil
-	Ask           func(ctx context.Context, r AskRequest) (json.RawMessage, error) // never nil
+	// Cite numbers a citation of this run: the same key always gives the same
+	// number, new keys continue from the last one, so [n] is stable across the
+	// system prompt and every tool call of the run. Nil outside the chat engine.
+	Cite func(key string) int
+	Emit func(Event)                                                      // never nil
+	Ask  func(ctx context.Context, r AskRequest) (json.RawMessage, error) // never nil
 }
 
 // Source is a citation a tool returns.
 type Source struct {
+	Cite    int    `json:"cite,omitempty"` // the number the model cites it by (Call.Cite), 0 = not numbered
 	Name    string `json:"name"`
 	URL     string `json:"url,omitempty"`
 	FileID  string `json:"file_id,omitempty"`

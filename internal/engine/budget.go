@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -172,6 +173,9 @@ const clearedPrefix = "[cleared to save context"
 // clearedNote replaces a tool result that was cleared.
 func (b *runBudget) clearedNote(m provider.Message, chars int) string {
 	note := fmt.Sprintf("%s: %s returned %d characters]", clearedPrefix, m.Name, chars)
+	if cited := citedNumbers(m.Content); cited != "" { // the sources list keeps them; the answer may still cite them
+		note += " Passages " + cited + " stay in the sources list and can still be cited."
+	}
 	b.mu.Lock()
 	f := b.spilled[m.ToolCallID]
 	b.mu.Unlock()
@@ -179,6 +183,22 @@ func (b *runBudget) clearedNote(m provider.Message, chars int) string {
 		note += fmt.Sprintf(" The full text is in file %s; read it with view_file or grep_chat_files.", f)
 	}
 	return note
+}
+
+var citeRe = regexp.MustCompile(`\[(\d{1,3})\]`)
+
+// citedNumbers lists the citation numbers ([1], [4]...) that text carries, at most 20.
+func citedNumbers(text string) string {
+	var seen []string
+	for _, m := range citeRe.FindAllString(text, -1) {
+		if !containsStr(seen, m) {
+			seen = append(seen, m)
+		}
+		if len(seen) == 20 {
+			break
+		}
+	}
+	return strings.Join(seen, ", ")
 }
 
 // fit keeps the next request under the window: when the estimate passes clear_at it clears old tool
@@ -237,7 +257,8 @@ func (e *Engine) clearOld(x *exec, b *runBudget, msgs []provider.Message, round,
 
 // runSummaryPrompt is the existing summary prompt with what a run in progress needs kept.
 const runSummaryPrompt = summaryPrompt + " The conversation is the work done so far on the user's latest request: " +
-	"also keep what was found, what was already tried, what is still to do and the names of the files that were read."
+	"also keep what was found, what was already tried, what is still to do, the names of the files that were read, " +
+	"and the source numbers such as [3] next to the facts they support."
 
 // compactRun summarises the run's messages before the newest compactKeepRounds rounds with the task model
 // and puts the summary in their place. When the summary fails it clears harder instead and goes on.

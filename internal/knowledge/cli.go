@@ -20,6 +20,8 @@ import (
 // CLIUsage is the help text of `kera reindex`.
 const CLIUsage = `  kera reindex [--all | --knowledge ID|NAME] [--embedding-model M [--connection C]] [--pending]
                           (re)index knowledge collections now; --pending only indexes files not indexed yet
+  kera reindex --heads    fill the heading and file-name keyword index of chunks indexed before it existed
+                          (no re-embedding, no lock on the chunk table; safe to repeat or stop)
 `
 
 // Command runs `kera reindex`. It indexes in this process; a running server
@@ -31,11 +33,12 @@ func Command(ctx context.Context, args []string, out io.Writer) error {
 	model := fs.String("embedding-model", "", "move to this embedding model (default: keep each collection's model)")
 	conn := fs.String("connection", "", "connection of --embedding-model (default rag.embedding.connection)")
 	pending := fs.Bool("pending", false, "only index files that are not indexed yet")
+	heads := fs.Bool("heads", false, "fill the heading and file-name keyword index of existing chunks")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *all == (*kid != "") && !*pending {
-		return errors.New("usage: kera reindex --all | --knowledge ID|NAME | --pending")
+	if *all == (*kid != "") && !*pending && !*heads {
+		return errors.New("usage: kera reindex --all | --knowledge ID|NAME | --pending | --heads")
 	}
 	env, err := config.Load(true)
 	if err != nil {
@@ -60,6 +63,9 @@ func Command(ctx context.Context, args []string, out io.Writer) error {
 		if err := s.queueCLI(ctx, out, *all, *kid, *conn, *model); err != nil {
 			return err
 		}
+	}
+	if *heads {
+		return s.backfillHeads(ctx, out)
 	}
 	return s.drain(ctx, out)
 }

@@ -761,9 +761,9 @@ type fakeRetriever struct{}
 
 var searchedLocal atomic.Bool // IsLocalRun of the last fakeRetriever.Search
 
-func (fakeRetriever) Search(ctx context.Context, _ *auth.User, ids []string, q string, k int) ([]retrieval.Hit, error) {
+func (fakeRetriever) Search(ctx context.Context, _ *auth.User, ids []string, queries []string, k int) ([]retrieval.Hit, error) {
 	searchedLocal.Store(retrieval.IsLocalRun(ctx))
-	return []retrieval.Hit{{KnowledgeID: ids[0], FileID: "f2", FileName: "hit.md", Text: "retrieved for " + q, Score: 0.9,
+	return []retrieval.Hit{{KnowledgeID: ids[0], FileID: "f2", FileName: "hit.md", Text: "retrieved for " + strings.Join(queries, "; "), Score: 0.9,
 		Headers: []string{"Guide", "Refunds"}}}, nil
 }
 func (fakeRetriever) Documents(_ context.Context, _ *auth.User, id string) ([]retrieval.Doc, error) {
@@ -809,6 +809,67 @@ func TestKnowledgeFullAndRetrieve(t *testing.T) {
 	}
 	if searchedLocal.Load() {
 		t.Fatal("a cloud model's search was marked local")
+	}
+}
+
+// threePassages returns two passages of one file and one of another.
+type threePassages struct{ fakeRetriever }
+
+func (threePassages) Search(_ context.Context, _ *auth.User, ids []string, _ []string, _ int) ([]retrieval.Hit, error) {
+	return []retrieval.Hit{
+		{KnowledgeID: ids[0], FileID: "fa", FileName: "a.md", Text: "first of a", Chunk: 0, ChunkEnd: 1},
+		{KnowledgeID: ids[0], FileID: "fa", FileName: "a.md", Text: "later in a", Chunk: 7, ChunkEnd: 7},
+		{KnowledgeID: ids[0], FileID: "fb", FileName: "b.md", Text: "all of b", Chunk: 2, ChunkEnd: 2},
+	}, nil
+}
+
+// The prompt numbers passages 1..n, several of which can come from one file;
+// the sources list carries the same numbers (one entry per passage, not per
+// file), and a tool call of the run continues them: a passage already shown
+// keeps its number, a new one gets the next.
+func TestCitationNumbersAreShared(t *testing.T) {
+	h := newHarness(t)
+	retrieval.Register(threePassages{})
+	defer retrieval.Register(nil)
+	ctx := context.Background()
+	if _, err := h.pool.Exec(ctx, `INSERT INTO model (id, base_model_id, knowledge) VALUES ('kb3', 'm1', '[{"name":"Policies","mode":"retrieve"}]')`); err != nil {
+		t.Fatal(err)
+	}
+	run, err := h.e.Start(ctx, h.u, &Request{Model: "kb3", Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"echo system"`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait(t, run)
+	sys := run.stateText()
+	for _, want := range []string{`<source id="1" name="a.md">`, `<source id="2" name="a.md">`, `<source id="3" name="b.md">`} {
+		if !strings.Contains(sys, want) {
+			t.Fatalf("missing %s in %q", want, sys)
+		}
+	}
+	var ids []string
+	for _, s := range run.state.Sources {
+		ids = append(ids, s.ID+":"+s.FileID)
+	}
+	if strings.Join(ids, " ") != "1:fa 2:fa 3:fb" {
+		t.Fatalf("sources %v", ids)
+	}
+	// a later tool call numbers through the same registry
+	var c cites
+	for _, k := range []string{"fa#0-1", "fa#7-7", "fb#2-2"} {
+		c.number(k)
+	}
+	if c.number("fb#2-2") != 3 || c.number("fc#0-0") != 4 || c.number("fa#7-7") != 2 || c.number("fc#0-0") != 4 {
+		t.Fatal("numbers are not stable")
+	}
+	got := toolSources([]tools.Source{{Cite: 4, Name: "c.md", FileID: "fc"}, {Name: "web"}})
+	if got[0].ID != "4" || got[1].ID != "" {
+		t.Fatalf("tool sources %+v", got)
+	}
+	// the same numbers key the list: two passages of one file stay two entries
+	var st msgState
+	st.addSources(toolSources([]tools.Source{{Cite: 1, FileID: "fa"}, {Cite: 2, FileID: "fa"}, {Cite: 2, FileID: "fa"}}))
+	if len(st.Sources) != 2 {
+		t.Fatalf("sources %+v", st.Sources)
 	}
 }
 

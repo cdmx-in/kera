@@ -4,6 +4,7 @@ package retrieval
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/cdmx-in/kera/internal/auth"
@@ -18,6 +19,18 @@ type Hit struct {
 	Headers     []string `json:"headers,omitempty"` // markdown breadcrumb of the chunk
 	Text        string   `json:"text"`
 	Score       float64  `json:"score"`
+	// Chunk and ChunkEnd are the first and last chunk index (0-based, per file
+	// and collection) the text covers: equal for a lone chunk, a range once
+	// neighbouring chunks were joined into the passage (rag.neighbors).
+	Chunk    int   `json:"chunk"`
+	ChunkEnd int   `json:"chunk_end"`
+	ChunkID  int64 `json:"-"` // the best chunk's row id, for the implementation's own use
+}
+
+// CiteKey identifies the passage a hit shows, so the same passage found twice
+// (in the prompt and in a later tool search) gets one citation number.
+func (h Hit) CiteKey() string {
+	return fmt.Sprintf("%s#%d-%d", h.FileID, h.Chunk, h.ChunkEnd)
 }
 
 // Doc is one whole extracted document of a collection (full-context mode).
@@ -39,8 +52,10 @@ type Collection struct {
 // the user's read access and silently drops collections the user cannot read.
 type Retriever interface {
 	// Search runs hybrid retrieval (+ rerank when configured) over the
-	// collections and returns at most k hits, best first.
-	Search(ctx context.Context, u *auth.User, knowledgeIDs []string, query string, k int) ([]Hit, error)
+	// collections and returns at most k hits, best first. queries[0] is the
+	// question itself, the others are rewrites of it: all are searched and
+	// their rankings fused, and a reranker judges against queries[0].
+	Search(ctx context.Context, u *auth.User, knowledgeIDs []string, queries []string, k int) ([]Hit, error)
 	// Documents returns every completed document of one collection.
 	Documents(ctx context.Context, u *auth.User, knowledgeID string) ([]Doc, error)
 	// Resolve maps collection ids or names (model presets may store either)

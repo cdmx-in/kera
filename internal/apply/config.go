@@ -225,6 +225,10 @@ type RAG struct {
 	Hybrid              *Hybrid    `yaml:"hybrid,omitempty"`
 	TopK                *int       `yaml:"top_k,omitempty"`
 	TopKRerank          *int       `yaml:"top_k_rerank,omitempty"`
+	MinResults          *int       `yaml:"min_results,omitempty"`
+	FuseQueries         *bool      `yaml:"fuse_queries,omitempty"`
+	Neighbors           *int       `yaml:"neighbors,omitempty"`
+	PassageMaxChars     *int       `yaml:"passage_max_chars,omitempty"`
 	RelevanceThreshold  *float64   `yaml:"relevance_threshold,omitempty"`
 	Reranker            *Reranker  `yaml:"reranker,omitempty"`
 	Extractor           *Endpoint  `yaml:"extractor,omitempty"`
@@ -238,10 +242,16 @@ type Embedding struct {
 	Model      *string `yaml:"model,omitempty"`
 	Dim        *int    `yaml:"dim,omitempty"`
 	Batch      *int    `yaml:"batch,omitempty"`
+	// DocPrefix and QueryPrefix are the text a model card asks to put before
+	// documents and queries; empty = the known prefix of the model, else none.
+	// They reach a collection when it is reindexed (kera reindex).
+	DocPrefix   *string `yaml:"doc_prefix,omitempty"`
+	QueryPrefix *string `yaml:"query_prefix,omitempty"`
 }
 
 type Hybrid struct {
 	BM25Weight *float64 `yaml:"bm25_weight,omitempty"`
+	HeadWeight *float64 `yaml:"head_weight,omitempty"`
 }
 
 type Endpoint struct {

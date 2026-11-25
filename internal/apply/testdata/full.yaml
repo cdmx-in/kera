@@ -74,10 +74,14 @@ rag:
   chunk_size: 1000
   chunk_overlap: 100
   markdown_headers: true
-  embedding: {connection: local, model: embed-small, dim: 768, batch: 32}
-  hybrid: {bm25_weight: 0.5}
+  embedding: {connection: local, model: embed-small, dim: 768, batch: 32, doc_prefix: "passage: ", query_prefix: "query: "}
+  hybrid: {bm25_weight: 0.5, head_weight: 0.25}
   top_k: 30
-  top_k_rerank: 6
+  top_k_rerank: 8
+  min_results: 3
+  fuse_queries: true
+  neighbors: 1
+  passage_max_chars: 3000
   reranker: {url: http://rerank:8000, model: reranker-small}
   extractor: {url: http://extract:8000}
   template_file: rag-template.md

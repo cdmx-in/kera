@@ -64,7 +64,7 @@ export function Sources({ sources }: { sources: Source[] }) {
             {sources.map((s, i) => (
               <li key={i}>
                 <SourceLink source={s} className="flex w-full gap-3 rounded-lg p-2 text-left hover:bg-surface-2">
-                  <span className="mt-0.5 text-xs text-muted">{i + 1}</span>
+                  <span className="mt-0.5 text-xs text-muted">{/^\d+$/.test(s.id ?? '') ? s.id : i + 1}</span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5 text-xs text-muted">
                       <Favicon url={s.url} size={14} />

@@ -937,3 +937,20 @@ func TestCompactionThresholdFollowsWindow(t *testing.T) {
 		t.Errorf("explicit threshold: %d", n)
 	}
 }
+
+// A cleared result still names the passage numbers it carried, and a digest never carries a number from another run's list.
+func TestClearedResultKeepsCitationNumbers(t *testing.T) {
+	b := &runBudget{spilled: map[string]string{"c1": `"search-result-ab12.txt" (id f1)`}}
+	m := provider.Message{Role: "tool", Name: "search_knowledge", ToolCallID: "c1", Content: "[2] text one\n[5] text two [2] again"}
+	note := b.clearedNote(m, 36)
+	if !strings.Contains(note, "[2], [5]") || !strings.Contains(note, "sources list") || !strings.Contains(note, "search-result-ab12.txt") || strings.Count(note, "[2]") != 1 {
+		t.Fatalf("note %q", note)
+	}
+	if n := b.clearedNote(provider.Message{Name: "t", Content: "plain"}, 5); strings.Contains(n, "Passages") {
+		t.Fatalf("note without numbers: %q", n)
+	}
+	raw, _ := json.Marshal([]Part{{Type: "steps", Steps: []*Step{{Name: "search_knowledge", Status: "done", Output: "[3] limit is 5"}}}})
+	if d := stepDigest(raw, true); strings.Contains(d, "[3]") || !strings.Contains(d, "limit is 5") {
+		t.Fatalf("digest %q", d)
+	}
+}
