@@ -4,6 +4,7 @@ A pipeline keeps knowledge collections equal to a folder that lives somewhere el
 
 Kera never starts, stops or retries your script. Your cron, CI or scheduler starts it (or, if you would rather not run a scheduler, see [Kera-run pipelines](kera-run-pipelines.md), where Kera stores the script and timetable and a runner container executes it); the script (or the `kera pipeline` command) reports to Kera with the pipeline's token. Kera records the run, uploads and indexes the files, and shows the result in **Admin > Pipelines**.
 
+- [Pipelines in pictures](#pipelines-in-pictures)
 - [Concepts](#concepts)
 - [Quick start: push a folder](#quick-start-push-a-folder)
 - [Wrap a script](#wrap-a-script)
@@ -15,6 +16,91 @@ Kera never starts, stops or retries your script. Your cron, CI or scheduler star
 - [Recipes](#recipes)
 - [Limits](#limits)
 - [Troubleshooting](#troubleshooting)
+
+## Pipelines in pictures
+
+The screens below come from a scratch Kera with five invented pipelines (`docs-sync`, `nightly-report`, `ticket-digest`, `invoice-check`, `kb-refresh`) whose scripts really ran, on two runners called `runner-1` and `runner-2`. Their run times, waits and logs are what Kera recorded. Two weeks of earlier runs were written straight into the scratch database so the history and the health strip have something to show. Everything on screen is made up, and no screen shows a secret value: Kera never displays one. [How to retake them](#retaking-the-screenshots).
+
+### The list
+
+![The Pipelines page with five pipelines: Invoice check failed, Nightly report with a warning, Knowledge base refresh running, Docs sync and Ticket digest OK, each with its timetable, next run and last run](images/pipelines-overview-light.png)
+
+One row per pipeline: its state, timetable, **Next run** and **Last run**. A failed row carries the error; a Kera-run pipeline wears the **Run by Kera** badge.
+
+### A finished run
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/pipeline-run-ok-dark.png">
+  <img src="images/pipeline-run-ok-light.png" alt="A finished Docs sync run: Finished OK in 1 min 35 s, a progress bar with four green segments, and a step waterfall with four steps and their durations on a shared time axis" width="100%">
+</picture>
+
+Where the time shows up on this screen:
+
+- **Run header.** The sentence ("Finished OK in 1 min 35 s"), the large **Total time** clock, when the run started, and **Typically 1 min 2 s**, the median of the recent good runs. A run well over that gets **slower than usual**.
+- **Waterfall.** One row per step on a shared time axis, with each step's duration (10 s, 20 s, 10 s, 8 s). Titles and descriptions come from the stages you set for the pipeline; the step name the script reports is the key. This run waited for a free runner, so the first bar starts well to the right of zero: the gap is the wait before the script began, and it counts in the total.
+- **Run history and health strip.** Each history row shows how long the run took and how long ago it started. In the strip every tick is a run, newest on the right, and a taller tick is a longer run. The red tick is a failure; the summary line gives how many ran well and the median length.
+- **Pipeline header.** **Next run**, **Last good run** and how many runners are online.
+
+### A run in progress
+
+![A Knowledge base refresh run in progress: Running, step 2 of 4, an elapsed clock at 2 min 23 s, Typically 3 min 48 s, an open Embed in batches step with a striped bar and a log that grows as batches finish](images/pipeline-run-live-light.png)
+
+While a run is open the clock is **Elapsed** and counts up, the open step has a striped bar and a running duration, and the progress rail shows how many steps are done. The log under the step follows the script as it prints.
+
+### A failed run
+
+![A failed Invoice check run: Failed at Validate invoices, three of 41 invoices have no purchase order number, the error in a red block, the failing step open with its duration and the last log lines, and two steps skipped](images/pipeline-run-failed-light.png)
+
+The header says which step failed and why. The open step shows when it started, **Took**, and **Usually** (what the step took in the last good run), then its error and the last log lines. Steps that never started are marked skipped.
+
+### A run waiting for a runner
+
+![A queued Ticket digest run: Queued, waiting for a runner, a Waiting clock at 25 s, and a note that a runner picks it up within a few seconds](images/pipeline-run-queued-light.png)
+
+A queued run has no steps yet. The clock reads **Waiting** and counts from the moment the run was queued; if no runner is online the note says so and links to the Runners page. A queued run that no runner takes within 10 minutes fails.
+
+### The notebook
+
+![The Script tab of Ticket digest in a live session: three cells named collect, summarise and post, each with an OK chip and its output under it](images/pipeline-notebook-light.png)
+
+The script is one file split into cells by `#%%` header lines. Each cell becomes a step when the script runs for real. **Run all** runs the cells in order in a live session on a runner, with the output under each cell; nothing the cells do changes collections or the workspace unless you say so. See [Notebook and checks](kera-run-pipelines.md#notebook-and-checks).
+
+### Environment and stored secrets
+
+![The Environment tab of Docs sync: a plain variable DOCS_BRANCH with its value, and PUBLISH_TOKEN as a secret that points at the stored secret docs-publish-token](images/pipeline-env-light.png)
+
+A plain variable shows its value. A secret never does; one that points at a stored secret shows `stored: <name>`.
+
+![The Secrets page with three stored secrets, their descriptions, the pipeline variables that use them, when they were updated and last used, and no values](images/pipeline-secrets-light.png)
+
+The Secrets page lists each stored secret, who uses it, and when it was last handed to a run. Values are write-only.
+
+### Timetable and runners
+
+![The edit page of Docs sync: Run by Kera, repeats every day at 06:00 in UTC, scheduled, with the next run in 19 hours, and a Where it runs box with the runner machine, folder and command](images/pipeline-schedule-light.png)
+
+![The Runners page with two online runners, their last seen time, version and the start of their token](images/pipeline-runners-light.png)
+
+The timetable shows its **Next run** in the time zone you chose. **Where it runs** is what the last run reported: the runner, the folder and the command. The Runners page shows each runner's state and when it last called Kera; a runner counts as online for two minutes after its last call.
+
+### On a phone
+
+![The Docs sync run page on a 390 pixel wide screen: the header, the health strip, a collapsed run history and the run summary with its total time](images/pipeline-run-mobile-light.png)
+
+On a narrow screen the run history folds into a list that opens on tap, and each step's bar moves under its name.
+
+### Retaking the screenshots
+
+`scripts/screenshots/` rebuilds the demo and retakes every image above after a change to the UI:
+
+```sh
+make build                       # the Kera binary with the web app inside
+make testdb                      # the test Postgres (once)
+docker build -f sidecars/runner/Dockerfile -t kera-runner:local sidecars/runner   # the runner image (once)
+scripts/screenshots/regenerate.sh
+```
+
+It starts a scratch Kera on `127.0.0.1:18097` with its own database and two runner containers, seeds the demo from `scripts/screenshots/demo.py`, drives the pages with the [agent-browser](https://www.npmjs.com/package/agent-browser) CLI, writes the PNGs to `docs/images/` (reduced to 256 colours with ImageMagick) and removes everything again. It takes about twelve minutes because the demo scripts really run. `seed.py` writes to the database it is given, so never point it at a real one.
 
 ## Concepts
 
