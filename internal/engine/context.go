@@ -8,6 +8,7 @@ import (
 	"html"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -244,7 +245,7 @@ func (e *Engine) knowledge(ctx context.Context, x *exec) error {
 					break
 				}
 				total += len(d.Text)
-				docs = append(docs, source{name: d.Name, fileID: d.FileID, text: d.Text})
+				docs = append(docs, source{name: d.Name, fileID: d.FileID, text: d.Text, key: d.FileID + "#document"})
 			}
 		}
 	}
@@ -258,12 +259,15 @@ func (e *Engine) knowledge(ctx context.Context, x *exec) error {
 	if len(docs) == 0 {
 		return nil
 	}
+	for i := range docs {
+		docs[i].num = x.cites.number(docs[i].key) // shared with the tool results of the run
+	}
 	var tmpl string
 	e.setting(ctx, "rag.template", &tmpl)
 	x.system = append(x.system, ragBlock(tmpl, docs))
 	var srcs []Source
-	for i, d := range docs {
-		srcs = append(srcs, Source{ID: fmt.Sprint(i + 1), Name: d.name, FileID: d.fileID, Page: d.page,
+	for _, d := range docs {
+		srcs = append(srcs, Source{ID: strconv.Itoa(d.num), Name: d.name, FileID: d.fileID, Page: d.page,
 			Snippet: clip(strings.TrimSpace(d.text), 300), Score: d.score})
 	}
 	x.run.sources(srcs)
@@ -293,6 +297,8 @@ func (e *Engine) knowledgeMode(ctx context.Context, x *exec, r retrieval.Retriev
 type source struct {
 	name, fileID, text string
 	section            string // markdown breadcrumb of a retrieved chunk
+	key                string // identity for the citation number (retrieval.Hit.CiteKey)
+	num                int    // the citation number, from the run's numbering
 	page               int
 	score              float64
 }
@@ -316,7 +322,7 @@ func (e *Engine) search(ctx context.Context, x *exec, r retrieval.Retriever, ids
 	var out []source
 	for _, h := range hits {
 		out = append(out, source{name: h.FileName, fileID: h.FileID, text: h.Text, page: h.Page, score: h.Score,
-			section: strings.Join(h.Headers, " > ")})
+			section: strings.Join(h.Headers, " > "), key: h.CiteKey()})
 	}
 	x.run.status(StatusEvent{ID: "knowledge", Action: "knowledge_search", Query: strings.Join(queries, "; "),
 		Description: fmt.Sprintf("Found %d passages in knowledge", len(out)), Done: true, Count: len(out)})
@@ -344,10 +350,10 @@ func ragBlock(tmpl string, docs []source) string {
 		tmpl = defaultRAGTemplate
 	}
 	var b strings.Builder
-	for i, d := range docs {
+	for _, d := range docs {
 		// the section breadcrumb tells the model where a chunk from deep inside
 		// a long document sits (its own text often lacks the heading)
-		attrs := fmt.Sprintf("id=\"%d\" name=\"%s\"", i+1, html.EscapeString(d.name))
+		attrs := fmt.Sprintf("id=\"%d\" name=\"%s\"", d.num, html.EscapeString(d.name))
 		if d.section != "" {
 			attrs += fmt.Sprintf(" section=\"%s\"", html.EscapeString(d.section))
 		}

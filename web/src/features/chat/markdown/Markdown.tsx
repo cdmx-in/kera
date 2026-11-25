@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Source } from '@/api/types'
 import { prettyFileName } from '@/lib/format'
+import { citeCount, citeSource } from '../citations'
 import { Favicon, SourceLink } from '../messages/Sources'
 import { CodeBlock } from './CodeBlock'
 import { Mermaid } from './Mermaid'
@@ -101,7 +102,8 @@ function components(sources: Source[], live: boolean): Components {
     a({ href, children }) {
       const cite = href?.match(/^#cite-(\d+)$/)
       if (cite) {
-        const s = sources[Number(cite[1]) - 1] ?? {}
+        const s = citeSource(sources, Number(cite[1]))
+        if (!s) return <span>[{cite[1]}]</span> // a number the list has no entry for
         return (
           <sup>
             <SourceLink source={s} className="ml-0.5 rounded bg-accent-soft px-1 text-[10px] font-semibold no-underline">
@@ -144,7 +146,7 @@ export const Markdown = memo(function Markdown({ text: full, sources = [], break
   return (
     <div className={live ? `${className} md-live` : className}>
       <ReactMarkdown remarkPlugins={[remarkGfm, mathPlugin]} components={components(sources, live)}>
-        {linkCitations(texDelimiters(md), sources.length)}
+        {linkCitations(texDelimiters(md), citeCount(sources))}
       </ReactMarkdown>
     </div>
   )

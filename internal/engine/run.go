@@ -44,6 +44,7 @@ type exec struct {
 	collections []string // knowledge collections attached to the request
 	system      []string // system prompt sections, in order
 	features    map[string]bool
+	cites       cites // citation numbers of the run (cite.go)
 
 	providerTools  []json.RawMessage
 	disableServers bool

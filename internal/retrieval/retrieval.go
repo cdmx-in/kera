@@ -4,6 +4,7 @@ package retrieval
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/cdmx-in/kera/internal/auth"
@@ -24,6 +25,12 @@ type Hit struct {
 	Chunk    int   `json:"chunk"`
 	ChunkEnd int   `json:"chunk_end"`
 	ChunkID  int64 `json:"-"` // the best chunk's row id, for the implementation's own use
+}
+
+// CiteKey identifies the passage a hit shows, so the same passage found twice
+// (in the prompt and in a later tool search) gets one citation number.
+func (h Hit) CiteKey() string {
+	return fmt.Sprintf("%s#%d-%d", h.FileID, h.Chunk, h.ChunkEnd)
 }
 
 // Doc is one whole extracted document of a collection (full-context mode).

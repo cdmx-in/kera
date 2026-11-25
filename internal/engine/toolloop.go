@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -416,7 +417,7 @@ func (e *Engine) toolCall(x *exec, c provider.ToolCall) tools.Call {
 	}
 	tok, _ := signRunToken(e.Keys, run.ID, run.UserID, time.Now().Add(15*time.Minute))
 	return tools.Call{ID: c.ID, Name: c.Name, Args: c.Arguments, User: x.u, ModelID: x.m.ID, ChatID: chatID,
-		MessageID: run.MessageID, RunID: run.ID, FileIDs: x.fileIDs,
+		MessageID: run.MessageID, RunID: run.ID, FileIDs: x.fileIDs, Cite: x.cites.number,
 		CallbackURL: e.callbackURL(run.ID), CallbackToken: tok,
 		Emit: func(ev tools.Event) { e.applyEvent(run, c.ID, ev.Type, ev.Data) },
 		Ask: func(ctx context.Context, r tools.AskRequest) (json.RawMessage, error) {
@@ -498,7 +499,11 @@ func (e *Engine) applyEvent(run *Run, callID, typ string, data any) {
 func toolSources(in []tools.Source) []Source {
 	out := make([]Source, 0, len(in))
 	for _, s := range in {
-		out = append(out, Source{Name: s.Name, URL: s.URL, FileID: s.FileID, Page: s.Page, Snippet: s.Snippet})
+		src := Source{Name: s.Name, URL: s.URL, FileID: s.FileID, Page: s.Page, Snippet: s.Snippet}
+		if s.Cite > 0 {
+			src.ID = strconv.Itoa(s.Cite)
+		}
+		out = append(out, src)
 	}
 	return out
 }

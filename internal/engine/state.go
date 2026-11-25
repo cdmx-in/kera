@@ -200,7 +200,10 @@ func (s *msgState) status(callID string, line StatusLine, urls []string, hidden 
 
 func (s *msgState) addSources(src []Source) {
 	key := func(x Source) string {
-		for _, k := range []string{x.URL, x.FileID, x.ID, x.Name} {
+		if x.ID != "" { // a numbered passage: the number is its identity, several can come from one file
+			return "cite:" + x.ID
+		}
+		for _, k := range []string{x.URL, x.FileID, x.Name} {
 			if k != "" {
 				return k
 			}

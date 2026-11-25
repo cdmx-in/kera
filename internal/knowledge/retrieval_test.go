@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/cdmx-in/kera/internal/retrieval"
+	"github.com/cdmx-in/kera/internal/tools"
 )
 
 // docs is a throwaway corpus: file name -> markdown text.
@@ -251,6 +252,55 @@ func TestEmbeddingPrefixes(t *testing.T) {
 	}
 	if got := prefixes("mxbai-embed-large"); got[0] != "" { // other models keep their rows
 		t.Fatalf("other model changed: %q", got)
+	}
+}
+
+// query_knowledge_files numbers its passages through Call.Cite: a passage
+// found by a second search keeps its number, new ones continue; without a
+// registry each call numbers from 1.
+func TestQueryToolNumbersThroughTheRunsRegistry(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	kid := e.collection("K", docs{"d.md": "# S1\nant\n# S2\nbee\n# S3\ncat\n# S4\ndog"})
+	_ = e.st.Set(ctx, "rag.hybrid.bm25_weight", 1, false)
+	ts := &toolSet{s: e.s}
+	nums := map[string]int{}
+	cite := func(key string) int {
+		if _, ok := nums[key]; !ok {
+			nums[key] = len(nums) + 1
+		}
+		return nums[key]
+	}
+	call := func(q string, c func(string) int) map[string]int {
+		t.Helper()
+		args, _ := json.Marshal(map[string]any{"query": q, "knowledge_ids": []string{kid}, "count": 2})
+		res, err := ts.Execute(ctx, tools.Call{Name: "query_knowledge_files", Args: args, User: e.users2["root"], Cite: c, Emit: func(tools.Event) {}})
+		if err != nil || res.IsError {
+			t.Fatalf("%v %+v", err, res)
+		}
+		var items []struct {
+			Source int    `json:"source"`
+			Text   string `json:"text"`
+		}
+		if err := json.Unmarshal([]byte(res.Content), &items); err != nil || len(items) != len(res.Sources) {
+			t.Fatalf("%v %s", err, res.Content)
+		}
+		out := map[string]int{}
+		for i, it := range items {
+			if res.Sources[i].Cite != it.Source {
+				t.Fatalf("source %d: cite %d, result says %d", i, res.Sources[i].Cite, it.Source)
+			}
+			out[strings.Fields(it.Text)[2]] = it.Source
+		}
+		return out
+	}
+	first := call("ant bee", cite)
+	second := call("bee cat", cite)
+	if len(first) != 2 || len(second) != 2 || first["bee"] != second["bee"] || second["cat"] != 3 {
+		t.Fatalf("first %v second %v", first, second)
+	}
+	if alone := call("bee cat", nil); alone["bee"]+alone["cat"] != 3 { // 1 and 2 in some order
+		t.Fatalf("without a registry: %v", alone)
 	}
 }
 
