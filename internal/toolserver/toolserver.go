@@ -441,7 +441,9 @@ func (s *Server) Execute(ctx context.Context, c tools.Call) (tools.Result, error
 	if err != nil {
 		return errResult("%s on %s failed: %v", c.Name, s.row.ID, err), nil
 	}
-	res.Content = Truncate(res.Content, s.m.maxChars(ctx, s.row))
+	if c := Truncate(res.Content, s.m.maxChars(ctx, s.row)); c != res.Content {
+		res.Content, res.Truncated = c, true
+	}
 	return res, nil
 }
 

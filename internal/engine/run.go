@@ -43,6 +43,7 @@ type exec struct {
 	fileIDs     []string // readable files attached anywhere in the conversation
 	collections []string // knowledge collections attached to the request
 	system      []string // system prompt sections, in order
+	data        string   // retrieved passages as a reference message before the newest user turn (rag.placement = data); never stored
 	features    map[string]bool
 
 	providerTools  []json.RawMessage
@@ -242,6 +243,7 @@ func (e *Engine) execute(ctx context.Context, x *exec) {
 
 // process runs the pipeline up to the final answer.
 func (e *Engine) process(ctx context.Context, x *exec) error {
+	x.run.trace.enable(e.Settings.Bool(ctx, "trace.enable"))
 	x.profile = e.profile(ctx, x.u)
 	x.features = e.features(ctx, x)
 	x.params = map[string]any{}
@@ -316,6 +318,7 @@ func (e *Engine) finish(x *exec, status string, ok bool) {
 		time.Since(x.started).Milliseconds()); err != nil {
 		slog.Warn("record usage", "err", err)
 	}
+	e.saveTrace(x)
 }
 
 // save persists the message state (persisted chats only).

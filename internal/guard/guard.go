@@ -166,8 +166,8 @@ func (c *client) scanPII(text string, events *[]Event) (string, bool) {
 	return text, stop
 }
 
-// checkInput scans the conversation. Tool results count as input (they come
-// from outside); system prompts are the operator's and are skipped.
+// checkInput scans the conversation. Tool results and data messages (retrieved
+// passages) count as input (they come from outside); system prompts are the operator's and are skipped.
 func (c *client) checkInput(ctx context.Context, msgs []provider.Message) ([]provider.Message, []Event, error) {
 	var events []Event
 	var stop error
@@ -179,7 +179,14 @@ func (c *client) checkInput(ctx context.Context, msgs []provider.Message) ([]pro
 		if m.Role == "system" {
 			continue
 		}
-		if m.Role == "user" {
+		if m.Role == "user" && m.Data {
+			// Reference material (retrieved passages): outside text like a tool result. Personal-data
+			// rules apply below. Injection phrases are only counted, under their own rule, and neither
+			// they nor the blocklist stop the user's own turn; moderation does not read it.
+			if n := ScanInjection(m.Content); n > 0 && c.p.Injection != "" && c.p.Injection != Off {
+				events = append(events, Event{Rule: "injection.data", Action: string(Log), Count: n})
+			}
+		} else if m.Role == "user" {
 			lastUser = i
 			if c.p.Injection != "" && c.p.Injection != Off {
 				if n := ScanInjection(m.Content); n > 0 {

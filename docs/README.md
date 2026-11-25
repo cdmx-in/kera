@@ -5,6 +5,7 @@
 | [deploy.md](deploy.md) | Run Kera with Docker Compose: first start, signing in, models, config as code, HTTPS, backups, troubleshooting |
 | [litellm.md](litellm.md) | Put LiteLLM in front of your models and get per-user spend in Admin > Spend |
 | [pipelines.md](pipelines.md) | Keep a knowledge collection in sync with a folder, on a schedule, with a flow view of each run |
+| [run-trace.md](run-trace.md) | See what each model round and tool call of a run cost (Admin > Traces), and choose where retrieved passages go in the prompt |
 | [integrations.md](integrations.md) | Scheduled directory sync from Google Workspace, and how to write another integration |
 | [comparison.md](comparison.md) | See how Kera differs from Open WebUI, LibreChat, AnythingLLM and Onyx, with sources and a date |
 | [compat/openwebui-api.md](compat/openwebui-api.md) | Look up the HTTP routes Kera serves, including the Open WebUI-compatible subset |

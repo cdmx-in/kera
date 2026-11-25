@@ -65,6 +65,7 @@ type Run struct {
 	reasoning   string
 	passthrough []provider.ToolCall
 	tools       []toolRecord
+	trace       runTrace // per-step sizes and timings, written once at finish (trace.go)
 	usage       Usage
 	finish      string   // stop | tool_calls | length
 	uploads     int      // files stored through the files callback

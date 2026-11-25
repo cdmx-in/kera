@@ -55,6 +55,10 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+	// Data marks a user-role message that carries reference material (retrieved
+	// passages), not something the user typed. The guard treats it like tool
+	// output. It is never sent to a provider.
+	Data bool `json:"-"`
 }
 
 // Tool is a function the model may call. Parameters is a JSON schema.
@@ -97,10 +101,12 @@ type Citation struct {
 	Title string `json:"title"`
 }
 
-// Usage is the token count of one call.
+// Usage is the token count of one call. CachedTokens is the part of the
+// prompt the server served from its cache; nil when the server does not say.
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	PromptTokens     int  `json:"prompt_tokens"`
+	CompletionTokens int  `json:"completion_tokens"`
+	CachedTokens     *int `json:"cached_tokens,omitempty"`
 }
 
 // Event is one item of a normalised stream.

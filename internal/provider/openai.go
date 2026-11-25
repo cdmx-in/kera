@@ -74,6 +74,9 @@ type openAIChunk struct {
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
+		Details          *struct {
+			Cached *int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -164,8 +167,14 @@ func (o *openAI) Stream(ctx context.Context, req Request) iter.Seq2[Event, error
 					}
 				}
 			}
-			if c.Usage != nil && !yield(Event{Kind: EventUsage, Usage: Usage{PromptTokens: c.Usage.PromptTokens, CompletionTokens: c.Usage.CompletionTokens}}, nil) {
-				return
+			if c.Usage != nil {
+				u := Usage{PromptTokens: c.Usage.PromptTokens, CompletionTokens: c.Usage.CompletionTokens}
+				if c.Usage.Details != nil {
+					u.CachedTokens = c.Usage.Details.Cached
+				}
+				if !yield(Event{Kind: EventUsage, Usage: u}, nil) {
+					return
+				}
 			}
 		}
 		if !sawDone && finish == "" {

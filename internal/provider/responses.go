@@ -95,6 +95,9 @@ type respEvent struct {
 		Usage *struct {
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
+			Details      *struct {
+				Cached *int `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
 		} `json:"usage"`
 		Error *struct {
 			Message string `json:"message"`
@@ -187,7 +190,11 @@ func (o *responses) Stream(ctx context.Context, req Request) iter.Seq2[Event, er
 					}
 				}
 				if r := e.Response; r != nil && r.Usage != nil {
-					if !yield(Event{Kind: EventUsage, Usage: Usage{PromptTokens: r.Usage.InputTokens, CompletionTokens: r.Usage.OutputTokens}}, nil) {
+					u := Usage{PromptTokens: r.Usage.InputTokens, CompletionTokens: r.Usage.OutputTokens}
+					if r.Usage.Details != nil {
+						u.CachedTokens = r.Usage.Details.Cached
+					}
+					if !yield(Event{Kind: EventUsage, Usage: u}, nil) {
 						return
 					}
 				}

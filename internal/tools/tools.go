@@ -82,6 +82,8 @@ type Result struct {
 	Inputs  []string `json:"inputs,omitempty"`
 	Sources []Source `json:"sources,omitempty"`
 	IsError bool     `json:"is_error,omitempty"`
+	// Truncated says the provider cut Content to its size cap (the run trace records it).
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Provider offers a set of tools. ID is the tool server id from config

@@ -48,6 +48,11 @@ var Defaults = map[string]json.RawMessage{
 	"chat.memory.local_only":    raw(`true`),
 	"compat.throwaway_chats":    raw(`true`),
 
+	// Run trace (internal/engine/trace.go): sizes and timings of each model round and tool call, kept for
+	// retention_days and then purged. No text is stored.
+	"trace.enable":         raw(`true`),
+	"trace.retention_days": raw(`30`),
+
 	// Guardrails on every model call. Modes: off | log | redact | block (output_pii: off | log | redact;
 	// injection and moderation: off | log | block). Audit-first defaults: nothing changes until an admin flips a mode.
 	"guardrails.pii":              raw(`"log"`),
@@ -116,6 +121,7 @@ var Defaults = map[string]json.RawMessage{
 	"files.max_mb":                 raw(`100`), // upload limit per file
 	"files.workers":                raw(`2`),   // extraction workers; a change needs a restart
 	"rag.template":                 raw(`""`),
+	"rag.placement":                raw(`"system"`), // system | data: retrieved passages in the system prompt, or in a reference message before the newest user turn
 	"code_interpreter.engine":      raw(`""`),
 	"code_interpreter.url":         raw(`""`),
 	"code_interpreter.timeout":     raw(`60`),

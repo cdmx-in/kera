@@ -10,6 +10,7 @@ import { SecretsPage } from './Secrets'
 import { PipelineEditPage, PipelinesPage } from './Pipelines'
 import { SkillsPage } from './Skills'
 import { SpendPage } from './Spend'
+import { TracesPage } from './Traces'
 import { UsersPage } from './Users'
 import { BrandingTab } from './settings/Branding'
 import { ConnectionsTab } from './settings/Connections'
@@ -45,6 +46,7 @@ function sections(): [string, string][] {
     ['analytics', 'Analytics'],
     ['spend', 'Spend'],
     ['pipelines', 'Pipelines'],
+    ['traces', 'Traces'],
     ['settings', 'Settings'],
   ]
 }
@@ -61,6 +63,7 @@ export default function AdminPage() {
   else if (section === 'analytics') body = <AnalyticsPage />
   else if (section === 'spend') body = <SpendPage />
   else if (section === 'pipelines') body = sub ? item === 'edit' ? <PipelineEditPage name={sub} /> : <PipelineDetail name={sub} run={item} /> : search.has('new') ? <PipelineEditPage name={null} /> : search.has('runners') ? <RunnersPage /> : search.has('secrets') ? <SecretsPage /> : <PipelinesPage />
+  else if (section === 'traces') body = <TracesPage message={sub} />
   else if (section === 'settings') {
     const tab = settingsTabs.find(([k]) => k === sub)
     if (!tab) return <Navigate to="/admin/settings/connections" replace />

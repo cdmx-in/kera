@@ -59,6 +59,14 @@ export function ChatTab() {
           ],
         },
         {
+          title: 'Run trace',
+          hint: 'Sizes, token counts and timings of each model round and tool call, shown under Admin > Traces. No prompt, answer or tool text is stored.',
+          fields: [
+            f('trace.enable', 'bool', undefined, 'Record traces'),
+            f('trace.retention_days', 'int', 'Days a trace is kept before it is deleted (at least 1).', 'Keep for (days)'),
+          ],
+        },
+        {
           title: 'Memory',
           fields: [
             f('chat.memory.enable', 'bool', 'Let the assistant remember details across chats (users opt in).', 'Enable memory'),
@@ -154,6 +162,7 @@ export function RetrievalTab() {
             f('rag.hybrid.bm25_weight', 'float', 'Weight of keyword search against vector search (0-1).', 'BM25 weight'),
             f('rag.full_context_max_chars', 'int', 'Largest collection sent whole in full-context mode.', 'Full context max chars'),
             f('rag.template', 'textarea', 'Template wrapping retrieved context (empty = built-in).', 'Template'),
+            f('rag.placement', { select: [['system', 'In the system prompt'], ['data', 'As a reference message']] }, 'Where retrieved passages go. A reference message sits before the newest user message, is checked by the guardrails like tool output, and keeps the system prompt the same from turn to turn (better for provider caching).', 'Passage placement'),
           ],
         },
         {

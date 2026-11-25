@@ -225,7 +225,7 @@ Every call to a model server (chats, background tasks, memory, embeddings) goes 
 | `guardrails.moderation` / `.model` | off, log, block | Classifies the latest user message with a moderation model on the same connection (`/v1/moderations`). |
 | `guardrails.local_exempt` | bool | Skips every check for local (Ollama) models. |
 
-A blocked call fails with HTTP 400 and the code `guardrail_blocked`. Each event records the rule, action, count, user and model, never the matched text. Events are listed in the admin console and in the `guardrail_event` table. A model preset can override any key with `features: {guardrails: {pii: off}}`. For custom checks, use a hook server.
+With `rag.placement` set to `data`, retrieved passages travel as a reference message that the guard scans like tool output (injection phrases in it are logged as `injection.data`, never blocking), see [docs/run-trace.md](docs/run-trace.md). A blocked call fails with HTTP 400 and the code `guardrail_blocked`. Each event records the rule, action, count, user and model, never the matched text. Events are listed in the admin console and in the `guardrail_event` table. A model preset can override any key with `features: {guardrails: {pii: off}}`. For custom checks, use a hook server.
 
 <a id="status-and-limits"></a>
 ## 🧭 Status and limits

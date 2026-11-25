@@ -133,8 +133,16 @@ func Mount(a *app.App) error {
 func (e *Engine) janitor() {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
-	for range t.C {
+	for tick := 0; ; tick++ {
+		<-t.C
 		e.runs.sweep()
+		if tick%60 == 0 { // hourly, the first a minute after start-up
+			if n, err := e.purgeTrace(context.Background()); err != nil {
+				slog.Warn("purge run trace", "err", err)
+			} else if n > 0 {
+				slog.Info("purged run trace", "rows", n)
+			}
+		}
 	}
 }
 

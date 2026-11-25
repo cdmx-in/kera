@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/cdmx-in/kera/internal/provider"
 )
@@ -74,6 +75,13 @@ func (e *Engine) compact(ctx context.Context, x *exec) error {
 		return nil // only synthetic turns (an earlier summary) to fold
 	}
 	before := estimateTokens(x.turns)
+	started := time.Now()
+	failed := ""
+	defer func() {
+		after := estimateTokens(x.turns)
+		x.run.trace.add(traceStep{Kind: stepCompaction, Name: "summarise", Started: started, Duration: time.Since(started), Err: failed,
+			Detail: map[string]any{"turns_summarised": cut, "tokens_before": before, "tokens_after": after}})
+	}()
 	x.run.compaction("running", "", 0, 0)
 	var b strings.Builder
 	for _, t := range x.turns[:cut] {
@@ -86,6 +94,7 @@ func (e *Engine) compact(ctx context.Context, x *exec) error {
 	summary, _, err := e.complete(ctx, tm, summaryPrompt, b.String())
 	if err != nil || strings.TrimSpace(summary) == "" {
 		slog.Warn("compaction failed, continuing with the full conversation", "err", err)
+		failed = "compaction_failed"
 		x.run.compaction("done", "", 0, 0)
 		return nil
 	}

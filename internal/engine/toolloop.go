@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/files"
@@ -224,7 +225,7 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 		x.run.roundText = ""
 		x.run.mu.Unlock()
 		calls, finish, err := e.callModel(ctx, x, client, provider.Request{Model: x.m.ProviderModel, Messages: msgs,
-			Tools: specs, Params: x.params, ProviderTools: x.providerTools})
+			Tools: specs, Params: x.params, ProviderTools: x.providerTools}, round)
 		if err != nil {
 			return err
 		}
@@ -253,7 +254,7 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 		msgs = append(msgs, provider.Message{Role: "assistant", Content: text, ToolCalls: calls})
 		var shots []provider.Image
 		for _, c := range calls {
-			content, imgs := e.runTool(ctx, x, table, c)
+			content, imgs := e.runTool(ctx, x, table, c, round)
 			if ctx.Err() != nil {
 				return context.Cause(ctx)
 			}
@@ -278,18 +279,23 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 }
 
 // callModel streams one model call into the run and returns its tool calls.
-func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client, req provider.Request) ([]provider.ToolCall, string, error) {
-	var calls []provider.ToolCall
-	finish := "stop"
-	for ev, err := range client.Stream(ctx, req) {
-		if err != nil {
+// round is the loop round, for the trace.
+func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client, req provider.Request, round int) (calls []provider.ToolCall, finish string, err error) {
+	var use *provider.Usage
+	textChars := 0
+	started := time.Now()
+	defer func() { x.traceModel(round, req, started, use, textChars, len(calls), finish, err) }()
+	finish = "stop"
+	for ev, serr := range client.Stream(ctx, req) {
+		if serr != nil {
 			if c := context.Cause(ctx); c != nil {
 				return nil, "", c
 			}
-			return nil, "", err
+			return nil, "", serr
 		}
 		switch ev.Kind {
 		case provider.EventText:
+			textChars += utf8.RuneCountInString(ev.Text)
 			x.run.delta(ev.Text)
 		case provider.EventReasoning:
 			x.run.reasoningDelta(ev.Text)
@@ -299,6 +305,8 @@ func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client,
 			x.run.sources([]Source{{URL: ev.Citation.URL, Title: ev.Citation.Title, Name: ev.Citation.Title}})
 		case provider.EventUsage:
 			x.run.addUsage(ev.Usage)
+			u := ev.Usage
+			use = &u
 		case provider.EventDone:
 			if ev.FinishReason != "" {
 				finish = ev.FinishReason
@@ -314,7 +322,8 @@ func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client,
 
 // runTool executes one call and returns what the model reads back: the text
 // and, for a vision model, the result's images.
-func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, c provider.ToolCall) (string, []provider.Image) {
+func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, c provider.ToolCall, round int) (string, []provider.Image) {
+	started := time.Now()
 	entry, ok := table[c.Name]
 	if ok {
 		c.Arguments = dropUnsetArgs(entry.spec.Parameters, c.Arguments)
@@ -335,6 +344,9 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 			}
 		}
 	}
+	x.run.trace.add(traceStep{Kind: stepTool, Name: c.Name, Round: round, Started: started, Duration: time.Since(started),
+		Detail: map[string]any{"server": entry.server, "args_chars": len(c.Arguments), "result_chars": utf8.RuneCountInString(res.Content),
+			"is_error": res.IsError, "truncated": res.Truncated, "files": len(res.Files), "images": len(res.Images), "known": ok}})
 	refs := e.fileRefs(ctx, res.Files)
 	x.run.files(refs)
 	var inputs []FileRef
