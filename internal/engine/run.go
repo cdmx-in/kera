@@ -38,6 +38,7 @@ type exec struct {
 	started     time.Time
 	limit       *time.Timer // unattended runs: stops the run when the time limit passes
 	missing     []string    // requested tool servers that did not join (assembleTools)
+	withheld    []string    // read-only runs: functions left out because their server does not declare them read-only
 
 	turns       []turn
 	fileIDs     []string // readable files attached anywhere in the conversation
@@ -271,6 +272,9 @@ func (e *Engine) process(ctx context.Context, x *exec) error {
 	table, specs, err := e.assembleTools(ctx, x)
 	if err != nil {
 		return err
+	}
+	if len(x.withheld) > 0 { // the first line of the answer, so the reader of a test sees what was left out
+		x.run.delta(withheldNote(x.withheld) + "\n\n")
 	}
 	if x.req.Unattended && len(x.missing) > 0 {
 		// Nobody can fix it mid-run, and running without the app would only produce a wrong report.
