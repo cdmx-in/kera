@@ -244,6 +244,7 @@ type Embedding struct {
 
 type Hybrid struct {
 	BM25Weight *float64 `yaml:"bm25_weight,omitempty"`
+	HeadWeight *float64 `yaml:"head_weight,omitempty"`
 }
 
 type Endpoint struct {

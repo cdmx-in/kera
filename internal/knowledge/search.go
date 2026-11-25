@@ -25,6 +25,7 @@ type searchConfig struct {
 	TopKRerank  int     // results returned (rag.top_k_rerank)
 	MinResults  int     // results kept even below Threshold (rag.min_results)
 	BM25Weight  float64 // weight of the full-text rank in the fusion
+	HeadWeight  float64 // weight of the heading and file-name ranking in the fusion; 0 skips it
 	Threshold   float64 // minimum reranker score (only applied with a reranker)
 	RerankURL   string
 	RerankModel string
@@ -35,10 +36,11 @@ type searchConfig struct {
 }
 
 func (s *Service) searchConfig(ctx context.Context) searchConfig {
-	c := searchConfig{TopK: 30, TopKRerank: 8, MinResults: 3, BM25Weight: 0.5, LocalRuns: "skip", FuseQueries: true}
+	c := searchConfig{TopK: 30, TopKRerank: 8, MinResults: 3, BM25Weight: 0.5, HeadWeight: 0.25, LocalRuns: "skip", FuseQueries: true}
 	_ = s.settings.Get(ctx, "rag.top_k", &c.TopK)
 	_ = s.settings.Get(ctx, "rag.top_k_rerank", &c.TopKRerank)
 	_ = s.settings.Get(ctx, "rag.hybrid.bm25_weight", &c.BM25Weight)
+	_ = s.settings.Get(ctx, "rag.hybrid.head_weight", &c.HeadWeight)
 	_ = s.settings.Get(ctx, "rag.min_results", &c.MinResults)
 	_ = s.settings.Get(ctx, "rag.fuse_queries", &c.FuseQueries)
 	_ = s.settings.Get(ctx, "rag.relevance_threshold", &c.Threshold)
@@ -56,6 +58,7 @@ func (s *Service) searchConfig(ctx context.Context) searchConfig {
 	c.TopK = max(c.TopK, 1)
 	c.TopKRerank = max(c.TopKRerank, 1)
 	c.BM25Weight = min(max(c.BM25Weight, 0), 1)
+	c.HeadWeight = min(max(c.HeadWeight, 0), 1)
 	return c
 }
 
@@ -164,7 +167,7 @@ type ranked struct {
 // against queries[0] when a reranker is configured and returns the best
 // cfg.TopKRerank hits.
 func (s *Service) search(ctx context.Context, cs []*Collection, queries []string, cfg searchConfig) ([]retrieval.Hit, error) {
-	vec, fts := make([][]ranked, len(queries)), make([][]ranked, len(queries))
+	vec, fts, head := make([][]ranked, len(queries)), make([][]ranked, len(queries)), make([][]ranked, len(queries))
 	for _, g := range groupsOf(cs) {
 		m, err := s.modelByID(ctx, g.modelID)
 		if err != nil {
@@ -188,6 +191,13 @@ func (s *Service) search(ctx context.Context, cs []*Collection, queries []string
 				return nil, err
 			}
 			vec[i], fts[i] = append(vec[i], v...), append(fts[i], t...)
+			if cfg.HeadWeight > 0 {
+				hd, err := s.headSearch(ctx, g, q, cfg.TopK)
+				if err != nil {
+					return nil, err
+				}
+				head[i] = append(head[i], hd...)
+			}
 		}
 	}
 	var lists []rankedList
@@ -196,7 +206,9 @@ func (s *Service) search(ctx context.Context, cs []*Collection, queries []string
 		// they were one scale; collections searched together normally share one.
 		slices.SortStableFunc(vec[i], func(a, b ranked) int { return cmpFloat(a.score, b.score) })
 		slices.SortStableFunc(fts[i], func(a, b ranked) int { return cmpFloat(b.score, a.score) })
-		lists = append(lists, rankedList{idsOf(vec[i]), 1 - cfg.BM25Weight}, rankedList{idsOf(fts[i]), cfg.BM25Weight})
+		slices.SortStableFunc(head[i], func(a, b ranked) int { return cmpFloat(b.score, a.score) })
+		lists = append(lists, rankedList{idsOf(vec[i]), 1 - cfg.BM25Weight}, rankedList{idsOf(fts[i]), cfg.BM25Weight},
+			rankedList{idsOf(head[i]), cfg.HeadWeight})
 	}
 	fused := fuseLists(lists)
 	if len(fused) > cfg.TopK {

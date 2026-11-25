@@ -153,6 +153,7 @@ export function RetrievalTab() {
             f('rag.min_results', 'int', 'Passages kept even when they score below the threshold.', 'Minimum results'),
             f('rag.relevance_threshold', 'float', 'Drop chunks scoring below this (0 keeps all). Only a reranker produces a score to compare.'),
             f('rag.hybrid.bm25_weight', 'float', 'Weight of keyword search against vector search (0-1).', 'BM25 weight'),
+            f('rag.hybrid.head_weight', 'float', 'Weight of file names and section headings in keyword search (0-1, 0 = off). Chunks indexed before this existed need: kera reindex --heads.', 'Heading weight'),
             f('rag.fuse_queries', 'bool', 'When a follow-up is rewritten into several search queries, rank their results together. Off: each query keeps its own top passages.', 'Fuse queries'),
             f('rag.full_context_max_chars', 'int', 'Largest collection sent whole in full-context mode.', 'Full context max chars'),
             f('rag.template', 'textarea', 'Template wrapping retrieved context (empty = built-in).', 'Template'),

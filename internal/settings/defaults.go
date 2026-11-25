@@ -87,6 +87,7 @@ var Defaults = map[string]json.RawMessage{
 	"rag.fuse_queries":           raw(`true`), // several search queries are ranked together; false searches each alone and concatenates
 	"rag.min_results":            raw(`3`),    // a relevance threshold never leaves fewer passages than this
 	"rag.relevance_threshold":    raw(`0`),
+	"rag.hybrid.head_weight":     raw(`0.25`), // weight of headings and file names in keyword search; 0 turns it off
 	"rag.hybrid.bm25_weight":     raw(`0.5`),
 	"rag.full_context_max_chars": raw(`400000`),
 	"rag.fts_config":             raw(`"english"`), // text-search config of new collections (a Postgres regconfig)

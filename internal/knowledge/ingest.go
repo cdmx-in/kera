@@ -272,6 +272,9 @@ func (s *Service) store(ctx context.Context, c *Collection, fid string, m *embed
 	if err := tx.SendBatch(ctx, b).Close(); err != nil {
 		return fmt.Errorf("insert chunks: %w", err)
 	}
+	if _, err := tx.Exec(ctx, headSelect+`WHERE c.knowledge_id = $1 AND c.file_id = $2 AND c.embedding_model_id = $3 ON CONFLICT DO NOTHING`, c.ID, fid, m.ID); err != nil {
+		return fmt.Errorf("index chunk headings: %w", err)
+	}
 	if replaces != nil {
 		// no embedding-model filter: every chunk of the old version goes
 		if err := s.removeFile(ctx, tx, c.ID, *replaces); err != nil {

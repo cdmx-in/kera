@@ -99,6 +99,83 @@ func TestFuseListsSumsEveryList(t *testing.T) {
 	}
 }
 
+// filler documents that share no word with the identifiers searched for.
+func filler() docs {
+	d := docs{}
+	for _, w := range []string{"apple", "banana", "cherry", "damson", "elder", "fig"} {
+		d[w+".md"] = "# Fruit\n" + w + " grows on trees and is picked in autumn."
+	}
+	return d
+}
+
+// A word that is only in a file name or in a parent heading of a chunk
+// cannot be found by keyword from the chunk text; the heading index finds
+// it (the parent-heading case is checked in the row, not in a ranking: the
+// parent's own chunk repeats the word). rag.hybrid.head_weight 0 switches the index off, and chunks indexed
+// before it existed get their rows from backfillHeads.
+func TestHeadingAndFileNameKeywordSearch(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	d := filler()
+	d["zorblax-runbook.md"] = "# Daemon\nrestart the service, then read the log file."
+	d["guide.md"] = "# Quokka\n\n## Setup\nrestart the service, then read the log file."
+	kid := e.collection("K", d)
+	_ = e.st.Set(ctx, "rag.hybrid.bm25_weight", 1, false) // keyword rankings only: the stub embedder adds noise
+	first := func(q string) string {
+		t.Helper()
+		hits, err := e.s.Search(ctx, e.users2["root"], []string{kid}, []string{q}, 1)
+		if err != nil || len(hits) != 1 {
+			t.Fatalf("%q: %+v %v", q, hits, err)
+		}
+		return hits[0].FileName
+	}
+	var rows, chunks int
+	_ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM chunk_head`).Scan(&rows)
+	_ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM chunk`).Scan(&chunks)
+	if rows != chunks || rows == 0 {
+		t.Fatalf("indexing wrote %d heading rows for %d chunks", rows, chunks)
+	}
+	if first("zorblax") != "zorblax-runbook.md" {
+		t.Fatalf("with the heading index: %q", first("zorblax"))
+	}
+	// the Setup section sits under "Quokka" without saying so itself; its row does
+	var under bool
+	if err := e.s.db.QueryRow(ctx, `SELECT h.tsv @@ 'quokka'::tsquery AND NOT c.tsv @@ 'quokka'::tsquery FROM chunk_head h
+		JOIN chunk c ON c.id = h.chunk_id WHERE c.text LIKE '## Setup%'`).Scan(&under); err != nil || !under {
+		t.Fatalf("heading row of the Setup section: %v %v", under, err)
+	}
+	_ = e.st.Set(ctx, "rag.hybrid.head_weight", 0, false)
+	if first("zorblax") == "zorblax-runbook.md" {
+		t.Fatal("found by keyword without the heading index: the corpus does not isolate it")
+	}
+	// chunks indexed before the table existed: no rows, nothing found, then backfilled
+	_ = e.st.Set(ctx, "rag.hybrid.head_weight", 0.25, false)
+	if _, err := e.s.db.Exec(ctx, `DELETE FROM chunk_head`); err != nil {
+		t.Fatal(err)
+	}
+	if first("zorblax") == "zorblax-runbook.md" {
+		t.Fatal("found without heading rows")
+	}
+	var out strings.Builder
+	if err := e.s.backfillHeads(ctx, &out); err != nil {
+		t.Fatal(err)
+	}
+	_ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM chunk_head`).Scan(&rows)
+	if rows != chunks || first("zorblax") != "zorblax-runbook.md" || !strings.Contains(out.String(), "wrote") {
+		t.Fatalf("after backfill: %d rows of %d chunks, %q\n%s", rows, chunks, first("zorblax"), out.String())
+	}
+	// a second run writes nothing; deleting chunks removes their rows with them
+	out.Reset()
+	_ = e.s.backfillHeads(ctx, &out)
+	if !strings.Contains(out.String(), "wrote 0 chunk headings") {
+		t.Fatal(out.String())
+	}
+	_, _ = e.s.db.Exec(ctx, `DELETE FROM chunk WHERE knowledge_id = $1`, kid)
+	if _ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM chunk_head`).Scan(&rows); rows != 0 {
+		t.Fatalf("%d heading rows left after their chunks went", rows)
+	}
+}
+
 // Two queries, k=2. The passage that is second for both queries beats the
 // best passage of either query once the rankings are fused; searched one
 // query at a time and concatenated (rag.fuse_queries off) it comes after
