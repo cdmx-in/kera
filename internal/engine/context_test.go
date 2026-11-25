@@ -569,14 +569,16 @@ func TestModelCallNotRetriedAfterFirstEvent(t *testing.T) {
 
 func TestRetryable(t *testing.T) {
 	for err, want := range map[error]bool{
-		&provider.HTTPError{Status: 502}:                              true,
-		&provider.HTTPError{Status: 429}:                              true,
-		&provider.HTTPError{Status: 400}:                              false,
-		&provider.HTTPError{Status: 401}:                              false,
-		fmt.Errorf("wrapped: %w", provider.ErrIdleTimeout):            true,
-		fmt.Errorf("dial: %w", &netErr{}):                             true,
-		context.DeadlineExceeded:                                      false,
-		fmt.Errorf("openai stream: %w", fmt.Errorf("blocked by pii")): false,
+		&provider.HTTPError{Status: 502}:                                                      true,
+		&provider.HTTPError{Status: 429}:                                                      true,
+		&provider.HTTPError{Status: 400}:                                                      false,
+		&provider.HTTPError{Status: 401}:                                                      false,
+		&provider.HTTPError{Status: 500, Body: "oops"}:                                        true,
+		&provider.HTTPError{Status: 500, Body: `{"error":"no user query found in messages"}`}: false, // a prompt over the window: same prompt, same error
+		fmt.Errorf("wrapped: %w", provider.ErrIdleTimeout):                                    true,
+		fmt.Errorf("dial: %w", &netErr{}):                                                     true,
+		context.DeadlineExceeded:                                                              false,
+		fmt.Errorf("openai stream: %w", fmt.Errorf("blocked by pii")):                         false,
 	} {
 		if got := retryable(err); got != want {
 			t.Errorf("retryable(%v) = %v, want %v", err, got, want)

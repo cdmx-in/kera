@@ -341,8 +341,13 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 var retryDelay = func(n int) time.Duration { return time.Second << n }
 
 // retryable reports whether a model call that failed before any event is worth repeating: the server was
-// busy or failing (429, 5xx), unreachable, or went quiet. A refusal (4xx, a blocked prompt) would fail again.
+// busy or failing (429, 5xx), unreachable, or went quiet. A refusal (4xx, a blocked prompt) would fail again, and so
+// does a prompt that is too long for the window, even when the server answers it with a 500: the loop makes it
+// shorter first (see overflowRetry).
 func retryable(err error) bool {
+	if provider.IsContextOverflow(err) {
+		return false
+	}
 	var he *provider.HTTPError
 	if errors.As(err, &he) {
 		return he.Status == http.StatusTooManyRequests || he.Status >= 500
