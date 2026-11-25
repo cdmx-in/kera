@@ -2,7 +2,7 @@
 // dialog. The detail page with the flow run view is PipelineRuns.tsx.
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { ArrowLeftRight, Check as CheckIcon, ChevronLeft, ChevronRight, Circle, CircleAlert, CircleDashed, CircleOff, Clock, Copy, FileText, FolderPlus, Info, KeyRound, Library, MapPin, Pencil, Play, Plus, Power, RefreshCw, Server, Terminal, TriangleAlert, UserRound, Workflow, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, ChevronLeft, ChevronRight, Clock, Copy, FileText, FolderPlus, Info, KeyRound, Library, ListChecks, MapPin, Pencil, Play, Plus, Power, RefreshCw, Server, Terminal, UserRound, Workflow, type LucideIcon } from 'lucide-react'
 import { useCollections } from '@/features/workspace/api'
 import { Chip, Empty } from '@/features/workspace/ui'
 import { cx, copyText } from '@/lib/format'
@@ -11,6 +11,8 @@ import { Dialog, DialogHeader } from '@/ui/Dialog'
 import type { AdminUser } from './api'
 import { attempt, Badge, Btn, Card, Confirm, inputCls, Loading, Page, tdCls, thCls } from './ui'
 import { UserPicker } from './UserPicker'
+import { StatusChip } from './status'
+import { StagesEditor } from './StagesEditor'
 import { bad, EditorDialog, useFormErrors, VField } from './settings/dialogKit'
 import { relative, when } from './settings/Integrations'
 import { HowItRuns } from './PipelineSchedule'
@@ -26,17 +28,20 @@ import {
   scheduleChanged,
   scheduleFormOf,
   scheduleSummary,
+  stagesChanged,
   stateOf,
-  statusLabel,
-  toneOf,
+  useRun,
+  useRuns,
   useScript,
   usePipelineApi,
   usePipelines,
   validatePipeline,
   validateSchedule,
+  validateStages,
   type Pipeline,
   type Run,
   type ScheduleForm,
+  type Stage,
   type State,
   type StepStatus,
 } from './pipelines'
@@ -44,6 +49,8 @@ import {
 export const pipelinesBase = '/admin/pipelines'
 export const pipelineUrl = (name: string) => `${pipelinesBase}/${encodeURIComponent(name)}`
 export const editUrl = (name: string) => `${pipelineUrl(name)}/edit`
+/** A run of a pipeline, optionally with a step to bring into view (?step=seq). */
+export const runUrl = (name: string, run?: number, step?: number) => `${pipelineUrl(name)}${run != null ? `/${run}` : ''}${step != null ? `?step=${step}` : ''}`
 export const newUrl = `${pipelinesBase}?new`
 export const runnersUrl = `${pipelinesBase}?runners`
 export const scriptUrl = (name: string) => `${pipelineUrl(name)}?tab=script`
@@ -91,21 +98,9 @@ export function PipelineEditPage({ name }: { name: string | null }) {
   )
 }
 
-const icons = { pending: Circle, never: Circle, queued: Clock, ok: CheckIcon, warning: TriangleAlert, late: TriangleAlert, failed: CircleAlert, skipped: CircleDashed, off: CircleOff }
-
-/** Status is never colour alone: an icon per status (a spinner while running) next to the word. */
-export function StatusIcon({ status, size = 14 }: { status: State | StepStatus; size?: number }) {
-  if (status === 'running') return <span aria-hidden className="inline-block shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" style={{ width: size - 2, height: size - 2 }} />
-  const Icon = icons[status]
-  return <Icon size={size} aria-hidden className="shrink-0" />
-}
-
+/** The one status chip of the pipeline pages (see status.tsx): icon and upper-case word, never colour alone. */
 export function StatusBadge({ status, title }: { status: State | StepStatus; title?: string }) {
-  return (
-    <Badge tone={toneOf(status)} title={title}>
-      <StatusIcon status={status} size={11} /> {statusLabel[status]}
-    </Badge>
-  )
+  return <StatusChip status={status} title={title} />
 }
 
 /** "Expected every day; last good run 3 days ago." */
@@ -155,7 +150,7 @@ export function TokenDialog({ pipeline, token, onClose }: { pipeline: Pipeline; 
 
 // Form ----------------------------------------------------------------------------------
 
-const formFields = ['name', 'title', 'targets', 'new_collections', 'every_minutes', 'owner_id', 'run_mode', 'frequency', 'at_minute', 'weekday', 'timezone', 'scheduled']
+const formFields = ['name', 'title', 'targets', 'new_collections', 'every_minutes', 'owner_id', 'run_mode', 'frequency', 'at_minute', 'weekday', 'timezone', 'scheduled', 'stages']
 
 export const tones = {
   accent: 'bg-accent-soft text-accent',
@@ -241,13 +236,19 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
   const [fresh, setFresh] = useState('')
   const [owner, setOwner] = useState<AdminUser | null>(null)
   const [adopt, setAdopt] = useState(pipeline?.adopt ?? false)
+  const [stages, setStages] = useState<Stage[]>(() => pipeline?.stages ?? [])
+  // the step names of the newest run, for "Detect from the latest run"
+  const newest = useRuns(pipeline?.name ?? '', 1, !!pipeline)
+  const newestId = newest.data?.runs[0]?.id
+  const newestRun = useRun(pipeline?.name ?? '', newestId)
+  const seen = !pipeline || (!newest.isLoading && newestId === undefined) ? [] : newestRun.data ? (newestRun.data.steps ?? []).filter((x) => !x.kera).map((x) => x.name) : newestRun.error ? [] : undefined
   const [ask, setAsk] = useState(false)
   const [sched, setSched] = useState<ScheduleForm>(() => scheduleFormOf(pipeline, browserZone()))
   const kera = sched.mode === 'kera'
   // whether a script is saved: the timetable cannot be switched on without one (the server refuses with no_script)
   const script = useScript(pipeline?.name ?? '', !!pipeline && kera)
   const noScript = kera && (!pipeline || (script.data !== undefined && script.data.current === null))
-  const form = useFormErrors({ ...validatePipeline({ name, every, targets, fresh: lines(fresh), mode: sched.mode }, !pipeline), ...validateSchedule(sched) }, !!pipeline)
+  const form = useFormErrors({ ...validatePipeline({ name, every, targets, fresh: lines(fresh), mode: sched.mode }, !pipeline), ...validateSchedule(sched), ...validateStages(stages) }, !!pipeline)
   const dropped = pipeline?.targets.filter((t) => t.missing).length ?? 0
   const n = Number(every)
   const current = owner ?? pipeline?.owner
@@ -260,6 +261,7 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
       saved = await pa.update(pipeline.name, owner ? { ...body, owner_id: owner.id } : body)
       // after the update: a Kera-run pipeline's expected interval is set from its timetable, and this must have the last word
       if (scheduleChanged(pipeline, sched)) saved = await pa.schedule(pipeline.name, scheduleBody(sched))
+      if (stagesChanged(pipeline.stages ?? [], stages)) saved = await pa.setStages(pipeline.name, stages)
     } else {
       const r = await pa.create({ name, ...body })
       saved = r.pipeline
@@ -283,7 +285,9 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
   const presets: [string, number][] = [['Hourly', 60], ['Daily', 1440], ['Weekly', 10080], ['No expectation', 0]]
   // the page can be opened at #how-it-runs (the call to action on a pipeline started from outside)
   useEffect(() => {
-    if (location.hash === '#how-it-runs') document.getElementById('how-it-runs')?.scrollIntoView({ block: 'start' })
+    // #how-it-runs (the call to action on a pipeline started from outside) and #stages (add a description to a step)
+    const id = location.hash.slice(1)
+    if (id) document.getElementById(id)?.scrollIntoView({ block: 'start' })
   }, [])
   const saved = pipeline?.run_mode === 'kera' && pipeline.schedule.scheduled && pipeline.schedule.next_run_at ? pipeline.schedule : null
   return (
@@ -465,6 +469,12 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
             )}
           </div>
         </div>
+
+        {pipeline && (
+          <Section id="stages" icon={ListChecks} tone="violet" title="Stages" hint="A title and a line of description for each step the script reports. The run view shows these instead of the raw step name; saved with the rest of the form." aside={stages.length > 0 ? <Badge tone="accent">{stages.length}</Badge> : undefined}>
+            <StagesEditor value={stages} onChange={(v) => (setStages(v), form.touch('stages'))} seen={seen} error={form.err('stages')} />
+          </Section>
+        )}
 
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 has-[:checked]:border-amber-500/70 has-[:checked]:bg-amber-500/10">
           <input type="checkbox" checked={adopt} onChange={(e) => setAdopt(e.target.checked)} className="mt-1 size-4 accent-[var(--accent)]" />

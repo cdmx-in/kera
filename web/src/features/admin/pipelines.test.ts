@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  newStageNames,
+  sentenceCase,
+  stageAbout,
+  stageTitle,
+  stagesChanged,
+  validateStages,
   applyCells,
   atBottom,
   atMinuteOf,
@@ -86,6 +92,7 @@ const pipe = (o: Partial<Pipeline> = {}): Pipeline => ({
   schedule: { scheduled: false, frequency: 'daily', at_minute: 0, weekday: 1, timezone: 'UTC', next_run_at: null },
   last_ok_at: null,
   last_run: null,
+  stages: [],
   ...o,
 })
 
@@ -729,5 +736,65 @@ describe('session polling', () => {
     expect(sessionLine({ status: 'ready', error: '' })).toBe('Ready')
     expect(sessionLine({ status: 'closing', error: '' })).toBe('Closing…')
     expect(sessionLine({ status: 'closed', error: 'closed after being idle' })).toBe('Closed: closed after being idle')
+  })
+})
+
+describe('stages', () => {
+  it('turns a step name into a sentence-case title, keeping a few whole words in their own spelling', () => {
+    expect(sentenceCase('secret-scan')).toBe('Secret scan')
+    expect(sentenceCase('fetch_itop')).toBe('Fetch iTop')
+    expect(sentenceCase('fetch-alfboard-api')).toBe('Fetch AlfBoard API')
+    expect(sentenceCase('qa-run')).toBe('QA run')
+    expect(sentenceCase('itop-sync')).toBe('iTop sync')
+    expect(sentenceCase('hr-policies')).toBe('HR policies')
+    expect(sentenceCase('import-batch-07')).toBe('Import batch 07')
+    expect(sentenceCase('upload')).toBe('Upload')
+  })
+  it('only raises the first letter of a name that is already prose', () => {
+    expect(sentenceCase('fetch AlfBoard')).toBe('Fetch AlfBoard')
+    expect(sentenceCase('Build_index')).toBe('Build index')
+    expect(sentenceCase('  ')).toBe('')
+  })
+  const stages = [
+    { name: 'fetch-alf', title: 'Fetch AlfBoard', about: 'Pulls the tasks.' },
+    { name: 'convert', title: '', about: 'Runs pandoc.' },
+  ]
+  it('uses the catalog title, else the name in sentence case, and never rewrites a collection name', () => {
+    expect(stageTitle({ name: 'fetch-alf', kera: false }, stages)).toBe('Fetch AlfBoard')
+    expect(stageTitle({ name: 'convert', kera: false }, stages)).toBe('Convert') // an empty title falls back
+    expect(stageTitle({ name: 'dedupe', kera: false }, stages)).toBe('Dedupe')
+    expect(stageTitle({ name: 'dedupe', kera: false })).toBe('Dedupe')
+    expect(stageTitle({ name: 'product-docs', kera: true }, stages)).toBe('product-docs')
+  })
+  it('uses the catalog description, a generic one for a collection and for the start step, else none', () => {
+    expect(stageAbout({ name: 'fetch-alf', kera: false }, stages)).toBe('Pulls the tasks.')
+    expect(stageAbout({ name: 'dedupe', kera: false }, stages)).toBe('')
+    expect(stageAbout({ name: 'Docs', kera: true }, stages)).toBe('Kera uploads the changed files to this collection and indexes them')
+    expect(stageAbout({ name: 'start', kera: false }, stages)).toBe('Everything the script printed before its first step')
+    expect(stageAbout({ name: 'start', kera: false }, [{ name: 'start', title: '', about: 'Setup output.' }])).toBe('Setup output.')
+  })
+  it('lists the step names a run has that the catalog has not, in order, without start or collections', () => {
+    const steps = [
+      { name: 'start', kera: false },
+      { name: 'fetch-alf', kera: false },
+      { name: 'dedupe', kera: false },
+      { name: 'dedupe', kera: false },
+      { name: 'Docs', kera: true },
+      { name: 'upload', kera: false },
+    ]
+    expect(newStageNames(steps, stages)).toEqual(['dedupe', 'upload'])
+    expect(newStageNames(undefined, stages)).toEqual([])
+  })
+  it('keeps to the server limits', () => {
+    expect(validateStages(stages)).toEqual({})
+    expect(validateStages([{ name: 'a', title: 'x'.repeat(81), about: '' }]).stages).toMatch(/at most 80/)
+    expect(validateStages([{ name: 'a', title: '', about: 'x'.repeat(401) }]).stages).toMatch(/400/)
+    expect(validateStages([{ name: ' ', title: '', about: '' }]).stages).toMatch(/1 to 100/)
+    expect(validateStages(Array.from({ length: 201 }, (_, i) => ({ name: `s${i}`, title: '', about: '' }))).stages).toMatch(/200/)
+  })
+  it('sees whether the list changed', () => {
+    expect(stagesChanged(stages, stages.map((s) => ({ ...s })))).toBe(false)
+    expect(stagesChanged(stages, [stages[0]])).toBe(true)
+    expect(stagesChanged(stages, [stages[0], { ...stages[1], about: 'x' }])).toBe(true)
   })
 })

@@ -77,6 +77,14 @@ export interface Schedule {
   next_run_at: string | null
 }
 
+/** What the admin says about a step the script reports: a title and a line of description. Both may be empty. */
+export interface Stage {
+  /** the step name the script reports */
+  name: string
+  title: string
+  about: string
+}
+
 export interface Pipeline {
   id: string
   name: string
@@ -98,6 +106,8 @@ export interface Pipeline {
   schedule: Schedule
   last_ok_at: string | null
   last_run: Run | null
+  /** the catalog of step titles and descriptions; always an array */
+  stages: Stage[]
 }
 
 // Pure helpers ------------------------------------------------------------------------
@@ -250,6 +260,64 @@ const triggers: Record<string, string> = { schedule: 'Schedule', manual: 'Manual
 /** A run behind a notebook session (Test, Run all): it is dry, and is not the pipeline's last run. */
 export const isNotebookRun = (r: Pick<Run, 'trigger'>): boolean => r.trigger === 'test'
 export const triggerLabel = (t: string) => triggers[t] ?? t.charAt(0).toUpperCase() + t.slice(1)
+
+// Stages: titles and descriptions of the steps ----------------------------------------------
+
+/** Whole words kept in their own spelling when a step name is turned into a title. Tiny on purpose; the catalog is the place for the rest. */
+const spelled: Record<string, string> = { id: 'ID', url: 'URL', api: 'API', qa: 'QA', itop: 'iTop', alfboard: 'AlfBoard', kb: 'KB', ai: 'AI', ci: 'CI', hr: 'HR', db: 'DB', sql: 'SQL', csv: 'CSV', pdf: 'PDF', json: 'JSON' }
+
+/** "fetch-itop" -> "Fetch iTop", "secret_scan" -> "Secret scan"; a name that already has spaces or capitals only gets its first letter raised. */
+export function sentenceCase(name: string): string {
+  const raw = name.trim()
+  if (!raw) return ''
+  const parts = raw.split(/[-_\s]+/).filter(Boolean)
+  if (/[A-Z\s]/.test(raw)) return parts.join(' ').replace(/^./u, (c) => c.toUpperCase())
+  return parts.map((w, i) => spelled[w] ?? (i === 0 ? w.replace(/^./u, (c) => c.toUpperCase()) : w)).join(' ')
+}
+
+const stageOf = (name: string, stages: Stage[] | undefined) => stages?.find((s) => s.name === name)
+
+/** The catalog title of a step, else its name in sentence case. A collection step keeps the collection's own name. */
+export function stageTitle(step: Pick<Step, 'name' | 'kera'>, stages?: Stage[]): string {
+  if (step.kera) return step.name
+  return stageOf(step.name, stages)?.title.trim() || sentenceCase(step.name)
+}
+
+export const keraAbout = 'Kera uploads the changed files to this collection and indexes them'
+export const startAbout = 'Everything the script printed before its first step'
+
+/** The catalog description of a step; a collection and the implicit start step have a generic one; empty when there is none. */
+export function stageAbout(step: Pick<Step, 'name' | 'kera'>, stages?: Stage[]): string {
+  const own = (!step.kera && stageOf(step.name, stages)?.about.trim()) || ''
+  if (own) return own
+  if (step.kera) return keraAbout
+  return step.name === 'start' ? startAbout : ''
+}
+
+/** Whether the step has no description of its own to show (the generic ones count as having one). */
+export const lacksAbout = (step: Pick<Step, 'name' | 'kera'>, stages?: Stage[]): boolean => stageAbout(step, stages) === ''
+
+export const stageLimits = { max: 200, name: 100, title: 80, about: 400 }
+
+/** Rules for the stage list, keyed `stages` like the server's errors. */
+export function validateStages(list: Stage[]): Errors {
+  const e: Errors = {}
+  if (list.length > stageLimits.max) e.stages = `At most ${stageLimits.max} stages`
+  else if (list.some((s) => s.title.length > stageLimits.title || s.about.length > stageLimits.about)) e.stages = `A title is at most ${stageLimits.title} characters and a description at most ${stageLimits.about}`
+  else if (list.some((s) => !s.name.trim() || s.name.length > stageLimits.name)) e.stages = 'A stage name is 1 to 100 characters: the step name the script reports'
+  return e
+}
+
+/** The script step names of a run that the list does not name yet, in run order ("start" is left out: it is the output before the first marker). */
+export function newStageNames(steps: Pick<Step, 'name' | 'kera'>[] | undefined, stages: Stage[]): string[] {
+  const have = new Set(stages.map((s) => s.name))
+  const out: string[] = []
+  for (const s of steps ?? []) if (!s.kera && s.name !== 'start' && !have.has(s.name) && !out.includes(s.name)) out.push(s.name)
+  return out
+}
+
+/** Whether two stage lists differ (an untouched list is not sent again). */
+export const stagesChanged = (a: Stage[], b: Stage[]): boolean => a.length !== b.length || a.some((s, i) => s.name !== b[i].name || s.title !== b[i].title || s.about !== b[i].about)
 
 /** Single-quotes a word for a shell unless it is already plain. */
 export const shq = (s: string) => (/^[\w./:@%+=,-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`)
@@ -799,9 +867,10 @@ export const usePipeline = (name: string) =>
   useQuery({ ...live, queryKey: key(name), queryFn: () => api<Pipeline>(`${base}/${enc(name)}`), refetchInterval: (q) => (q.state.data?.running ? 10_000 : 60_000) })
 
 /** The newest `limit` runs; "Load older" raises the limit (no cursor, so a run that starts meanwhile cannot leave a gap). */
-export const useRuns = (name: string, limit: number) =>
+export const useRuns = (name: string, limit: number, enabled = true) =>
   useQuery({
     ...live,
+    enabled,
     queryKey: key(name, 'runs', limit),
     queryFn: () => api<{ runs: Run[]; more: boolean }>(`${base}/${enc(name)}/runs?limit=${limit}`),
     placeholderData: keepPreviousData,
@@ -863,6 +932,8 @@ export function usePipelineApi() {
     schedule: (name: string, body: ReturnType<typeof scheduleBody> | { run_mode?: RunMode; scheduled?: boolean }) => call<Pipeline>(`/${enc(name)}/schedule`, 'PUT', body),
     /** Queues a run now (409 run_active while one is open); answers the new run */
     runNow: (name: string) => call<Run>(`/${enc(name)}/run`, 'POST'),
+    /** Replaces the whole catalog of stage titles and descriptions; answers the pipeline */
+    setStages: (name: string, stages: Stage[]) => call<Pipeline>(`/${enc(name)}/stages`, 'PUT', { stages }),
     /** A queued run closes at once; a running one is asked to stop */
     cancel: (name: string, run: number) => call<Run>(`/${enc(name)}/runs/${run}/cancel`, 'POST'),
     /** Stores a new version; answers it */

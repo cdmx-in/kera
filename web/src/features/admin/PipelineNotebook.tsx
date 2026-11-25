@@ -2,26 +2,21 @@
 // Everything here is presentation; the session, the checks and the cell text live in ScriptTab (PipelineScript.tsx, notebook.ts).
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { ArrowDown, ArrowUp, Check, CircleAlert, Clock, Eraser, FastForward, FileCode, Info, Loader2, Play, Plus, RotateCcw, Square, Trash2, TriangleAlert } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, CircleAlert, Eraser, FastForward, FileCode, Info, Loader2, Play, Plus, RotateCcw, Square, Trash2, TriangleAlert } from 'lucide-react'
 import { cx } from '@/lib/format'
 import { Badge, Btn, inputCls } from './ui'
+import { StatusChip } from './status'
 import { CodeEditor, type EditorHandle } from './CodeEditor'
 import type { NbCell } from './notebook'
 import { runnersUrl } from './Pipelines'
-import { atBottom, cellBusy, cellStatusLabel, sessionLine, sessionLive, type CellProblems, type CellRun, type CellStatus, type Problem, type Severity } from './pipelines'
+import { atBottom, cellBusy, sessionLine, sessionLive, type CellProblems, type CellRun, type CellStatus, type Problem, type Severity } from './pipelines'
 import type { Session } from './notebook'
-
-const statusIcon: Record<CellStatus, typeof Check> = { queued: Clock, running: Loader2, ok: Check, failed: CircleAlert, stopped: Square }
-const statusTone: Record<CellStatus, 'grey' | 'accent' | 'green' | 'red' | 'amber'> = { queued: 'grey', running: 'accent', ok: 'green', failed: 'red', stopped: 'amber' }
 
 /** Queued, Running, OK, Failed or Stopped: icon and word, never colour alone. */
 export function CellStatusChip({ status }: { status: CellStatus }) {
-  const Icon = statusIcon[status]
   return (
     <span data-testid="cell-status" data-status={status}>
-      <Badge tone={statusTone[status]}>
-        <Icon size={11} aria-hidden className={status === 'running' ? 'animate-spin' : ''} /> {cellStatusLabel[status]}
-      </Badge>
+      <StatusChip status={status} />
     </span>
   )
 }

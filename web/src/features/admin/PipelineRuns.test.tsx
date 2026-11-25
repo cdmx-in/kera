@@ -1,24 +1,43 @@
-// Render checks for the flow run view: static markup only (no browser), so they pin what a reviewer reads in the code.
+// Render checks for the run view: static markup only (no browser), so they pin what a reviewer reads in the code.
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
-import type { NavigateFunction } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
-import { Flow, History, leaveStep, Notice, RunHeader, runWhere, StepBody } from './PipelineRuns'
-import { CopyBlock, WhereItRuns } from './Pipelines'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { describe, expect, it } from 'vitest'
+import { HealthStrip } from './HealthStrip'
+import { KeraSyncs } from './KeraSyncs'
+import { History, Notice } from './PipelineRuns'
+import { runWhere, RunSummary } from './RunSummary'
+import { StagesEditor } from './StagesEditor'
+import { StatusChip, statusWord } from './status'
+import { StepDetail, type StepCtx } from './StepLog'
+import { StepWaterfall } from './StepWaterfall'
+import { CopyBlock, StatusBadge, WhereItRuns } from './Pipelines'
 import type { Run, Step } from './pipelines'
+import { axisSpan, scriptSteps, keraSteps } from './runview'
 
 const at = (s: string) => `2026-03-10T06:${s}Z`
 const now = new Date(at('10:00')).getTime()
 
 const step = (o: Partial<Step>): Step => ({ seq: 1, kera: false, key: 'fetch', name: 'fetch', status: 'ok', started_at: at('00:00'), finished_at: at('00:12'), error: '', counts: {}, log_dropped: false, ...o })
+const mkRun = (o: Partial<Run> = {}): Run => ({ id: 7, pipeline: 'docs-sync', trigger: 'manual', dry_run: false, status: 'running', client_done: false, error: '', queued: false, cancel_requested: false, started_at: at('00:00'), active_at: at('00:00'), finished_at: null, counts: {}, ...o })
 
 const steps: Step[] = [
-  step({ seq: 1, name: 'fetch', counts: { files: 25 } }),
-  step({ seq: 2, name: 'convert', status: 'failed', error: 'exit code 1' }),
+  step({ seq: 1, name: 'fetch-alf', counts: { files: 25 } }),
+  step({ seq: 2, name: 'convert', status: 'failed', started_at: at('00:12'), finished_at: at('01:12'), error: 'exit code 1' }),
   step({ seq: 3, name: 'upload', status: 'skipped', started_at: null, finished_at: null }),
-  step({ seq: 1000, kera: true, key: 'k1', name: 'Product docs', status: 'running', finished_at: null, counts: { listed: 25, unchanged: 22, uploaded: 3, waiting: 2 } }),
+  step({ seq: 1000, kera: true, key: 'k1', name: 'Product docs', status: 'running', started_at: at('01:12'), finished_at: null, counts: { listed: 25, unchanged: 22, uploaded: 3, waiting: 2 } }),
   step({ seq: 1001, kera: true, key: 'k2', name: 'Guides', status: 'pending', started_at: null, finished_at: null }),
 ]
+const stages = [{ name: 'fetch-alf', title: 'Fetch AlfBoard', about: 'Pulls the latest documents.' }]
+const ctx: StepCtx = { pipeline: 'docs-sync', runId: 7, stages, now, editHref: '/admin/pipelines/docs-sync/edit#stages' }
+// StepDetail holds a query for the log, so it needs a client; the markup is the pending state
+const withClient = (ui: React.ReactElement) =>
+  renderToStaticMarkup(
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  )
+const inRouter = (ui: React.ReactElement) => renderToStaticMarkup(<MemoryRouter>{ui}</MemoryRouter>)
 
 describe('CopyBlock', () => {
   it('wraps a long command instead of scrolling it sideways under the Copy button', () => {
@@ -28,96 +47,179 @@ describe('CopyBlock', () => {
   })
 })
 
-describe('Flow', () => {
-  const html = renderToStaticMarkup(<Flow steps={steps} seq={2} now={now} onOpen={() => {}} />)
-  const nodes = [...html.matchAll(/<button[^>]*data-testid="flow-node"[^>]*>.*?<\/button>/g)].map((m) => m[0])
-
-  it('is one real button per step, script steps first, then the collections', () => {
-    expect(nodes).toHaveLength(5)
-    expect(nodes.map((n) => /data-status="(\w+)"/.exec(n)![1])).toEqual(['ok', 'failed', 'skipped', 'running', 'pending'])
-    expect(html.indexOf('aria-label="Script steps"')).toBeLessThan(html.indexOf('>Kera<'))
-    expect(html).toContain('<ol aria-label="Script steps"')
-    expect(html).toContain('role="group"')
+describe('StatusChip', () => {
+  it('is an icon and a word for every status, upper-cased by the CSS, never colour alone', () => {
+    for (const s of ['queued', 'running', 'stopping', 'ok', 'warning', 'failed', 'skipped', 'pending', 'cancelled', 'dry', 'notebook', 'late', 'never', 'off'] as const) {
+      const h = renderToStaticMarkup(<StatusChip status={s} />)
+      expect(h).toContain('uppercase')
+      expect(h).toContain('<svg')
+      expect(h).toContain(statusWord(s))
+    }
   })
-  it('marks only the open step as pressed', () => {
-    expect(nodes.filter((n) => n.includes('aria-pressed="true"'))).toHaveLength(1)
-    expect(nodes[1]).toContain('aria-pressed="true"')
+  it('turns the running icon only while it runs, and uses the same chip on the list page', () => {
+    expect(renderToStaticMarkup(<StatusChip status="running" />)).toContain('animate-spin')
+    expect(renderToStaticMarkup(<StatusChip status="ok" />)).not.toContain('animate-spin')
+    const h = renderToStaticMarkup(<StatusBadge status="failed" />)
+    expect(h).toContain('Failed')
+    expect(h).toContain('uppercase')
   })
-  it('says the status in words, never by colour alone', () => {
-    for (const [i, word] of ['OK', 'Failed', 'Skipped', 'Running', 'Pending'].entries()) expect(nodes[i]).toContain(word)
-    expect(nodes[2]).toContain('border-dashed')
-  })
-  it('shows the duration and the main count', () => {
-    expect(nodes[0]).toContain('12 s')
-    expect(nodes[0]).toContain('25 files')
-    expect(nodes[3]).toContain('2 waiting')
-    expect(nodes[3]).toContain('10 min') // still running: counted to now
-  })
-  it('clamps a long name to two lines instead of cutting it to one, and lays many collections out as a wrapping grid', () => {
-    const many = Array.from({ length: 20 }, (_, i) => step({ seq: 1000 + i, kera: true, key: `k${i}`, name: `Collection number ${i} of the product documentation` }))
-    const h = renderToStaticMarkup(<Flow steps={many} seq={null} now={now} onOpen={() => {}} />)
-    expect(h).toContain('line-clamp-2')
-    expect(h).not.toContain('truncate font-medium')
-    expect(h).toContain('grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]')
-    expect(h.match(/data-testid="flow-node"/g)).toHaveLength(20)
-  })
-  it('puts the implicit start step first, even when an older run recorded it last', () => {
-    const late = [step({ seq: 1, name: 'secret-scan' }), step({ seq: 2, name: 'kera' }), step({ seq: 3, name: 'start' })]
-    const h = renderToStaticMarkup(<Flow steps={late} seq={null} now={now} onOpen={() => {}} />)
-    const order = [...h.matchAll(/data-testid="flow-node"[^>]*>.*?title="([^"]+)"/g)].map((m) => m[1])
-    expect(order).toEqual(['start', 'secret-scan', 'kera'])
-  })
-  it('shows a count chip per number that matters, most telling first', () => {
-    expect(nodes[3]).toMatch(/2 waiting.*3 changed/)
-  })
-  it('draws no script row when a run only has collections', () => {
-    const only = renderToStaticMarkup(<Flow steps={steps.filter((s) => s.kera)} seq={null} now={now} onOpen={() => {}} />)
-    expect(only).not.toContain('Script steps')
-    expect(only).toContain('Product docs')
+  it('stands still for a reader who asked for less motion', () => {
+    expect(renderToStaticMarkup(<StatusChip status="running" />)).not.toMatch(/(^|[ "])animate-spin/)
   })
 })
 
-describe('StepBody', () => {
-  const failed = step({ status: 'failed', error: 'kept the previous files', counts: { listed: 25, refused: 3 }, log: '06:00:01 start\n06:00:09 boom\n', log_dropped: true })
-  const html = renderToStaticMarkup(<StepBody step={failed} now={now} />)
+describe('StepWaterfall', () => {
+  const run = mkRun({ status: 'failed', finished_at: at('01:12') })
+  const script = scriptSteps(steps)
+  const html = (open: (s: Step) => boolean = () => false) =>
+    withClient(<StepWaterfall run={run} steps={script} ctx={ctx} span={axisSpan(run, script, now)} isOpen={open} onToggle={() => {}} flash={null} />)
+  const rows = (h: string) => [...h.matchAll(/<li id="step-\d+"[^>]*data-status="(\w+)"/g)].map((m) => m[1])
 
-  it('reads origin, status and timing, then the error, then counts, then the log', () => {
-    const order = ['Script step', 'Failed', 'Duration', 'role="alert"', 'Counts', 'Log'].map((s) => html.indexOf(s))
+  it('is a real list with one button per step, and only the script steps', () => {
+    const h = html()
+    expect(h).toContain('<ol aria-label="Script steps"')
+    expect(rows(h)).toEqual(['ok', 'failed', 'skipped'])
+    expect(h.match(/<button[^>]*aria-expanded/g)).toHaveLength(3)
+  })
+  it('says the status in an icon and an upper-case word on every row', () => {
+    const h = html()
+    for (const w of ['OK', 'Failed', 'Skipped']) expect(h).toContain(w)
+    expect(h.match(/data-status-chip/g)).toHaveLength(3)
+  })
+  it('shows a title in sentence case, the catalog title when there is one, and what each step is for', () => {
+    const h = html()
+    expect(h).toContain('Fetch AlfBoard')
+    expect(h).toContain('Pulls the latest documents.')
+    expect(h).toContain('>Convert<')
+    expect(h).not.toContain('>convert<')
+  })
+  it('says so quietly when a step has no description', () => {
+    expect(html()).toContain('No description yet')
+  })
+  it('shows duration and the main counts, and no bar for a step that never started', () => {
+    const h = html()
+    expect(h).toContain('12 s')
+    expect(h).toContain('25 files')
+    expect(h.match(/rounded-\[3px\] motion-safe:transition-\[left,width\]/g)).toHaveLength(2)
+  })
+  it('opens the panels it is told to, with the error and the log in them', () => {
+    const closed = html()
+    expect(closed).not.toContain('role="region"')
+    const h = html((s) => s.status === 'failed')
+    expect(h.match(/role="region"/g)).toHaveLength(1)
+    expect(h).toContain('aria-expanded="true"')
+    expect(h).toContain('exit code 1')
+    expect(h).toContain('Loading log…')
+  })
+  it('lets a long list be narrowed to the steps that need a look', () => {
+    const many = Array.from({ length: 20 }, (_, i) => step({ seq: i + 1, name: `batch-${i}`, status: i === 4 ? 'warning' : 'ok' }))
+    const r = mkRun({ status: 'ok', finished_at: at('01:00') })
+    const h = withClient(<StepWaterfall run={r} steps={many} ctx={ctx} span={60_000} isOpen={() => false} onToggle={() => {}} flash={null} />)
+    expect(h).toContain('Only failed or warning')
+    expect(h).not.toContain('content-visibility')
+    const huge = Array.from({ length: 35 }, (_, i) => step({ seq: i + 1, name: `batch-${i}` }))
+    expect(withClient(<StepWaterfall run={r} steps={huge} ctx={ctx} span={60_000} isOpen={() => false} onToggle={() => {}} flash={null} />)).toContain('content-visibility') // rows off screen are not laid out
+    expect(withClient(<StepWaterfall run={r} steps={many.slice(0, 5)} ctx={ctx} span={60_000} isOpen={() => false} onToggle={() => {}} flash={null} />)).not.toContain('Only failed or warning')
+  })
+})
+
+describe('StepDetail', () => {
+  const failed = step({ status: 'failed', error: 'kept the previous files', counts: { listed: 25, refused: 3 }, log_dropped: true })
+  const h = withClient(<StepDetail step={failed} ctx={ctx} />)
+  it('reads description, status and timing, then the error, then the log', () => {
+    const order = ['No description yet', 'Failed', 'Took', 'kept the previous files', 'Log'].map((s) => h.indexOf(s))
     expect(order.every((n) => n >= 0)).toBe(true)
     expect(order).toEqual([...order].sort((a, b) => a - b))
-    expect(html).toContain('kept the previous files')
   })
-  it('lists counts as a dl with words, and the log in a pre with the 256 KiB note and Copy', () => {
-    expect(html).toContain('<dl')
-    expect(html).toContain('Removals refused')
-    expect(html).toContain('<pre')
-    expect(html).toContain('06:00:09 boom')
-    expect(html).toContain('Showing the last 256 KiB. Times are UTC. Earlier lines were dropped.')
-    expect(html).toContain('aria-label="Copy log"')
+  it('lists the counts with words and links Add to the stages editor', () => {
+    expect(h).toContain('Removals refused')
+    expect(h).toContain('href="/admin/pipelines/docs-sync/edit#stages"')
   })
-  it('says so when a step has no log, and labels a collection step', () => {
-    const none = renderToStaticMarkup(<StepBody step={step({ kera: true, status: 'pending', started_at: null, finished_at: null, log: '' })} now={now} />)
-    expect(none).toContain('Kera · collection')
-    expect(none).toContain('No log lines yet.')
-    expect(none).not.toContain('<pre')
-    expect(none).not.toContain('role="alert"')
+  it('has the log tools by name and the 256 KiB note', () => {
+    expect(h).toContain('aria-label="Copy log"')
+    expect(h).toContain('aria-pressed')
+    expect(h).toContain('Wrap')
+    expect(h).toContain('Follow')
+    expect(h).toContain('Showing the last 256 KiB. Times are UTC. Earlier lines were dropped.')
   })
-})
-
-describe('StepBody while the log is not here', () => {
-  const noLog = step({ status: 'ok' }) // the run payload has no `log` key
-  it('says it is loading, never that the step wrote nothing', () => {
-    const h = renderToStaticMarkup(<StepBody step={noLog} now={now} />)
+  it('shows the catalog description instead of the Add link, and a generic one for a collection', () => {
+    const d = withClient(<StepDetail step={step({ name: 'fetch-alf' })} ctx={ctx} />)
+    expect(d).toContain('Pulls the latest documents.')
+    expect(d).not.toContain('No description yet')
+    const k = withClient(<StepDetail step={step({ kera: true, name: 'Docs' })} ctx={ctx} />)
+    expect(k).toContain('Kera uploads the changed files to this collection and indexes them')
+  })
+  it('says it is loading, never that the step wrote nothing, while the log has not arrived', () => {
     expect(h).toContain('Loading log…')
     expect(h).not.toContain('This step wrote no log.')
   })
-  it('says so when the request failed', () => {
-    const h = renderToStaticMarkup(<StepBody step={noLog} now={now} loadFailed />)
-    expect(h).toContain('Could not load the log.')
-    expect(h).not.toContain('Loading log…')
+})
+
+describe('KeraSyncs', () => {
+  const colls = keraSteps(steps)
+  const html = withClient(<KeraSyncs steps={colls} counts={{ listed: 25, unchanged: 22, uploaded: 3 }} ctx={ctx} isOpen={() => false} onToggle={() => {}} flash={null} />)
+  it('is a group of one row per collection with its own count in the title', () => {
+    expect(html).toContain('role="group"')
+    expect(html).toContain('2 collections kept in sync')
+    expect(html.match(/data-kind="kera"/g)).toHaveLength(2)
   })
-  it('still says a finished step wrote no log once the log has arrived empty', () => {
-    expect(renderToStaticMarkup(<StepBody step={step({ log: '' })} now={now} />)).toContain('This step wrote no log.')
+  it('draws a segmented bar with numbers, and an indexing note', () => {
+    expect(html).toContain('22')
+    expect(html).toContain('unchanged')
+    expect(html).toContain('3</b> changed')
+    expect(html).toContain('Indexing · 2 waiting')
+    expect(html).toContain('25 files · 3 changed')
+  })
+  it('stays quiet when everything is unchanged', () => {
+    const quiet = withClient(<KeraSyncs steps={[step({ seq: 1000, kera: true, name: 'Docs', counts: { listed: 120, unchanged: 120, uploaded: 0 } })]} counts={{ listed: 120, unchanged: 120 }} ctx={ctx} isOpen={() => false} onToggle={() => {}} flash={null} />)
+    expect(quiet).toContain('120 files, all unchanged')
+    expect(quiet).toContain('nothing changed')
+    expect(quiet).not.toContain('role="img"')
+  })
+  it('says why a collection has no numbers yet', () => {
+    expect(html).toContain('Waiting for the script to finish')
+  })
+})
+
+describe('HealthStrip', () => {
+  const runs: Run[] = [mkRun({ id: 12, status: 'running' }), mkRun({ id: 11, status: 'ok', finished_at: at('02:00') }), mkRun({ id: 10, status: 'failed', error: 'x', finished_at: at('00:30') }), mkRun({ id: 9, status: 'ok', finished_at: at('03:00') })]
+  const html = inRouter(<HealthStrip runs={runs} selected={11} urlOf={(id) => `/admin/pipelines/docs-sync/${id}`} now={now} />)
+  it('links every run, oldest first, with its status in words', () => {
+    expect(html.match(/<a /g)).toHaveLength(4)
+    expect(html.indexOf('/docs-sync/9')).toBeLessThan(html.indexOf('/docs-sync/12'))
+    expect(html).toContain('aria-label="#10, Failed')
+    expect(html).toContain('aria-label="#12, Running')
+  })
+  it('marks the selected run and sums up the finished ones', () => {
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1)
+    expect(html).toContain('2 of 3')
+    expect(html).toContain('1 failed')
+    expect(html).toContain('median')
+  })
+  it('draws nothing without runs', () => {
+    expect(inRouter(<HealthStrip runs={[]} selected={undefined} urlOf={() => ''} now={now} />)).toBe('')
+  })
+})
+
+describe('StagesEditor', () => {
+  const list = [{ name: 'fetch-itop', title: '', about: '' }, { name: 'convert', title: 'Convert it', about: 'Runs pandoc.' }]
+  it('lists each stage with its name and a title field whose placeholder is the sentence-case fallback', () => {
+    const h = renderToStaticMarkup(<StagesEditor value={list} onChange={() => {}} seen={['fetch-itop']} />)
+    expect(h.match(/data-testid="stage-row"/g)).toHaveLength(2)
+    expect(h).toContain('placeholder="Fetch iTop"')
+    expect(h).toContain('value="Convert it"')
+    expect(h).toContain('aria-label="Remove the stage convert"')
+  })
+  it('offers to detect the step names of the latest run that are not listed yet', () => {
+    const h = renderToStaticMarkup(<StagesEditor value={list} onChange={() => {}} seen={['fetch-itop', 'dedupe', 'upload']} />)
+    expect(h).toContain('Detect from the latest run (2)')
+    const none = renderToStaticMarkup(<StagesEditor value={list} onChange={() => {}} seen={['convert']} />)
+    expect(none).toMatch(/<button[^>]*disabled=""[^>]*data-testid="detect-stages"|<button[^>]*data-testid="detect-stages"[^>]*disabled=""/)
+  })
+  it('says what an empty list means, and shows a server error', () => {
+    const h = renderToStaticMarkup(<StagesEditor value={[]} onChange={() => {}} seen={[]} error="At most 200 stages" />)
+    expect(h).toContain('sentence case')
+    expect(h).toContain('At most 200 stages')
   })
 })
 
@@ -131,21 +233,6 @@ describe('Notice', () => {
     expect(h).toContain('<div class="text-fg"><button type="button">Open step</button></div>')
     expect(h).toContain('min-w-[min(100%,14rem)]')
     expect(renderToStaticMarkup(<Notice tone="grey">Off</Notice>)).not.toContain('text-fg')
-  })
-})
-
-describe('leaveStep', () => {
-  it('goes Back when this page pushed the step, so one Back press is enough', () => {
-    const nav = vi.fn()
-    leaveStep(nav as unknown as NavigateFunction, { drawer: true }, '/admin/pipelines/docs-sync/12')
-    expect(nav.mock.calls).toEqual([[-1]])
-  })
-  it('drops ?step= in place for a deep link or a reload without state', () => {
-    for (const state of [null, undefined, {}]) {
-      const nav = vi.fn()
-      leaveStep(nav as unknown as NavigateFunction, state, '/admin/pipelines/docs-sync/12')
-      expect(nav.mock.calls).toEqual([['/admin/pipelines/docs-sync/12', { replace: true }]])
-    }
   })
 })
 
@@ -222,22 +309,50 @@ describe('Kera-run runs', () => {
   })
 })
 
-describe('RunHeader', () => {
-  const run = (o: Partial<Run>): Run => ({ id: 7, pipeline: 'docs-sync', trigger: 'manual', dry_run: false, status: 'running', client_done: false, error: '', queued: false, cancel_requested: false, started_at: at('00:00'), active_at: at('00:00'), finished_at: null, counts: {}, ...o })
-  const header = (r: Run, o: { runner?: string; cancel?: boolean } = {}) => renderToStaticMarkup(<RunHeader run={r} now={now} runner={o.runner} onCancel={o.cancel === false ? undefined : () => {}} />)
 
-  it('has the trigger, script version and runner name in the header line', () => {
+describe('RunSummary', () => {
+  const run = (o: Partial<Run>): Run => mkRun({ id: 7, ...o })
+  const header = (r: Run, o: { runner?: string; cancel?: boolean; steps?: Step[]; online?: boolean; typical?: number | null } = {}) =>
+    inRouter(<RunSummary run={r} steps={o.steps} stages={stages} now={now} runner={o.runner} typical={o.typical} online={o.online} onCancel={o.cancel === false ? undefined : () => {}} onJump={() => {}} />)
+
+  it('has the trigger, script version and runner name among its facts', () => {
     const h = header(run({ script_version: 3, runner: 'kr1' }), { runner: 'build-server' })
     expect(h).toContain('Manual')
     expect(h).toContain('script v3')
     expect(h).toContain('Runner build-server')
   })
+  it('sums the state up in one sentence that is announced, next to a big clock', () => {
+    const h = header(run({}), { steps: [step({ seq: 1, name: 'fetch-alf', status: 'running', finished_at: null })] })
+    expect(h).toContain('aria-live="polite"')
+    expect(h).toContain('Running')
+    expect(h).toContain('Fetch AlfBoard')
+    expect(h).toContain('10:00') // started 10 minutes before now
+    expect(h).toContain('Elapsed')
+  })
+  it('draws one segment per step as a button, the running one animated', () => {
+    const h = header(run({}), { steps })
+    expect(h.match(/data-status="(ok|failed|skipped|running|pending)"[^>]*class="block h-2\.5/g)).toHaveLength(5)
+    expect(h).toContain('aria-label="Fetch AlfBoard: OK"')
+    expect(h).toContain('animate-sweep')
+    expect(h).toContain('steps done')
+  })
+  it('compares with the usual length', () => {
+    expect(header(run({}), { steps, typical: 90_000 })).toContain('Typically 1 min 30 s')
+    expect(header(run({}), { steps, typical: 90_000 })).toContain('running longer than usual')
+    expect(header(run({}), { steps })).not.toContain('Typically')
+  })
   it('reads Queued with a Cancel run button before a runner claims it', () => {
-    const h = header(run({ queued: true }))
+    const h = header(run({ queued: true }), { online: true })
     expect(h).toContain('Queued')
     expect(h).toContain('Cancel run')
+    expect(h).toContain('A runner picks it up within a few seconds')
     expect(h).not.toContain('animate-spin')
-    expect(h).not.toContain('Running')
+    expect(h).not.toContain('Runners')
+  })
+  it('says so, with a way to the runners, when none is online', () => {
+    const h = header(run({ queued: true }), { online: false })
+    expect(h).toContain('No runner is online')
+    expect(h).toContain('href="/admin/pipelines?runners"')
   })
   it('turns the button into a disabled Stopping once a stop is asked for', () => {
     const h = header(run({ script_version: 3, cancel_requested: true }))
@@ -248,6 +363,27 @@ describe('RunHeader', () => {
   it('offers no Cancel for a run a script reports itself, or one that is over', () => {
     expect(header(run({ trigger: 'script' }))).not.toContain('Cancel run')
     expect(header(run({ script_version: 3, status: 'ok', finished_at: at('01:00') }))).not.toContain('Cancel run')
+  })
+  it('puts a failed run in a calm block with the error and a way to the failed step', () => {
+    const h = header(run({ status: 'failed', finished_at: at('01:12'), error: 'convert failed: exit code 1' }), { steps })
+    expect(h).toContain('What went wrong')
+    expect(h).toContain('convert failed: exit code 1')
+    expect(h).toContain('Show the failed step')
+    expect(h).toContain('Failed at Convert')
+    expect(h).toContain('Total time')
+  })
+  it('says dry run and notebook with their own chips', () => {
+    expect(header(run({ dry_run: true }))).toContain('Dry run')
+    const nb = header(run({ trigger: 'test', dry_run: true }))
+    expect(nb).toContain('Notebook')
+    expect(nb).not.toContain('Dry run')
+  })
+  it('says closed and cancelled in their own words, without an error block', () => {
+    const closed = header(run({ status: 'failed', finished_at: at('01:12'), error: 'Closed by an admin at 08:12 UTC.' }))
+    expect(closed).toContain('Closed by an admin at 08:12 UTC')
+    expect(closed).not.toContain('What went wrong')
+    const cancelled = header(run({ status: 'failed', finished_at: at('01:12'), error: 'Cancelled by an admin.' }))
+    expect(cancelled).toContain('Cancelled')
   })
 })
 

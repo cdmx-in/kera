@@ -55,6 +55,7 @@ func (s *Service) routes() {
 		"GET /api/v1/admin/pipelines/{name}/runs/{run}/steps/{seq}":                s.aStep,
 		"POST /api/v1/admin/pipelines/{name}/runs/{run}/close":                     s.aClose,
 		"PUT /api/v1/admin/pipelines/{name}/schedule":                              s.aSchedule,
+		"PUT /api/v1/admin/pipelines/{name}/stages":                                s.aStages,
 		"POST /api/v1/admin/pipelines/{name}/run":                                  s.aRunNow,
 		"POST /api/v1/admin/pipelines/{name}/runs/{run}/cancel":                    s.aCancel,
 		"GET /api/v1/admin/pipelines/{name}/script":                                s.aScript,
@@ -574,6 +575,7 @@ type pipelineOut struct {
 	Running         bool        `json:"running"`
 	RunMode         string      `json:"run_mode"` // external (cron, CI) | kera (script and timetable live in Kera)
 	Schedule        scheduleOut `json:"schedule"`
+	Stages          []stageOut  `json:"stages"` // titles and descriptions of its steps
 	LastRun         *runOut     `json:"last_run"`
 	LastOKAt        *time.Time  `json:"last_ok_at"`
 }
@@ -617,6 +619,9 @@ func (s *Service) pipelineView(ctx context.Context, p *Pipeline) (pipelineOut, e
 	}
 	o.Late = isLate(p.EveryMinutes, o.LastOKAt, p.CreatedAt, s.now())
 	o.RunMode, o.Schedule = p.RunMode, scheduleView(p)
+	if o.Stages, err = s.stagesOf(ctx, p.ID); err != nil {
+		return o, err
+	}
 	return o, nil
 }
 
