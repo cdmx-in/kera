@@ -39,6 +39,7 @@ type Config struct {
 	Suggestions     []Suggestion     `yaml:"suggestions,omitempty"`
 	Integrations    []Integration    `yaml:"integrations,omitempty"`
 	Spend           *Spend           `yaml:"spend,omitempty"`
+	Pipelines       *Pipelines       `yaml:"pipelines,omitempty"`
 	Compat          *Compat          `yaml:"compat,omitempty"`
 	Guardrails      *Guardrails      `yaml:"guardrails,omitempty"`
 	Skills          SkillSets        `yaml:"skills,omitempty"`
@@ -495,6 +496,11 @@ type Integration struct {
 	Platforms      []string          `yaml:"platforms,omitempty" json:"platforms,omitempty"`
 	Steps          map[string]string `yaml:"steps,omitempty" json:"steps,omitempty"`
 	Commands       map[string]string `yaml:"commands,omitempty" json:"commands,omitempty"`
+}
+
+// Pipelines: AlertURL is an Alertmanager /api/v2/alerts URL; failed or late pipelines are posted there every minute.
+type Pipelines struct {
+	AlertURL *string `yaml:"alert_url,omitempty"`
 }
 
 type Spend struct {
