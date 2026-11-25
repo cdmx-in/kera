@@ -4,6 +4,7 @@
 |---|---|
 | [deploy.md](deploy.md) | Run Kera with Docker Compose: first start, signing in, models, config as code, HTTPS, backups, troubleshooting |
 | [litellm.md](litellm.md) | Put LiteLLM in front of your models and get per-user spend in Admin > Spend |
+| [cowork.md](cowork.md) | Start a Cowork task with the New task wizard, schedule it, and try it first with a read-only test run |
 | [pipelines.md](pipelines.md) | Keep a knowledge collection in sync with a folder, on a schedule, with a flow view of each run |
 | [how-it-answers.md](how-it-answers.md) | See how a question is answered, from guardrails to retrieval to the tool loop, as diagrams with the settings that steer each step and where to look when one misbehaves (also in Admin > Help) |
 | [run-trace.md](run-trace.md) | See what each model round and tool call of a run cost (Admin > Traces), and choose where retrieved passages go in the prompt |
