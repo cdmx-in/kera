@@ -85,6 +85,23 @@ func TestConvertOpenAPI(t *testing.T) {
 	}
 }
 
+// Only a GET operation is declared read-only; a test run offers nothing else from an OpenAPI server.
+func TestOpenAPIGetIsReadOnly(t *testing.T) {
+	specs, _, err := ConvertOpenAPI([]byte(petSpec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, s := range specs {
+		got[s.Name] = s.ReadOnly
+	}
+	for name, want := range map[string]bool{"search_kb": true, "get_pet": true, "update_pet": false, "post_raw": false, "clash": false} {
+		if got[name] != want {
+			t.Errorf("%s: ReadOnly = %v, want %v", name, got[name], want)
+		}
+	}
+}
+
 func toStrings(v any) []string {
 	var out []string
 	arr, _ := v.([]any)

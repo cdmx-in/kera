@@ -197,7 +197,7 @@ func (r resolver) operation(path, method string, item, raw map[string]any) (tool
 	if len(required) > 0 {
 		params2["required"] = required
 	}
-	return tools.Spec{Name: funcName(name), Description: describe(raw), Parameters: mustJSON(params2)}, op
+	return tools.Spec{Name: funcName(name), Description: describe(raw), Parameters: mustJSON(params2), ReadOnly: op.Method == http.MethodGet}, op
 }
 
 // jsonSchema returns the resolved schema of a JSON request body.

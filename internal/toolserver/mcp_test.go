@@ -61,6 +61,22 @@ func TestMCPListPaginates(t *testing.T) {
 	}
 }
 
+// readOnlyHint is the server's own word that a tool only reads. Missing or false is not read-only.
+func TestMCPReadOnlyHintReachesTheSpec(t *testing.T) {
+	var res struct {
+		Tools []mcpTool `json:"tools"`
+	}
+	raw := `{"tools":[{"name":"read","annotations":{"readOnlyHint":true}},{"name":"write","annotations":{"readOnlyHint":false}},{"name":"bare"}]}`
+	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []bool{true, false, false} {
+		if got := toSpec(res.Tools[i]).ReadOnly; got != want {
+			t.Errorf("%s: ReadOnly = %v, want %v", res.Tools[i].Name, got, want)
+		}
+	}
+}
+
 func TestMCPCallJSONAndHeaders(t *testing.T) {
 	f := newFakeMCP(t)
 	f.token = "static-key"
