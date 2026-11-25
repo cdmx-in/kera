@@ -272,6 +272,9 @@ func (s *Service) store(ctx context.Context, c *Collection, fid string, m *embed
 	if err := tx.SendBatch(ctx, b).Close(); err != nil {
 		return fmt.Errorf("insert chunks: %w", err)
 	}
+	if _, err := tx.Exec(ctx, headSelect+`WHERE c.knowledge_id = $1 AND c.file_id = $2 AND c.embedding_model_id = $3 ON CONFLICT DO NOTHING`, c.ID, fid, m.ID); err != nil {
+		return fmt.Errorf("index chunk headings: %w", err)
+	}
 	if replaces != nil {
 		// no embedding-model filter: every chunk of the old version goes
 		if err := s.removeFile(ctx, tx, c.ID, *replaces); err != nil {
@@ -339,6 +342,9 @@ func (s *Service) queue(ctx context.Context, kid string, fileIDs []string) (int,
 // moves to that embedding model: new chunks are written beside the old ones,
 // which keep serving queries until every file is done (see finishReindex).
 func (s *Service) Reindex(ctx context.Context, kid, conn, model string) (int, error) {
+	if err := s.syncPrefixes(ctx, kid); err != nil {
+		return 0, err
+	}
 	if model == "" {
 		// Cancels a move in progress: drop the chunks it already wrote.
 		if _, err := s.db.Exec(ctx, `WITH k AS (UPDATE knowledge SET meta = meta - 'reindex_to' WHERE id = $1 RETURNING embedding_model_id)

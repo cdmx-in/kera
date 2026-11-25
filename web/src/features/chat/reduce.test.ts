@@ -43,6 +43,14 @@ describe('applyEvent', () => {
     expect(steps.steps[0].statusLines.map((l) => l.description)).toEqual(['Searched knowledge', 'Searching again'])
   })
 
+  it('keeps one source per cited passage, several from one file, and merges repeats by number', () => {
+    const m = run([
+      { type: 'sources', sources: [{ id: '1', fileId: 'a', name: 'a.md' }, { id: '2', fileId: 'a', name: 'a.md' }] },
+      { type: 'sources', sources: [{ id: '2', fileId: 'a', name: 'a.md' }, { id: '3', fileId: 'a', name: 'a.md' }] },
+    ])
+    expect(m.sources.map((s) => s.id)).toEqual(['1', '2', '3'])
+  })
+
   it('tracks pending calls, sources, files and errors', () => {
     let m = run([
       { type: 'ask_user', callId: 'q1', questions: [{ question: 'Which?', options: [{ label: 'A' }] }] },

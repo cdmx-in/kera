@@ -21,22 +21,32 @@ import (
 
 // searchConfig is the rag.* settings a query uses.
 type searchConfig struct {
-	TopK        int     // candidates after fusion (rag.top_k)
-	TopKRerank  int     // results returned (rag.top_k_rerank)
-	BM25Weight  float64 // weight of the full-text rank in the fusion
-	Threshold   float64 // minimum reranker score (only applied with a reranker)
-	RerankURL   string
-	RerankModel string
-	RerankKey   string // rag.reranker.api_key, sent as a bearer token
-	LocalRuns   string // rag.reranker.local_runs: skip | allow
-	LocalURL    string // rag.reranker.local_url: reranker for local runs
+	TopK            int     // candidates after fusion (rag.top_k)
+	TopKRerank      int     // results returned (rag.top_k_rerank)
+	MinResults      int     // results kept even below Threshold (rag.min_results)
+	BM25Weight      float64 // weight of the full-text rank in the fusion
+	HeadWeight      float64 // weight of the heading and file-name ranking in the fusion; 0 skips it
+	Threshold       float64 // minimum reranker score (only applied with a reranker)
+	RerankURL       string
+	RerankModel     string
+	RerankKey       string // rag.reranker.api_key, sent as a bearer token
+	LocalRuns       string // rag.reranker.local_runs: skip | allow
+	LocalURL        string // rag.reranker.local_url: reranker for local runs
+	FuseQueries     bool   // rag.fuse_queries: several queries share one fusion
+	Neighbors       int    // chunks joined before and after each hit (rag.neighbors)
+	PassageMaxChars int    // longest joined passage (rag.passage_max_chars)
 }
 
 func (s *Service) searchConfig(ctx context.Context) searchConfig {
-	c := searchConfig{TopK: 30, TopKRerank: 6, BM25Weight: 0.5, LocalRuns: "skip"}
+	c := searchConfig{TopK: 30, TopKRerank: 8, MinResults: 3, BM25Weight: 0.5, HeadWeight: 0.25, LocalRuns: "skip", FuseQueries: true, Neighbors: 1, PassageMaxChars: 3000}
 	_ = s.settings.Get(ctx, "rag.top_k", &c.TopK)
 	_ = s.settings.Get(ctx, "rag.top_k_rerank", &c.TopKRerank)
 	_ = s.settings.Get(ctx, "rag.hybrid.bm25_weight", &c.BM25Weight)
+	_ = s.settings.Get(ctx, "rag.hybrid.head_weight", &c.HeadWeight)
+	_ = s.settings.Get(ctx, "rag.min_results", &c.MinResults)
+	_ = s.settings.Get(ctx, "rag.fuse_queries", &c.FuseQueries)
+	_ = s.settings.Get(ctx, "rag.neighbors", &c.Neighbors)
+	_ = s.settings.Get(ctx, "rag.passage_max_chars", &c.PassageMaxChars)
 	_ = s.settings.Get(ctx, "rag.relevance_threshold", &c.Threshold)
 	_ = s.settings.Get(ctx, "rag.reranker.url", &c.RerankURL)
 	_ = s.settings.Get(ctx, "rag.reranker.model", &c.RerankModel)
@@ -52,6 +62,9 @@ func (s *Service) searchConfig(ctx context.Context) searchConfig {
 	c.TopK = max(c.TopK, 1)
 	c.TopKRerank = max(c.TopKRerank, 1)
 	c.BM25Weight = min(max(c.BM25Weight, 0), 1)
+	c.HeadWeight = min(max(c.HeadWeight, 0), 1)
+	c.Neighbors = min(max(c.Neighbors, 0), 5)
+	c.PassageMaxChars = max(c.PassageMaxChars, 500)
 	return c
 }
 
@@ -75,9 +88,14 @@ func (s *Service) Reranks(ctx context.Context) bool {
 	return url != "" && time.Since(time.Unix(0, s.rerankFailed.Load())) > rerankCooldown
 }
 
-// Search implements retrieval.Retriever.
-func (s *Service) Search(ctx context.Context, u *auth.User, knowledgeIDs []string, query string, k int) ([]retrieval.Hit, error) {
-	if len(knowledgeIDs) == 0 || strings.TrimSpace(query) == "" {
+// maxQueries bounds how many queries one search fuses.
+const maxQueries = 5
+
+// Search implements retrieval.Retriever. queries[0] is the question itself
+// (the reranker judges against it); the others are rewrites searched too.
+func (s *Service) Search(ctx context.Context, u *auth.User, knowledgeIDs []string, queries []string, k int) ([]retrieval.Hit, error) {
+	queries = cleanQueries(queries)
+	if len(knowledgeIDs) == 0 || len(queries) == 0 {
 		return []retrieval.Hit{}, nil
 	}
 	cs, err := s.readable(ctx, u, knowledgeIDs)
@@ -88,7 +106,37 @@ func (s *Service) Search(ctx context.Context, u *auth.User, knowledgeIDs []strin
 	if k > 0 {
 		cfg.TopKRerank = k
 	}
-	return s.search(ctx, cs, query, cfg)
+	if cfg.FuseQueries || len(queries) == 1 {
+		return s.search(ctx, cs, queries, cfg)
+	}
+	// rag.fuse_queries off: each query is searched on its own and the lists
+	// are concatenated (the earlier behaviour, kept for comparison).
+	var out []retrieval.Hit
+	seen := map[string]bool{}
+	for _, q := range queries {
+		hits, err := s.search(ctx, cs, []string{q}, cfg)
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range hits {
+			if key := h.FileID + "|" + h.Text; !seen[key] {
+				seen[key] = true
+				out = append(out, h)
+			}
+		}
+	}
+	return out, nil
+}
+
+// cleanQueries trims, drops blank and repeated queries and keeps the first maxQueries.
+func cleanQueries(qs []string) []string {
+	var out []string
+	for _, q := range qs {
+		if q = strings.TrimSpace(q); q != "" && !slices.Contains(out, q) && len(out) < maxQueries {
+			out = append(out, q)
+		}
+	}
+	return out
 }
 
 // group is the collections searched with one query embedding and one
@@ -120,34 +168,55 @@ type ranked struct {
 	score float64 // cosine distance (vector) or text rank (full text)
 }
 
-// search runs vector + full-text retrieval per group, fuses the rankings,
-// reranks when a reranker is configured and returns the best cfg.TopKRerank hits.
-func (s *Service) search(ctx context.Context, cs []*Collection, query string, cfg searchConfig) ([]retrieval.Hit, error) {
-	var vec, fts []ranked
+// search runs vector + full-text retrieval of every query per group, fuses
+// all the rankings in one reciprocal rank fusion, reranks the candidates
+// against queries[0] when a reranker is configured and returns the best
+// cfg.TopKRerank hits.
+func (s *Service) search(ctx context.Context, cs []*Collection, queries []string, cfg searchConfig) ([]retrieval.Hit, error) {
+	vec, fts, head := make([][]ranked, len(queries)), make([][]ranked, len(queries)), make([][]ranked, len(queries))
 	for _, g := range groupsOf(cs) {
 		m, err := s.modelByID(ctx, g.modelID)
 		if err != nil {
 			return nil, err
 		}
-		qv, err := s.embed(ctx, m, []string{m.QueryPrefix + query})
+		prefixed := make([]string, len(queries))
+		for i, q := range queries {
+			prefixed[i] = m.QueryPrefix + q
+		}
+		qv, err := s.embed(ctx, m, prefixed)
 		if err != nil {
 			return nil, err
 		}
-		v, err := s.vectorSearch(ctx, m, g.ids, qv[0], cfg.TopK)
-		if err != nil {
-			return nil, err
+		for i, q := range queries {
+			v, err := s.vectorSearch(ctx, m, g.ids, qv[i], cfg.TopK)
+			if err != nil {
+				return nil, err
+			}
+			t, err := s.textSearch(ctx, g, q, cfg.TopK)
+			if err != nil {
+				return nil, err
+			}
+			vec[i], fts[i] = append(vec[i], v...), append(fts[i], t...)
+			if cfg.HeadWeight > 0 {
+				hd, err := s.headSearch(ctx, g, q, cfg.TopK)
+				if err != nil {
+					return nil, err
+				}
+				head[i] = append(head[i], hd...)
+			}
 		}
-		t, err := s.textSearch(ctx, g, query, cfg.TopK)
-		if err != nil {
-			return nil, err
-		}
-		vec, fts = append(vec, v...), append(fts, t...)
 	}
-	// ponytail: distances of different embedding models are compared as if
-	// they were one scale; collections searched together normally share one.
-	slices.SortStableFunc(vec, func(a, b ranked) int { return cmpFloat(a.score, b.score) })
-	slices.SortStableFunc(fts, func(a, b ranked) int { return cmpFloat(b.score, a.score) })
-	fused := fuse(idsOf(vec), idsOf(fts), cfg.BM25Weight)
+	var lists []rankedList
+	for i := range queries {
+		// ponytail: distances of different embedding models are compared as if
+		// they were one scale; collections searched together normally share one.
+		slices.SortStableFunc(vec[i], func(a, b ranked) int { return cmpFloat(a.score, b.score) })
+		slices.SortStableFunc(fts[i], func(a, b ranked) int { return cmpFloat(b.score, a.score) })
+		slices.SortStableFunc(head[i], func(a, b ranked) int { return cmpFloat(b.score, a.score) })
+		lists = append(lists, rankedList{idsOf(vec[i]), 1 - cfg.BM25Weight}, rankedList{idsOf(fts[i]), cfg.BM25Weight},
+			rankedList{idsOf(head[i]), cfg.HeadWeight})
+	}
+	fused := fuseLists(lists)
 	if len(fused) > cfg.TopK {
 		fused = fused[:cfg.TopK]
 	}
@@ -156,9 +225,9 @@ func (s *Service) search(ctx context.Context, cs []*Collection, query string, cf
 		return nil, err
 	}
 	if url, key := cfg.reranker(ctx); url != "" && len(hits) > 0 {
-		rr, err := s.rerank(ctx, cfg, url, key, query, hits)
+		rr, err := s.rerank(ctx, cfg, url, key, queries[0], hits)
 		if err == nil {
-			return rr, nil
+			return s.expand(ctx, rr, cfg.Neighbors, cfg.PassageMaxChars)
 		}
 		if ctx.Err() == nil { // a stopped run is not a reranker outage
 			s.rerankFailed.Store(time.Now().UnixNano())
@@ -168,7 +237,7 @@ func (s *Service) search(ctx context.Context, cs []*Collection, query string, cf
 	if len(hits) > cfg.TopKRerank {
 		hits = hits[:cfg.TopKRerank]
 	}
-	return hits, nil
+	return s.expand(ctx, hits, cfg.Neighbors, cfg.PassageMaxChars)
 }
 
 func idsOf(rs []ranked) []int64 {
@@ -197,15 +266,27 @@ type fusedHit struct {
 // rrfK is the usual reciprocal rank fusion constant.
 const rrfK = 60
 
-// fuse merges two best-first rankings by weighted reciprocal rank fusion:
-// score = w/(k+rank_text) + (1-w)/(k+rank_vector), ranks from 1; an id
-// missing from a ranking gets nothing from it.
+// rankedList is one best-first ranking and its weight in the fusion.
+type rankedList struct {
+	ids    []int64
+	weight float64
+}
+
+// fuse merges a vector and a text ranking by weighted reciprocal rank
+// fusion: score = w/(k+rank_text) + (1-w)/(k+rank_vector), ranks from 1.
 func fuse(vector, text []int64, textWeight float64) []fusedHit {
+	return fuseLists([]rankedList{{vector, 1 - textWeight}, {text, textWeight}})
+}
+
+// fuseLists merges any number of best-first rankings: the score of an id is
+// the sum over the lists of weight/(k+rank), ranks from 1; an id missing from
+// a list gets nothing from it and an id repeated in a list counts once.
+func fuseLists(lists []rankedList) []fusedHit {
 	scores := map[int64]float64{}
 	var order []int64
-	add := func(list []int64, w float64) {
+	for _, l := range lists {
 		seen := map[int64]bool{}
-		for i, id := range list {
+		for i, id := range l.ids {
 			if seen[id] {
 				continue
 			}
@@ -213,11 +294,9 @@ func fuse(vector, text []int64, textWeight float64) []fusedHit {
 			if _, ok := scores[id]; !ok {
 				order = append(order, id)
 			}
-			scores[id] += w / float64(rrfK+i+1)
+			scores[id] += l.weight / float64(rrfK+i+1)
 		}
 	}
-	add(vector, 1-textWeight)
-	add(text, textWeight)
 	out := make([]fusedHit, len(order))
 	for i, id := range order {
 		out[i] = fusedHit{id: id, score: scores[id]}
@@ -293,7 +372,7 @@ func (s *Service) loadHits(ctx context.Context, fused []fusedHit) ([]retrieval.H
 	for i, f := range fused {
 		idList[i] = f.id
 	}
-	rows, err := s.db.Query(ctx, `SELECT c.id, c.knowledge_id, c.file_id, f.filename, c.text, c.meta
+	rows, err := s.db.Query(ctx, `SELECT c.id, c.knowledge_id, c.file_id, f.filename, c.text, c.meta, c.idx
 		FROM chunk c JOIN file f ON f.id = c.file_id WHERE c.id = ANY($1)`, idList)
 	if err != nil {
 		return nil, fmt.Errorf("load chunks: %w", err)
@@ -307,10 +386,10 @@ func (s *Service) loadHits(ctx context.Context, fused []fusedHit) ([]retrieval.H
 			Page    int      `json:"page"`
 			Headers []string `json:"headers"`
 		}
-		if err := rows.Scan(&id, &h.KnowledgeID, &h.FileID, &h.FileName, &h.Text, &meta); err != nil {
+		if err := rows.Scan(&id, &h.KnowledgeID, &h.FileID, &h.FileName, &h.Text, &meta, &h.Chunk); err != nil {
 			return nil, err
 		}
-		h.Page, h.Headers = meta.Page, meta.Headers
+		h.Page, h.Headers, h.ChunkEnd, h.ChunkID = meta.Page, meta.Headers, h.Chunk, id
 		byID[id] = h
 	}
 	if err := rows.Err(); err != nil {
@@ -327,7 +406,8 @@ func (s *Service) loadHits(ctx context.Context, fused []fusedHit) ([]retrieval.H
 }
 
 // rerank orders hits with a Cohere/Jina-style POST /rerank endpoint and keeps
-// the best cfg.TopKRerank at or above cfg.Threshold.
+// the best cfg.TopKRerank at or above cfg.Threshold, but never fewer than
+// cfg.MinResults: a threshold that is too high ranks, it does not empty the answer.
 func (s *Service) rerank(ctx context.Context, cfg searchConfig, url, key, query string, hits []retrieval.Hit) ([]retrieval.Hit, error) {
 	docs := make([]string, len(hits))
 	for i, h := range hits {
@@ -337,23 +417,22 @@ func (s *Service) rerank(ctx context.Context, cfg searchConfig, url, key, query 
 	if err != nil {
 		return nil, err
 	}
-	out := make([]retrieval.Hit, 0, len(res))
+	all := make([]retrieval.Hit, 0, len(res))
 	for _, r := range res {
 		if r.Index < 0 || r.Index >= len(hits) {
 			return nil, fmt.Errorf("rerank: index %d out of range", r.Index)
 		}
-		if r.Score < cfg.Threshold {
-			continue
-		}
 		h := hits[r.Index]
 		h.Score = r.Score
-		out = append(out, h)
+		all = append(all, h)
 	}
-	slices.SortStableFunc(out, func(a, b retrieval.Hit) int { return cmpFloat(b.Score, a.Score) })
-	if len(out) > cfg.TopKRerank {
-		out = out[:cfg.TopKRerank]
+	slices.SortStableFunc(all, func(a, b retrieval.Hit) int { return cmpFloat(b.Score, a.Score) })
+	keep := 0
+	for keep < len(all) && all[keep].Score >= cfg.Threshold {
+		keep++
 	}
-	return out, nil
+	keep = max(keep, min(cfg.MinResults, len(all)))
+	return all[:min(keep, cfg.TopKRerank)], nil
 }
 
 type rerankResult struct {

@@ -88,8 +88,13 @@ var Defaults = map[string]json.RawMessage{
 	"rag.chunk_overlap":          raw(`100`),
 	"rag.markdown_headers":       raw(`true`),
 	"rag.top_k":                  raw(`30`),
-	"rag.top_k_rerank":           raw(`6`),
+	"rag.top_k_rerank":           raw(`8`),
+	"rag.fuse_queries":           raw(`true`), // several search queries are ranked together; false searches each alone and concatenates
+	"rag.neighbors":              raw(`1`),    // chunks joined before and after each hit into one passage; 0 returns the lone chunk
+	"rag.passage_max_chars":      raw(`3000`), // longest passage after joining neighbours
+	"rag.min_results":            raw(`3`),    // a relevance threshold never leaves fewer passages than this
 	"rag.relevance_threshold":    raw(`0`),
+	"rag.hybrid.head_weight":     raw(`0.25`), // weight of headings and file names in keyword search; 0 turns it off
 	"rag.hybrid.bm25_weight":     raw(`0.5`),
 	"rag.full_context_max_chars": raw(`400000`),
 	"rag.fts_config":             raw(`"english"`), // text-search config of new collections (a Postgres regconfig)
@@ -112,6 +117,8 @@ var Defaults = map[string]json.RawMessage{
 	"rag.embedding.connection":     raw(`""`),
 	"rag.embedding.model":          raw(`"nomic-embed-text"`), // the usual small Ollama embedding model; connection "" means "ollama"
 	"rag.embedding.dim":            raw(`0`),
+	"rag.embedding.doc_prefix":     raw(`""`), // prefix of text to embed; empty = the known prefix of the model, else none; applied by kera reindex
+	"rag.embedding.query_prefix":   raw(`""`), // prefix of a search query; same rules
 	"rag.embedding.batch":          raw(`32`),
 	"rag.reranker.url":             raw(`""`),
 	"rag.reranker.model":           raw(`""`),

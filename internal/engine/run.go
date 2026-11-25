@@ -45,6 +45,7 @@ type exec struct {
 	system      []string // system prompt sections, in order
 	data        string   // retrieved passages as a reference message before the newest user turn (rag.placement = data); never stored
 	features    map[string]bool
+	cites       cites // citation numbers of the run (cite.go)
 
 	providerTools  []json.RawMessage
 	disableServers bool

@@ -103,6 +103,7 @@ func setup(t *testing.T) *env {
 	a := &app.App{Env: cfg, DB: pool, Keys: keys, Settings: st, Server: srv, Auth: auth.New(pool, keys, st, false)}
 	for k, v := range map[string]any{
 		"rag.embedding.connection": "ollama", "rag.embedding.model": "stub", "rag.chunk_size": 200, "rag.chunk_overlap": 20,
+		"rag.neighbors":    0, // lone chunks; the tests of neighbour expansion turn it on
 		"user.permissions": map[string]any{"chat": map[string]any{"file_upload": true}, "workspace": map[string]any{"knowledge": true}},
 	} {
 		if err := st.Set(ctx, k, v, false); err != nil {
@@ -308,7 +309,7 @@ func TestCollectionsIngestSearchAccess(t *testing.T) {
 	if list.Total != 0 {
 		t.Fatalf("bob sees %+v", list)
 	}
-	hits, err := e.s.Search(ctx, e.users2["bob"], []string{c.ID}, "payout", 3)
+	hits, err := e.s.Search(ctx, e.users2["bob"], []string{c.ID}, []string{"payout"}, 3)
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("bob search %v %v", hits, err)
 	}
@@ -340,7 +341,7 @@ func TestCollectionsIngestSearchAccess(t *testing.T) {
 	if err != nil || len(docs) != 1 || !strings.Contains(docs[0].Text, "Four-eyes") || docs[0].Name != "payouts.md" {
 		t.Fatalf("documents %+v %v", docs, err)
 	}
-	hits, err = e.s.Search(ctx, bob, []string{"Payments KB"}, "maker checker approval", 1)
+	hits, err = e.s.Search(ctx, bob, []string{"Payments KB"}, []string{"maker checker approval"}, 1)
 	if err != nil || len(hits) != 1 || !strings.Contains(hits[0].Text, "checker") || hits[0].FileName != "payouts.md" {
 		t.Fatalf("search %+v %v", hits, err)
 	}
@@ -455,7 +456,7 @@ func TestReindexToAnotherModel(t *testing.T) {
 	if models != 1 || c.Embedding.Dim != 32 || idx != 2 {
 		t.Fatalf("models %d dim %d indexes %d", models, c.Embedding.Dim, idx)
 	}
-	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, "delta", 1)
+	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, []string{"delta"}, 1)
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("search after reindex %v %v", hits, err)
 	}
@@ -508,13 +509,14 @@ func TestRerankerAndThreshold(t *testing.T) {
 	defer rr.Close()
 	_ = e.st.Set(ctx, "rag.reranker.url", rr.URL, false)
 	_ = e.st.Set(ctx, "rag.relevance_threshold", 0.5, false)
-	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, "apples", 3)
+	_ = e.st.Set(ctx, "rag.min_results", 0, false) // by default the best 3 stay (see TestRerankKeepsMinResults)
+	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, []string{"apples"}, 3)
 	if err != nil || len(hits) != 1 || !strings.Contains(hits[0].Text, "cherries") || hits[0].Score != 0.95 {
 		t.Fatalf("reranked %+v %v", hits, err)
 	}
 	// A broken reranker falls back to the fused order.
 	_ = e.st.Set(ctx, "rag.reranker.url", "http://127.0.0.1:1", false)
-	hits, err = e.s.Search(ctx, e.users2["root"], []string{c.ID}, "apples", 3)
+	hits, err = e.s.Search(ctx, e.users2["root"], []string{c.ID}, []string{"apples"}, 3)
 	if err != nil || len(hits) != 3 || !strings.Contains(hits[0].Text, "apples") {
 		t.Fatalf("fallback %+v %v", hits, err)
 	}
@@ -570,7 +572,7 @@ func TestRerankerKeyAndLocalRuns(t *testing.T) {
 		mu.Lock()
 		calls = nil
 		mu.Unlock()
-		hits, err := e.s.Search(ctx, root, []string{c.ID}, "apples", 3)
+		hits, err := e.s.Search(ctx, root, []string{c.ID}, []string{"apples"}, 3)
 		if err != nil || len(hits) == 0 {
 			t.Fatalf("search: %+v %v", hits, err)
 		}

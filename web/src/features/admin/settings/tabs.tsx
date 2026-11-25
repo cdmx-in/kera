@@ -158,8 +158,13 @@ export function RetrievalTab() {
           fields: [
             f('rag.top_k', 'int', 'Chunks retrieved before reranking.', 'Top K'),
             f('rag.top_k_rerank', 'int', 'Chunks kept after reranking.', 'Top K after rerank'),
-            f('rag.relevance_threshold', 'float', 'Drop chunks scoring below this (0 keeps all).'),
+            f('rag.min_results', 'int', 'Passages kept even when they score below the threshold.', 'Minimum results'),
+            f('rag.relevance_threshold', 'float', 'Drop chunks scoring below this (0 keeps all). Only a reranker produces a score to compare.'),
             f('rag.hybrid.bm25_weight', 'float', 'Weight of keyword search against vector search (0-1).', 'BM25 weight'),
+            f('rag.hybrid.head_weight', 'float', 'Weight of file names and section headings in keyword search (0-1, 0 = off). Chunks indexed before this existed need: kera reindex --heads.', 'Heading weight'),
+            f('rag.fuse_queries', 'bool', 'When a follow-up is rewritten into several search queries, rank their results together. Off: each query keeps its own top passages.', 'Fuse queries'),
+            f('rag.neighbors', 'int', 'Chunks joined before and after each hit into one passage (0 = the hit alone).', 'Neighbouring chunks'),
+            f('rag.passage_max_chars', 'int', 'Longest passage after joining neighbours.', 'Passage max chars'),
             f('rag.full_context_max_chars', 'int', 'Largest collection sent whole in full-context mode.', 'Full context max chars'),
             f('rag.template', 'textarea', 'Template wrapping retrieved context (empty = built-in).', 'Template'),
             f('rag.placement', { select: [['system', 'In the system prompt'], ['data', 'As a reference message']] }, 'Where retrieved passages go. A reference message sits before the newest user message, is checked by the guardrails like tool output, and keeps the system prompt the same from turn to turn (better for provider caching).', 'Passage placement'),
@@ -168,7 +173,7 @@ export function RetrievalTab() {
         {
           title: 'Embedding',
           hint: 'Changing the embedding model needs a reindex (kera reindex).',
-          fields: [f('rag.embedding.connection', 'connection', undefined, 'Connection'), f('rag.embedding.model', 'text', undefined, 'Model'), f('rag.embedding.dim', 'int', undefined, 'Dimensions'), f('rag.embedding.batch', 'int', undefined, 'Batch size')],
+          fields: [f('rag.embedding.connection', 'connection', undefined, 'Connection'), f('rag.embedding.model', 'text', undefined, 'Model'), f('rag.embedding.dim', 'int', undefined, 'Dimensions'), f('rag.embedding.batch', 'int', undefined, 'Batch size'), f('rag.embedding.doc_prefix', 'text', 'Text put before every chunk when it is embedded, as the model card asks (empty = the known prefix of the model, else none).', 'Document prefix'), f('rag.embedding.query_prefix', 'text', 'Text put before every search query (empty = the known prefix of the model, else none). Both reach existing collections when you run kera reindex.', 'Query prefix')],
         },
         {
           title: 'Document extractor',
@@ -178,6 +183,7 @@ export function RetrievalTab() {
         },
         {
           title: 'Reranker',
+          hint: 'Ranks the candidates against the question. The CPU sidecar (sidecars/rerank) can serve chats on local models through the Local reranker URL; it adds a few seconds per search.',
           fields: [
             f('rag.reranker.url', 'text', 'Cohere-style /rerank endpoint: the sidecar or LiteLLM (empty = no reranking).', 'Reranker URL'),
             f('rag.reranker.model', 'text', 'e.g. a Cohere rerank model registered in LiteLLM.', 'Reranker model'),

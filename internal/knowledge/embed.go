@@ -54,6 +54,61 @@ func (s *Service) defaultModelName(ctx context.Context) (conn, model string, err
 	return conn, model, nil
 }
 
+// knownPrefixes are the document and query prefixes the model cards of some
+// common embedding models require (without them retrieval is measurably
+// worse); keyed by model name without its ":tag".
+var knownPrefixes = map[string][2]string{
+	"nomic-embed-text":      {"search_document: ", "search_query: "},
+	"nomic-embed-text-v1.5": {"search_document: ", "search_query: "},
+	"mxbai-embed-large":     {"", "Represent this sentence for searching relevant passages: "},
+	"e5-small":              {"passage: ", "query: "},
+	"e5-base":               {"passage: ", "query: "},
+	"e5-large":              {"passage: ", "query: "},
+	"multilingual-e5-small": {"passage: ", "query: "},
+	"multilingual-e5-base":  {"passage: ", "query: "},
+	"multilingual-e5-large": {"passage: ", "query: "},
+}
+
+// prefixesFor returns the prefixes a new embedding_model row of model gets:
+// rag.embedding.doc_prefix and rag.embedding.query_prefix when set, else the
+// known ones, else none. ponytail: an empty setting means "automatic", so a
+// known model cannot be forced to no prefix; set a model that needs none under another name.
+func (s *Service) prefixesFor(ctx context.Context, model string) (doc, query string) {
+	name, _, _ := strings.Cut(model, ":")
+	if p, ok := knownPrefixes[name]; ok {
+		doc, query = p[0], p[1]
+	}
+	var v string
+	if _ = s.settings.Get(ctx, "rag.embedding.doc_prefix", &v); v != "" {
+		doc = v
+	}
+	v = ""
+	if _ = s.settings.Get(ctx, "rag.embedding.query_prefix", &v); v != "" {
+		query = v
+	}
+	return doc, query
+}
+
+// syncPrefixes writes rag.embedding.doc_prefix / query_prefix, when set, to
+// the embedding model rows of a collection (its model and a reindex target).
+// A prefix change only takes effect for vectors made after it, so it is done
+// when the collection is reindexed.
+func (s *Service) syncPrefixes(ctx context.Context, kid string) error {
+	var doc, query string
+	_ = s.settings.Get(ctx, "rag.embedding.doc_prefix", &doc)
+	_ = s.settings.Get(ctx, "rag.embedding.query_prefix", &query)
+	if doc == "" && query == "" {
+		return nil
+	}
+	if _, err := s.db.Exec(ctx, `UPDATE embedding_model SET doc_prefix = CASE WHEN $2 <> '' THEN $2 ELSE doc_prefix END,
+		query_prefix = CASE WHEN $3 <> '' THEN $3 ELSE query_prefix END
+		WHERE id IN (SELECT embedding_model_id FROM knowledge WHERE id = $1 UNION SELECT meta->>'reindex_to' FROM knowledge WHERE id = $1)`,
+		kid, doc, query); err != nil {
+		return fmt.Errorf("embedding prefixes: %w", err)
+	}
+	return nil
+}
+
 // ensureModel returns the embedding_model row for (conn, model), creating it
 // with the dimension of a probe vector the first time.
 func (s *Service) ensureModel(ctx context.Context, conn, model string) (*embedModel, error) {
@@ -68,9 +123,10 @@ func (s *Service) ensureModel(ctx context.Context, conn, model string) (*embedMo
 	if err != nil {
 		return nil, err
 	}
-	m, err = scanModel(s.db.QueryRow(ctx, `INSERT INTO embedding_model (id, connection_id, model, dim, batch)
-		VALUES ($1, $2, $3, $4, $5) ON CONFLICT (connection_id, model) DO UPDATE SET batch = EXCLUDED.batch
-		RETURNING `+emCols, ids.New(), conn, model, len(vecs[0]), s.batchSize(ctx)))
+	doc, query := s.prefixesFor(ctx, model)
+	m, err = scanModel(s.db.QueryRow(ctx, `INSERT INTO embedding_model (id, connection_id, model, dim, batch, doc_prefix, query_prefix)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (connection_id, model) DO UPDATE SET batch = EXCLUDED.batch
+		RETURNING `+emCols, ids.New(), conn, model, len(vecs[0]), s.batchSize(ctx), doc, query))
 	if err != nil {
 		return nil, fmt.Errorf("register embedding model: %w", err)
 	}

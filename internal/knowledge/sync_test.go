@@ -124,7 +124,7 @@ func (e *syncEnv) state(run int64) SyncStatus {
 
 func (e *syncEnv) search(q string) []retrieval.Hit {
 	e.t.Helper()
-	hits, err := e.s.Search(context.Background(), e.users2["root"], []string{e.kid}, q, 5)
+	hits, err := e.s.Search(context.Background(), e.users2["root"], []string{e.kid}, []string{q}, 5)
 	if err != nil {
 		e.t.Fatalf("search: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestSyncSwapIsAtomic(t *testing.T) {
 				return
 			default:
 			}
-			hits, err := e.s.Search(context.Background(), e.users2["root"], []string{e.kid}, "fox liquor", 5)
+			hits, err := e.s.Search(context.Background(), e.users2["root"], []string{e.kid}, []string{"fox liquor"}, 5)
 			if err != nil {
 				return
 			}
