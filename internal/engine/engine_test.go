@@ -754,9 +754,9 @@ type fakeRetriever struct{}
 
 var searchedLocal atomic.Bool // IsLocalRun of the last fakeRetriever.Search
 
-func (fakeRetriever) Search(ctx context.Context, _ *auth.User, ids []string, q string, k int) ([]retrieval.Hit, error) {
+func (fakeRetriever) Search(ctx context.Context, _ *auth.User, ids []string, queries []string, k int) ([]retrieval.Hit, error) {
 	searchedLocal.Store(retrieval.IsLocalRun(ctx))
-	return []retrieval.Hit{{KnowledgeID: ids[0], FileID: "f2", FileName: "hit.md", Text: "retrieved for " + q, Score: 0.9,
+	return []retrieval.Hit{{KnowledgeID: ids[0], FileID: "f2", FileName: "hit.md", Text: "retrieved for " + strings.Join(queries, "; "), Score: 0.9,
 		Headers: []string{"Guide", "Refunds"}}}, nil
 }
 func (fakeRetriever) Documents(_ context.Context, _ *auth.User, id string) ([]retrieval.Doc, error) {

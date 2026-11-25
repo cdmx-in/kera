@@ -184,7 +184,7 @@ func (t *toolSet) query(ctx context.Context, c tools.Call, cs []*Collection, que
 	if count > 0 {
 		cfg.TopKRerank = min(count, 50)
 	}
-	hits, err := t.s.search(ctx, cs, query, cfg)
+	hits, err := t.s.search(ctx, cs, []string{query}, cfg)
 	if err != nil {
 		return tools.Result{}, err
 	}

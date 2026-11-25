@@ -528,7 +528,7 @@ func (s *Service) hQuery(w http.ResponseWriter, r *http.Request) {
 	if k <= 0 {
 		k = f.K
 	}
-	hits, err := s.Search(ctx, u, f.CollectionNames, f.Query, k)
+	hits, err := s.Search(ctx, u, f.CollectionNames, []string{f.Query}, k)
 	if err != nil {
 		api.Fail(w, r, err)
 		return

@@ -39,8 +39,10 @@ type Collection struct {
 // the user's read access and silently drops collections the user cannot read.
 type Retriever interface {
 	// Search runs hybrid retrieval (+ rerank when configured) over the
-	// collections and returns at most k hits, best first.
-	Search(ctx context.Context, u *auth.User, knowledgeIDs []string, query string, k int) ([]Hit, error)
+	// collections and returns at most k hits, best first. queries[0] is the
+	// question itself, the others are rewrites of it: all are searched and
+	// their rankings fused, and a reranker judges against queries[0].
+	Search(ctx context.Context, u *auth.User, knowledgeIDs []string, queries []string, k int) ([]Hit, error)
 	// Documents returns every completed document of one collection.
 	Documents(ctx context.Context, u *auth.User, knowledgeID string) ([]Doc, error)
 	// Resolve maps collection ids or names (model presets may store either)

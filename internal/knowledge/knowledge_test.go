@@ -308,7 +308,7 @@ func TestCollectionsIngestSearchAccess(t *testing.T) {
 	if list.Total != 0 {
 		t.Fatalf("bob sees %+v", list)
 	}
-	hits, err := e.s.Search(ctx, e.users2["bob"], []string{c.ID}, "payout", 3)
+	hits, err := e.s.Search(ctx, e.users2["bob"], []string{c.ID}, []string{"payout"}, 3)
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("bob search %v %v", hits, err)
 	}
@@ -340,7 +340,7 @@ func TestCollectionsIngestSearchAccess(t *testing.T) {
 	if err != nil || len(docs) != 1 || !strings.Contains(docs[0].Text, "Four-eyes") || docs[0].Name != "payouts.md" {
 		t.Fatalf("documents %+v %v", docs, err)
 	}
-	hits, err = e.s.Search(ctx, bob, []string{"Payments KB"}, "maker checker approval", 1)
+	hits, err = e.s.Search(ctx, bob, []string{"Payments KB"}, []string{"maker checker approval"}, 1)
 	if err != nil || len(hits) != 1 || !strings.Contains(hits[0].Text, "checker") || hits[0].FileName != "payouts.md" {
 		t.Fatalf("search %+v %v", hits, err)
 	}
@@ -455,7 +455,7 @@ func TestReindexToAnotherModel(t *testing.T) {
 	if models != 1 || c.Embedding.Dim != 32 || idx != 2 {
 		t.Fatalf("models %d dim %d indexes %d", models, c.Embedding.Dim, idx)
 	}
-	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, "delta", 1)
+	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, []string{"delta"}, 1)
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("search after reindex %v %v", hits, err)
 	}
@@ -509,13 +509,13 @@ func TestRerankerAndThreshold(t *testing.T) {
 	_ = e.st.Set(ctx, "rag.reranker.url", rr.URL, false)
 	_ = e.st.Set(ctx, "rag.relevance_threshold", 0.5, false)
 	_ = e.st.Set(ctx, "rag.min_results", 0, false) // by default the best 3 stay (see TestRerankKeepsMinResults)
-	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, "apples", 3)
+	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, []string{"apples"}, 3)
 	if err != nil || len(hits) != 1 || !strings.Contains(hits[0].Text, "cherries") || hits[0].Score != 0.95 {
 		t.Fatalf("reranked %+v %v", hits, err)
 	}
 	// A broken reranker falls back to the fused order.
 	_ = e.st.Set(ctx, "rag.reranker.url", "http://127.0.0.1:1", false)
-	hits, err = e.s.Search(ctx, e.users2["root"], []string{c.ID}, "apples", 3)
+	hits, err = e.s.Search(ctx, e.users2["root"], []string{c.ID}, []string{"apples"}, 3)
 	if err != nil || len(hits) != 3 || !strings.Contains(hits[0].Text, "apples") {
 		t.Fatalf("fallback %+v %v", hits, err)
 	}
@@ -571,7 +571,7 @@ func TestRerankerKeyAndLocalRuns(t *testing.T) {
 		mu.Lock()
 		calls = nil
 		mu.Unlock()
-		hits, err := e.s.Search(ctx, root, []string{c.ID}, "apples", 3)
+		hits, err := e.s.Search(ctx, root, []string{c.ID}, []string{"apples"}, 3)
 		if err != nil || len(hits) == 0 {
 			t.Fatalf("search: %+v %v", hits, err)
 		}

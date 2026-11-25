@@ -31,14 +31,16 @@ type searchConfig struct {
 	RerankKey   string // rag.reranker.api_key, sent as a bearer token
 	LocalRuns   string // rag.reranker.local_runs: skip | allow
 	LocalURL    string // rag.reranker.local_url: reranker for local runs
+	FuseQueries bool   // rag.fuse_queries: several queries share one fusion
 }
 
 func (s *Service) searchConfig(ctx context.Context) searchConfig {
-	c := searchConfig{TopK: 30, TopKRerank: 8, MinResults: 3, BM25Weight: 0.5, LocalRuns: "skip"}
+	c := searchConfig{TopK: 30, TopKRerank: 8, MinResults: 3, BM25Weight: 0.5, LocalRuns: "skip", FuseQueries: true}
 	_ = s.settings.Get(ctx, "rag.top_k", &c.TopK)
 	_ = s.settings.Get(ctx, "rag.top_k_rerank", &c.TopKRerank)
 	_ = s.settings.Get(ctx, "rag.hybrid.bm25_weight", &c.BM25Weight)
 	_ = s.settings.Get(ctx, "rag.min_results", &c.MinResults)
+	_ = s.settings.Get(ctx, "rag.fuse_queries", &c.FuseQueries)
 	_ = s.settings.Get(ctx, "rag.relevance_threshold", &c.Threshold)
 	_ = s.settings.Get(ctx, "rag.reranker.url", &c.RerankURL)
 	_ = s.settings.Get(ctx, "rag.reranker.model", &c.RerankModel)
@@ -77,9 +79,14 @@ func (s *Service) Reranks(ctx context.Context) bool {
 	return url != "" && time.Since(time.Unix(0, s.rerankFailed.Load())) > rerankCooldown
 }
 
-// Search implements retrieval.Retriever.
-func (s *Service) Search(ctx context.Context, u *auth.User, knowledgeIDs []string, query string, k int) ([]retrieval.Hit, error) {
-	if len(knowledgeIDs) == 0 || strings.TrimSpace(query) == "" {
+// maxQueries bounds how many queries one search fuses.
+const maxQueries = 5
+
+// Search implements retrieval.Retriever. queries[0] is the question itself
+// (the reranker judges against it); the others are rewrites searched too.
+func (s *Service) Search(ctx context.Context, u *auth.User, knowledgeIDs []string, queries []string, k int) ([]retrieval.Hit, error) {
+	queries = cleanQueries(queries)
+	if len(knowledgeIDs) == 0 || len(queries) == 0 {
 		return []retrieval.Hit{}, nil
 	}
 	cs, err := s.readable(ctx, u, knowledgeIDs)
@@ -90,7 +97,37 @@ func (s *Service) Search(ctx context.Context, u *auth.User, knowledgeIDs []strin
 	if k > 0 {
 		cfg.TopKRerank = k
 	}
-	return s.search(ctx, cs, query, cfg)
+	if cfg.FuseQueries || len(queries) == 1 {
+		return s.search(ctx, cs, queries, cfg)
+	}
+	// rag.fuse_queries off: each query is searched on its own and the lists
+	// are concatenated (the earlier behaviour, kept for comparison).
+	var out []retrieval.Hit
+	seen := map[string]bool{}
+	for _, q := range queries {
+		hits, err := s.search(ctx, cs, []string{q}, cfg)
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range hits {
+			if key := h.FileID + "|" + h.Text; !seen[key] {
+				seen[key] = true
+				out = append(out, h)
+			}
+		}
+	}
+	return out, nil
+}
+
+// cleanQueries trims, drops blank and repeated queries and keeps the first maxQueries.
+func cleanQueries(qs []string) []string {
+	var out []string
+	for _, q := range qs {
+		if q = strings.TrimSpace(q); q != "" && !slices.Contains(out, q) && len(out) < maxQueries {
+			out = append(out, q)
+		}
+	}
+	return out
 }
 
 // group is the collections searched with one query embedding and one
@@ -122,34 +159,46 @@ type ranked struct {
 	score float64 // cosine distance (vector) or text rank (full text)
 }
 
-// search runs vector + full-text retrieval per group, fuses the rankings,
-// reranks when a reranker is configured and returns the best cfg.TopKRerank hits.
-func (s *Service) search(ctx context.Context, cs []*Collection, query string, cfg searchConfig) ([]retrieval.Hit, error) {
-	var vec, fts []ranked
+// search runs vector + full-text retrieval of every query per group, fuses
+// all the rankings in one reciprocal rank fusion, reranks the candidates
+// against queries[0] when a reranker is configured and returns the best
+// cfg.TopKRerank hits.
+func (s *Service) search(ctx context.Context, cs []*Collection, queries []string, cfg searchConfig) ([]retrieval.Hit, error) {
+	vec, fts := make([][]ranked, len(queries)), make([][]ranked, len(queries))
 	for _, g := range groupsOf(cs) {
 		m, err := s.modelByID(ctx, g.modelID)
 		if err != nil {
 			return nil, err
 		}
-		qv, err := s.embed(ctx, m, []string{m.QueryPrefix + query})
+		prefixed := make([]string, len(queries))
+		for i, q := range queries {
+			prefixed[i] = m.QueryPrefix + q
+		}
+		qv, err := s.embed(ctx, m, prefixed)
 		if err != nil {
 			return nil, err
 		}
-		v, err := s.vectorSearch(ctx, m, g.ids, qv[0], cfg.TopK)
-		if err != nil {
-			return nil, err
+		for i, q := range queries {
+			v, err := s.vectorSearch(ctx, m, g.ids, qv[i], cfg.TopK)
+			if err != nil {
+				return nil, err
+			}
+			t, err := s.textSearch(ctx, g, q, cfg.TopK)
+			if err != nil {
+				return nil, err
+			}
+			vec[i], fts[i] = append(vec[i], v...), append(fts[i], t...)
 		}
-		t, err := s.textSearch(ctx, g, query, cfg.TopK)
-		if err != nil {
-			return nil, err
-		}
-		vec, fts = append(vec, v...), append(fts, t...)
 	}
-	// ponytail: distances of different embedding models are compared as if
-	// they were one scale; collections searched together normally share one.
-	slices.SortStableFunc(vec, func(a, b ranked) int { return cmpFloat(a.score, b.score) })
-	slices.SortStableFunc(fts, func(a, b ranked) int { return cmpFloat(b.score, a.score) })
-	fused := fuse(idsOf(vec), idsOf(fts), cfg.BM25Weight)
+	var lists []rankedList
+	for i := range queries {
+		// ponytail: distances of different embedding models are compared as if
+		// they were one scale; collections searched together normally share one.
+		slices.SortStableFunc(vec[i], func(a, b ranked) int { return cmpFloat(a.score, b.score) })
+		slices.SortStableFunc(fts[i], func(a, b ranked) int { return cmpFloat(b.score, a.score) })
+		lists = append(lists, rankedList{idsOf(vec[i]), 1 - cfg.BM25Weight}, rankedList{idsOf(fts[i]), cfg.BM25Weight})
+	}
+	fused := fuseLists(lists)
 	if len(fused) > cfg.TopK {
 		fused = fused[:cfg.TopK]
 	}
@@ -158,7 +207,7 @@ func (s *Service) search(ctx context.Context, cs []*Collection, query string, cf
 		return nil, err
 	}
 	if url, key := cfg.reranker(ctx); url != "" && len(hits) > 0 {
-		rr, err := s.rerank(ctx, cfg, url, key, query, hits)
+		rr, err := s.rerank(ctx, cfg, url, key, queries[0], hits)
 		if err == nil {
 			return rr, nil
 		}
@@ -199,15 +248,27 @@ type fusedHit struct {
 // rrfK is the usual reciprocal rank fusion constant.
 const rrfK = 60
 
-// fuse merges two best-first rankings by weighted reciprocal rank fusion:
-// score = w/(k+rank_text) + (1-w)/(k+rank_vector), ranks from 1; an id
-// missing from a ranking gets nothing from it.
+// rankedList is one best-first ranking and its weight in the fusion.
+type rankedList struct {
+	ids    []int64
+	weight float64
+}
+
+// fuse merges a vector and a text ranking by weighted reciprocal rank
+// fusion: score = w/(k+rank_text) + (1-w)/(k+rank_vector), ranks from 1.
 func fuse(vector, text []int64, textWeight float64) []fusedHit {
+	return fuseLists([]rankedList{{vector, 1 - textWeight}, {text, textWeight}})
+}
+
+// fuseLists merges any number of best-first rankings: the score of an id is
+// the sum over the lists of weight/(k+rank), ranks from 1; an id missing from
+// a list gets nothing from it and an id repeated in a list counts once.
+func fuseLists(lists []rankedList) []fusedHit {
 	scores := map[int64]float64{}
 	var order []int64
-	add := func(list []int64, w float64) {
+	for _, l := range lists {
 		seen := map[int64]bool{}
-		for i, id := range list {
+		for i, id := range l.ids {
 			if seen[id] {
 				continue
 			}
@@ -215,11 +276,9 @@ func fuse(vector, text []int64, textWeight float64) []fusedHit {
 			if _, ok := scores[id]; !ok {
 				order = append(order, id)
 			}
-			scores[id] += w / float64(rrfK+i+1)
+			scores[id] += l.weight / float64(rrfK+i+1)
 		}
 	}
-	add(vector, 1-textWeight)
-	add(text, textWeight)
 	out := make([]fusedHit, len(order))
 	for i, id := range order {
 		out[i] = fusedHit{id: id, score: scores[id]}

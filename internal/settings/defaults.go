@@ -84,7 +84,8 @@ var Defaults = map[string]json.RawMessage{
 	"rag.markdown_headers":       raw(`true`),
 	"rag.top_k":                  raw(`30`),
 	"rag.top_k_rerank":           raw(`8`),
-	"rag.min_results":            raw(`3`), // a relevance threshold never leaves fewer passages than this
+	"rag.fuse_queries":           raw(`true`), // several search queries are ranked together; false searches each alone and concatenates
+	"rag.min_results":            raw(`3`),    // a relevance threshold never leaves fewer passages than this
 	"rag.relevance_threshold":    raw(`0`),
 	"rag.hybrid.bm25_weight":     raw(`0.5`),
 	"rag.full_context_max_chars": raw(`400000`),

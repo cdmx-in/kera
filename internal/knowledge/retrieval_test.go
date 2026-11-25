@@ -61,7 +61,7 @@ func TestRerankKeepsMinResults(t *testing.T) {
 	_ = e.st.Set(ctx, "rag.relevance_threshold", 0.9, false)
 	search := func(k int) []string {
 		t.Helper()
-		hits, err := e.s.Search(ctx, e.users2["root"], []string{kid}, "fruit", k)
+		hits, err := e.s.Search(ctx, e.users2["root"], []string{kid}, []string{"fruit"}, k)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -82,5 +82,52 @@ func TestRerankKeepsMinResults(t *testing.T) {
 	_ = e.st.Set(ctx, "rag.min_results", 4, false)
 	if got := search(2); len(got) != 2 { // the caller's k still caps the answer
 		t.Fatalf("k=2: %q", got)
+	}
+}
+
+func TestFuseListsSumsEveryList(t *testing.T) {
+	// 7 is second in both query rankings, 1 and 2 first in one each.
+	got := fuseLists([]rankedList{{[]int64{1, 7}, 1}, {[]int64{2, 7}, 1}, {nil, 1}})
+	if len(got) != 3 || got[0].id != 7 {
+		t.Fatalf("got %+v", got)
+	}
+	if d := got[0].score - 2.0/62; d > 1e-12 || d < -1e-12 {
+		t.Fatalf("score %v", got[0].score)
+	}
+	if got[1].id != 1 || got[2].id != 2 { // equal scores keep first-seen order
+		t.Fatalf("order %+v", got)
+	}
+}
+
+// Two queries, k=2. The passage that is second for both queries beats the
+// best passage of either query once the rankings are fused; searched one
+// query at a time and concatenated (rag.fuse_queries off) it comes after
+// them and the answer is longer than k.
+func TestSearchFusesQueries(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	kid := e.collection("K", docs{"d.md": "# One\nalpha alpha alpha\n# Two\nbeta beta beta\n# Three\nalpha beta"})
+	_ = e.st.Set(ctx, "rag.hybrid.bm25_weight", 1, false) // keyword rankings only: the stub embedder adds noise
+	search := func() []string {
+		t.Helper()
+		hits, err := e.s.Search(ctx, e.users2["root"], []string{kid}, []string{"alpha", "beta"}, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, h := range hits {
+			f := strings.Fields(h.Text)
+			out = append(out, f[2]+" "+f[3])
+		}
+		return out
+	}
+	got := search()
+	if len(got) != 2 || got[0] != "alpha beta" {
+		t.Fatalf("fused: %q", got)
+	}
+	_ = e.st.Set(ctx, "rag.fuse_queries", false, false)
+	got = search()
+	if len(got) != 3 || got[0] != "alpha alpha" {
+		t.Fatalf("concatenated: %q", got)
 	}
 }

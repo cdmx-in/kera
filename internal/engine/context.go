@@ -307,22 +307,16 @@ func (e *Engine) search(ctx context.Context, x *exec, r retrieval.Retriever, ids
 	}
 	k := 8
 	e.setting(ctx, "rag.top_k_rerank", &k)
+	// one call: the queries are ranked together (rag.fuse_queries) and the
+	// best k passages overall come back, not k per query
+	hits, err := r.Search(ctx, x.u, ids, queries, k)
+	if err != nil {
+		return nil, fmt.Errorf("knowledge search: %w", err)
+	}
 	var out []source
-	seen := map[string]bool{}
-	for _, q := range queries {
-		hits, err := r.Search(ctx, x.u, ids, q, k)
-		if err != nil {
-			return nil, fmt.Errorf("knowledge search: %w", err)
-		}
-		for _, h := range hits {
-			key := h.FileID + "|" + h.Text
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, source{name: h.FileName, fileID: h.FileID, text: h.Text, page: h.Page, score: h.Score,
-				section: strings.Join(h.Headers, " > ")})
-		}
+	for _, h := range hits {
+		out = append(out, source{name: h.FileName, fileID: h.FileID, text: h.Text, page: h.Page, score: h.Score,
+			section: strings.Join(h.Headers, " > ")})
 	}
 	x.run.status(StatusEvent{ID: "knowledge", Action: "knowledge_search", Query: strings.Join(queries, "; "),
 		Description: fmt.Sprintf("Found %d passages in knowledge", len(out)), Done: true, Count: len(out)})
