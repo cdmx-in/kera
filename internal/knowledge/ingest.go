@@ -376,6 +376,39 @@ func (s *Service) Reindex(ctx context.Context, kid, conn, model string) (int, er
 	return s.queue(ctx, kid, nil)
 }
 
+// rowQuerier is a pool or a transaction.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// reindexProgress says whether the move of a collection to model `to` is still working (a file is queued or
+// being indexed) and, if it is not, how many files the move cannot finish with: they had chunks under the old
+// model but none under the new one, because re-embedding them failed. Switching now would drop their only
+// chunks and empty the collection, so the old model keeps serving; "reindex" again once the cause is fixed,
+// or cancel the move with a plain reindex.
+func reindexProgress(ctx context.Context, q rowQuerier, kid, to string) (busy bool, missing int, err error) {
+	if err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM knowledge_file kf JOIN file f ON f.id = kf.file_id
+		WHERE kf.knowledge_id = $1 AND kf.status IN ('pending', 'processing') AND f.status <> 'failed')`, kid).Scan(&busy); err != nil {
+		return false, 0, fmt.Errorf("check reindex progress: %w", err)
+	}
+	if busy {
+		return true, 0, nil
+	}
+	if err := q.QueryRow(ctx, `SELECT count(DISTINCT o.file_id) FROM chunk o WHERE o.knowledge_id = $1 AND o.embedding_model_id IS DISTINCT FROM $2
+		AND NOT EXISTS (SELECT 1 FROM chunk n WHERE n.knowledge_id = $1 AND n.file_id = o.file_id AND n.embedding_model_id = $2)`, kid, to).Scan(&missing); err != nil {
+		return false, 0, fmt.Errorf("check reindexed files: %w", err)
+	}
+	return false, missing, nil
+}
+
+// stalledNote is what an operator reads when a move cannot finish.
+func stalledNote(n int) string {
+	if n == 1 {
+		return "1 file could not be re-embedded; the old model is still serving"
+	}
+	return fmt.Sprintf("%d files could not be re-embedded; the old model is still serving", n)
+}
+
 // finishReindex flips a collection to its reindex target once no file is
 // left to index, then drops the chunks of the old model.
 func (s *Service) finishReindex(ctx context.Context, kid string) error {
@@ -392,21 +425,12 @@ func (s *Service) finishReindex(ctx context.Context, kid string) error {
 	if err != nil {
 		return fmt.Errorf("read reindex state: %w", err)
 	}
-	var busy bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM knowledge_file kf JOIN file f ON f.id = kf.file_id
-		WHERE kf.knowledge_id = $1 AND kf.status IN ('pending', 'processing') AND f.status <> 'failed')`, kid).Scan(&busy); err != nil {
-		return fmt.Errorf("check reindex progress: %w", err)
+	busy, missing, err := reindexProgress(ctx, tx, kid, *to)
+	if err != nil {
+		return err
 	}
 	if busy {
 		return nil
-	}
-	// A file that had chunks under the old model but has none under the new one failed to re-embed: switching now
-	// would drop its only chunks and empty the collection. Keep serving the old model; "reindex" again once the
-	// cause is fixed, or cancel the move with a plain reindex.
-	var missing int
-	if err := tx.QueryRow(ctx, `SELECT count(DISTINCT o.file_id) FROM chunk o WHERE o.knowledge_id = $1 AND o.embedding_model_id IS DISTINCT FROM $2
-		AND NOT EXISTS (SELECT 1 FROM chunk n WHERE n.knowledge_id = $1 AND n.file_id = o.file_id AND n.embedding_model_id = $2)`, kid, *to).Scan(&missing); err != nil {
-		return fmt.Errorf("check reindexed files: %w", err)
 	}
 	if missing > 0 {
 		slog.Warn("knowledge: reindex not finished, the old model keeps serving", "knowledge", kid, "files_without_new_chunks", missing)
