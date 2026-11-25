@@ -56,7 +56,7 @@ describe('NoRunnerHint', () => {
   const hint = (rs: Runner[] | undefined) => renderToStaticMarkup(<MemoryRouter><NoRunnerHint runners={rs} /></MemoryRouter>)
   it('warns when no runner is online and links to the Runners page', () => {
     const h = hint([runner({ online: false })])
-    expect(h).toContain('No runner is connected, so scheduled runs will fail after 10 minutes. Create one under Runners.')
+    expect(h).toContain('No runner is connected, so scheduled runs will fail after 10 minutes. Start the runner service (docker compose up -d runner) or create one under Runners.')
     expect(h).toContain('href="/admin/pipelines?runners"')
     expect(hint([])).toContain('No runner is connected')
   })

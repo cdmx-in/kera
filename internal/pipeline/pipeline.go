@@ -96,6 +96,9 @@ func New(a *app.App, k *knowledge.Service) *Service {
 func Mount(a *app.App) error {
 	s := New(a, knowledge.For(a))
 	s.routes()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	s.startBuiltinRunner(ctx)
 	go s.loop()
 	return nil
 }

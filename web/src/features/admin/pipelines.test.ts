@@ -743,7 +743,7 @@ describe('stages', () => {
   it('turns a step name into a sentence-case title, keeping a few whole words in their own spelling', () => {
     expect(sentenceCase('secret-scan')).toBe('Secret scan')
     expect(sentenceCase('fetch_itop')).toBe('Fetch iTop')
-    expect(sentenceCase('fetch-alfboard-api')).toBe('Fetch AlfBoard API')
+    expect(sentenceCase('fetch-sharepoint-api')).toBe('Fetch SharePoint API')
     expect(sentenceCase('qa-run')).toBe('QA run')
     expect(sentenceCase('itop-sync')).toBe('iTop sync')
     expect(sentenceCase('hr-policies')).toBe('HR policies')
@@ -751,23 +751,23 @@ describe('stages', () => {
     expect(sentenceCase('upload')).toBe('Upload')
   })
   it('only raises the first letter of a name that is already prose', () => {
-    expect(sentenceCase('fetch AlfBoard')).toBe('Fetch AlfBoard')
+    expect(sentenceCase('fetch SharePoint')).toBe('Fetch SharePoint')
     expect(sentenceCase('Build_index')).toBe('Build index')
     expect(sentenceCase('  ')).toBe('')
   })
   const stages = [
-    { name: 'fetch-alf', title: 'Fetch AlfBoard', about: 'Pulls the tasks.' },
+    { name: 'fetch-docs', title: 'Fetch documents', about: 'Pulls the tasks.' },
     { name: 'convert', title: '', about: 'Runs pandoc.' },
   ]
   it('uses the catalog title, else the name in sentence case, and never rewrites a collection name', () => {
-    expect(stageTitle({ name: 'fetch-alf', kera: false }, stages)).toBe('Fetch AlfBoard')
+    expect(stageTitle({ name: 'fetch-docs', kera: false }, stages)).toBe('Fetch documents')
     expect(stageTitle({ name: 'convert', kera: false }, stages)).toBe('Convert') // an empty title falls back
     expect(stageTitle({ name: 'dedupe', kera: false }, stages)).toBe('Dedupe')
     expect(stageTitle({ name: 'dedupe', kera: false })).toBe('Dedupe')
     expect(stageTitle({ name: 'product-docs', kera: true }, stages)).toBe('product-docs')
   })
   it('uses the catalog description, a generic one for a collection and for the start step, else none', () => {
-    expect(stageAbout({ name: 'fetch-alf', kera: false }, stages)).toBe('Pulls the tasks.')
+    expect(stageAbout({ name: 'fetch-docs', kera: false }, stages)).toBe('Pulls the tasks.')
     expect(stageAbout({ name: 'dedupe', kera: false }, stages)).toBe('')
     expect(stageAbout({ name: 'Docs', kera: true }, stages)).toBe('Kera uploads the changed files to this collection and indexes them')
     expect(stageAbout({ name: 'start', kera: false }, stages)).toBe('Everything the script printed before its first step')
@@ -776,7 +776,7 @@ describe('stages', () => {
   it('lists the step names a run has that the catalog has not, in order, without start or collections', () => {
     const steps = [
       { name: 'start', kera: false },
-      { name: 'fetch-alf', kera: false },
+      { name: 'fetch-docs', kera: false },
       { name: 'dedupe', kera: false },
       { name: 'dedupe', kera: false },
       { name: 'Docs', kera: true },

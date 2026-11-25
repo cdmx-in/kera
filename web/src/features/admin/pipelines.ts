@@ -264,7 +264,7 @@ export const triggerLabel = (t: string) => triggers[t] ?? t.charAt(0).toUpperCas
 // Stages: titles and descriptions of the steps ----------------------------------------------
 
 /** Whole words kept in their own spelling when a step name is turned into a title. Tiny on purpose; the catalog is the place for the rest. */
-const spelled: Record<string, string> = { id: 'ID', url: 'URL', api: 'API', qa: 'QA', itop: 'iTop', alfboard: 'AlfBoard', kb: 'KB', ai: 'AI', ci: 'CI', hr: 'HR', db: 'DB', sql: 'SQL', csv: 'CSV', pdf: 'PDF', json: 'JSON' }
+const spelled: Record<string, string> = { id: 'ID', url: 'URL', api: 'API', qa: 'QA', itop: 'iTop', sharepoint: 'SharePoint', kb: 'KB', ai: 'AI', ci: 'CI', hr: 'HR', db: 'DB', sql: 'SQL', csv: 'CSV', pdf: 'PDF', json: 'JSON' }
 
 /** "fetch-itop" -> "Fetch iTop", "secret_scan" -> "Secret scan"; a name that already has spaces or capitals only gets its first letter raised. */
 export function sentenceCase(name: string): string {
@@ -843,7 +843,7 @@ export interface Runner {
   created_at: string
 }
 
-export const noRunnerText = 'No runner is connected, so scheduled runs will fail after 10 minutes. Create one under Runners.'
+export const noRunnerText = 'No runner is connected, so scheduled runs will fail after 10 minutes. Start the runner service (docker compose up -d runner) or create one under Runners.'
 
 /** The runner settings for a container's env file. */
 export const runnerEnvFile = (origin: string, token: string) => `KERA_URL=${origin}\nKERA_RUNNER_TOKEN=${token}`

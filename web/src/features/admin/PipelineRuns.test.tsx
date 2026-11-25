@@ -22,13 +22,13 @@ const step = (o: Partial<Step>): Step => ({ seq: 1, kera: false, key: 'fetch', n
 const mkRun = (o: Partial<Run> = {}): Run => ({ id: 7, pipeline: 'docs-sync', trigger: 'manual', dry_run: false, status: 'running', client_done: false, error: '', queued: false, cancel_requested: false, started_at: at('00:00'), active_at: at('00:00'), finished_at: null, counts: {}, ...o })
 
 const steps: Step[] = [
-  step({ seq: 1, name: 'fetch-alf', counts: { files: 25 } }),
+  step({ seq: 1, name: 'fetch-docs', counts: { files: 25 } }),
   step({ seq: 2, name: 'convert', status: 'failed', started_at: at('00:12'), finished_at: at('01:12'), error: 'exit code 1' }),
   step({ seq: 3, name: 'upload', status: 'skipped', started_at: null, finished_at: null }),
   step({ seq: 1000, kera: true, key: 'k1', name: 'Product docs', status: 'running', started_at: at('01:12'), finished_at: null, counts: { listed: 25, unchanged: 22, uploaded: 3, waiting: 2 } }),
   step({ seq: 1001, kera: true, key: 'k2', name: 'Guides', status: 'pending', started_at: null, finished_at: null }),
 ]
-const stages = [{ name: 'fetch-alf', title: 'Fetch AlfBoard', about: 'Pulls the latest documents.' }]
+const stages = [{ name: 'fetch-docs', title: 'Fetch documents', about: 'Pulls the latest documents.' }]
 const ctx: StepCtx = { pipeline: 'docs-sync', runId: 7, stages, now, editHref: '/admin/pipelines/docs-sync/edit#stages' }
 // StepDetail holds a query for the log, so it needs a client; the markup is the pending state
 const withClient = (ui: React.ReactElement) =>
@@ -88,7 +88,7 @@ describe('StepWaterfall', () => {
   })
   it('shows a title in sentence case, the catalog title when there is one, and what each step is for', () => {
     const h = html()
-    expect(h).toContain('Fetch AlfBoard')
+    expect(h).toContain('Fetch documents')
     expect(h).toContain('Pulls the latest documents.')
     expect(h).toContain('>Convert<')
     expect(h).not.toContain('>convert<')
@@ -143,7 +143,7 @@ describe('StepDetail', () => {
     expect(h).toContain('Showing the last 256 KiB. Times are UTC. Earlier lines were dropped.')
   })
   it('shows the catalog description instead of the Add link, and a generic one for a collection', () => {
-    const d = withClient(<StepDetail step={step({ name: 'fetch-alf' })} ctx={ctx} />)
+    const d = withClient(<StepDetail step={step({ name: 'fetch-docs' })} ctx={ctx} />)
     expect(d).toContain('Pulls the latest documents.')
     expect(d).not.toContain('No description yet')
     const k = withClient(<StepDetail step={step({ kera: true, name: 'Docs' })} ctx={ctx} />)
@@ -267,8 +267,8 @@ describe('History', () => {
 describe('WhereItRuns', () => {
   const run = { started_at: new Date(Date.now() - 3600_000).toISOString() }
   it('shows machine, folder and command, and says Kera does not start it', () => {
-    const html = renderToStaticMarkup(<WhereItRuns run={{ ...run, source: { host: 'rad.cdmx.in', user: 'root', dir: '/root/ollama/astra-kb', command: 'bash refresh.sh', client: 'kera v1.2.1' } }} />)
-    for (const s of ['root@rad.cdmx.in', '/root/ollama/astra-kb', 'bash refresh.sh', 'kera v1.2.1', 'Kera does not start this']) expect(html).toContain(s)
+    const html = renderToStaticMarkup(<WhereItRuns run={{ ...run, source: { host: 'build-01.example.com', user: 'root', dir: '/srv/kb/docs', command: 'bash refresh.sh', client: 'kera v1.2.1' } }} />)
+    for (const s of ['root@build-01.example.com', '/srv/kb/docs', 'bash refresh.sh', 'kera v1.2.1', 'Kera does not start this']) expect(html).toContain(s)
   })
   it('says so when nothing was reported (a pipeline that never ran, or an older run)', () => {
     expect(renderToStaticMarkup(<WhereItRuns run={null} />)).toContain('Not reported yet')
@@ -322,17 +322,17 @@ describe('RunSummary', () => {
     expect(h).toContain('Runner build-server')
   })
   it('sums the state up in one sentence that is announced, next to a big clock', () => {
-    const h = header(run({}), { steps: [step({ seq: 1, name: 'fetch-alf', status: 'running', finished_at: null })] })
+    const h = header(run({}), { steps: [step({ seq: 1, name: 'fetch-docs', status: 'running', finished_at: null })] })
     expect(h).toContain('aria-live="polite"')
     expect(h).toContain('Running')
-    expect(h).toContain('Fetch AlfBoard')
+    expect(h).toContain('Fetch documents')
     expect(h).toContain('10:00') // started 10 minutes before now
     expect(h).toContain('Elapsed')
   })
   it('draws one segment per step as a button, the running one animated', () => {
     const h = header(run({}), { steps })
     expect(h.match(/data-status="(ok|failed|skipped|running|pending)"[^>]*class="block h-2\.5/g)).toHaveLength(5)
-    expect(h).toContain('aria-label="Fetch AlfBoard: OK"')
+    expect(h).toContain('aria-label="Fetch documents: OK"')
     expect(h).toContain('animate-sweep')
     expect(h).toContain('steps done')
   })

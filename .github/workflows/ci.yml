@@ -99,9 +99,19 @@ jobs:
           docker compose config | grep -q 'KERA_EXTRACTOR_URL: http://extract:8000'
           KERA_EXTRACTOR_URL= docker compose config | grep -q 'KERA_EXTRACTOR_URL: ""'
           KERA_EXTRACT_IMAGE=example.com/x/extract:1 docker compose config | grep -q 'image: example.com/x/extract:1'
+          # the runner is in the default stack too: nothing published, no Docker socket, and it signs in with the token file Kera makes
+          for profiles in "" litellm,ollama; do
+            COMPOSE_PROFILES=$profiles docker compose config --services | grep -qx runner
+            COMPOSE_PROFILES=$profiles docker compose config --format json | jq -e '.services.runner | (has("ports") | not) and (all(.volumes[]; (.source // "") | test("docker.sock") | not))' > /dev/null
+          done
+          docker compose config | grep -c 'KERA_RUNNER_TOKEN_FILE: /run/kera-runner/token' | grep -qx 2
+          KERA_RUNNER_IMAGE=example.com/x/runner:1 docker compose config | grep -q 'image: example.com/x/runner:1'
       # the image people pull (release.yml builds it for amd64 and arm64) must build and have OCR in it
       - run: docker build -t kera-extract:ci sidecars/extract
       - run: docker run --rm kera-extract:ci python -c "import main; assert main.ocr_available() and {'.pdf', '.docx', '.pptx', '.odt'} <= set(main.HANDLERS)"
+      # the runner image copies the binary out of the Kera image; it must not run as root and must have the tools scripts and checks use
+      - run: docker build --build-arg KERA_IMAGE=kera:ci -t kera-runner:ci sidecars/runner
+      - run: docker run --rm --entrypoint sh kera-runner:ci -c 'test "$(id -u)" = 10002 && test -w /work && shellcheck --version >/dev/null && git --version >/dev/null && python3 --version && kera version'
   gitleaks:
     runs-on: ubuntu-latest
     steps:

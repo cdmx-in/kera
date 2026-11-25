@@ -16,15 +16,15 @@ func TestStagesCatalogRoundTripReplaceAndLimits(t *testing.T) {
 		t.Fatalf("a pipeline with no catalog has an empty list, not null: %#v", p.Stages)
 	}
 	e.call(e.admin, "PUT", base+"/stages", map[string]any{"stages": []map[string]any{
-		{"name": "fetch-alf", "title": "Fetch AlfBoard", "about": "Downloads tasks and comments."},
+		{"name": "fetch-docs", "title": "Fetch documents", "about": "Downloads tasks and comments."},
 		{"name": "index", "title": "  Build search index  ", "about": ""},
 		{"name": "drift"}, // nothing to say: not stored, the page falls back to the name
 	}}, http.StatusOK, &p)
-	if len(p.Stages) != 2 || p.Stages[0].Name != "fetch-alf" || p.Stages[0].Title != "Fetch AlfBoard" || p.Stages[1].Title != "Build search index" {
+	if len(p.Stages) != 2 || p.Stages[0].Name != "fetch-docs" || p.Stages[0].Title != "Fetch documents" || p.Stages[1].Title != "Build search index" {
 		t.Fatalf("stages: %+v", p.Stages)
 	}
 	// the list is replaced, in the order sent
-	e.call(e.admin, "PUT", base+"/stages", map[string]any{"stages": []map[string]any{{"name": "index", "title": "Index"}, {"name": "fetch-alf", "about": "Only a description"}}}, http.StatusOK, &p)
+	e.call(e.admin, "PUT", base+"/stages", map[string]any{"stages": []map[string]any{{"name": "index", "title": "Index"}, {"name": "fetch-docs", "about": "Only a description"}}}, http.StatusOK, &p)
 	if len(p.Stages) != 2 || p.Stages[0].Name != "index" || p.Stages[1].Title != "" || p.Stages[1].About != "Only a description" {
 		t.Fatalf("replace: %+v", p.Stages)
 	}

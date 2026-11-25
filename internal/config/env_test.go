@@ -43,3 +43,13 @@ func TestLoadExtractorURL(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadRunnerTokenFile(t *testing.T) {
+	t.Setenv("KERA_DATABASE_URL", "postgres://x")
+	for in, want := range map[string]string{"": "", " /run/kera-runner/token ": "/run/kera-runner/token"} {
+		t.Setenv("KERA_RUNNER_TOKEN_FILE", in)
+		if e, err := Load(false); err != nil || e.RunnerTokenFile != want {
+			t.Fatalf("KERA_RUNNER_TOKEN_FILE=%q gave %q, %v", in, e.RunnerTokenFile, err)
+		}
+	}
+}

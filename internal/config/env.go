@@ -24,6 +24,9 @@ type Env struct {
 	// ExtractorURL (KERA_EXTRACTOR_URL) is the default of the setting rag.extractor.url, used while the setting
 	// has no stored value. The compose file points it at its extract service; empty = no default.
 	ExtractorURL string
+	// RunnerTokenFile (KERA_RUNNER_TOKEN_FILE) is where Kera keeps the token of the built-in pipeline runner: it
+	// makes one when the file has none and registers the runner "builtin" with it. Empty = no built-in runner.
+	RunnerTokenFile string
 
 	// AdminEmail and AdminPassword (KERA_ADMIN_EMAIL, KERA_ADMIN_PASSWORD) create the first
 	// admin when the user table is empty at startup; they change nothing once any user exists.
@@ -39,15 +42,16 @@ type Env struct {
 // sign or decrypt anything (version, db status).
 func Load(requireSecret bool) (Env, error) {
 	e := Env{
-		DatabaseURL:  os.Getenv("KERA_DATABASE_URL"),
-		SecretKey:    os.Getenv("KERA_SECRET_KEY"),
-		PublicURL:    strings.TrimRight(getenv("KERA_URL", "http://localhost:8080"), "/"),
-		CallbackURL:  strings.TrimRight(os.Getenv("KERA_CALLBACK_URL"), "/"),
-		DataDir:      getenv("KERA_DATA_DIR", "./data"),
-		ConfigFile:   os.Getenv("KERA_CONFIG"),
-		Listen:       getenv("KERA_LISTEN", ":8080"),
-		OllamaURL:    strings.TrimRight(os.Getenv("OLLAMA_BASE_URL"), "/"),
-		ExtractorURL: strings.TrimRight(strings.TrimSpace(os.Getenv("KERA_EXTRACTOR_URL")), "/"),
+		DatabaseURL:     os.Getenv("KERA_DATABASE_URL"),
+		SecretKey:       os.Getenv("KERA_SECRET_KEY"),
+		PublicURL:       strings.TrimRight(getenv("KERA_URL", "http://localhost:8080"), "/"),
+		CallbackURL:     strings.TrimRight(os.Getenv("KERA_CALLBACK_URL"), "/"),
+		DataDir:         getenv("KERA_DATA_DIR", "./data"),
+		ConfigFile:      os.Getenv("KERA_CONFIG"),
+		Listen:          getenv("KERA_LISTEN", ":8080"),
+		OllamaURL:       strings.TrimRight(os.Getenv("OLLAMA_BASE_URL"), "/"),
+		ExtractorURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("KERA_EXTRACTOR_URL")), "/"),
+		RunnerTokenFile: strings.TrimSpace(os.Getenv("KERA_RUNNER_TOKEN_FILE")),
 	}
 	if e.CallbackURL == "" {
 		e.CallbackURL = e.PublicURL

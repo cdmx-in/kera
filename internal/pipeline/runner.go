@@ -239,7 +239,7 @@ func (s *Service) noRunnerText(ctx context.Context) string {
 	var seen *time.Time
 	_ = s.db.QueryRow(ctx, `SELECT max(last_seen_at) FROM pipeline_runner`).Scan(&seen)
 	if seen == nil {
-		return "No runner picked this up: none has ever connected. Create one under Admin > Pipelines > Runners."
+		return "No runner picked this up: none has ever connected. Start the runner service (docker compose up -d runner) or create one under Admin > Pipelines > Runners."
 	}
 	return "No runner picked this up in 10 minutes (the last runner was seen at " + utcClock(*seen) + ")."
 }
@@ -665,10 +665,18 @@ func (s *Service) aRunnerRotate(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
-	tag, err := s.db.Exec(r.Context(), `UPDATE pipeline_runner SET token_hash = $2, token_prefix = $3 WHERE id = $1`, r.PathValue("id"), hash, prefix)
-	if err != nil || tag.RowsAffected() == 0 {
+	var name string
+	err = s.db.QueryRow(r.Context(), `UPDATE pipeline_runner SET token_hash = $2, token_prefix = $3 WHERE id = $1 RETURNING name`, r.PathValue("id"), hash, prefix).Scan(&name)
+	if err != nil {
 		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "Runner not found"))
 		return
+	}
+	// the built-in runner reads its token from a file, so a rotation has to land there too or it would be refused until Kera restarts
+	if f := s.a.Env.RunnerTokenFile; name == builtinRunner && f != "" {
+		if err := writeRunnerToken(f, tok); err != nil {
+			api.Fail(w, r, fmt.Errorf("write the token file: %w", err))
+			return
+		}
 	}
 	api.JSON(w, http.StatusOK, map[string]any{"token": tok, "token_prefix": prefix})
 }

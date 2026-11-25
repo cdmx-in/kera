@@ -1628,11 +1628,11 @@ func TestStartRecordsWhereTheScriptRuns(t *testing.T) {
 	p, _ := e.mkPipe("docs-sync", "Product docs")
 	var out struct{ Run int64 }
 	e.call(p.tok, "POST", p.path("/runs"), startIn{Source: map[string]string{
-		"host": "rad.cdmx.in", "dir": "/srv/docs", "command": "bash refresh.sh --token=kp-" + strings.Repeat("a", 40),
+		"host": "build-01.example.com", "dir": "/srv/docs", "command": "bash refresh.sh --token=kp-" + strings.Repeat("a", 40),
 		"user": "root\x00\n", "client": "kera v1", "evil": "dropped", "extra": strings.Repeat("x", 900),
 	}}, http.StatusCreated, &out)
 	src := p.get(out.Run).Source
-	if src["host"] != "rad.cdmx.in" || src["dir"] != "/srv/docs" || src["user"] != "root" || src["client"] != "kera v1" {
+	if src["host"] != "build-01.example.com" || src["dir"] != "/srv/docs" || src["user"] != "root" || src["client"] != "kera v1" {
 		t.Errorf("source: %+v", src)
 	}
 	if strings.Contains(src["command"], "kp-aaaa") || !strings.Contains(src["command"], "refresh.sh") {
