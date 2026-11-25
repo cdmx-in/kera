@@ -2,7 +2,7 @@
 // dialog. The detail page with the flow run view is PipelineRuns.tsx.
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { ArrowLeftRight, Check as CheckIcon, ChevronRight, Circle, CircleAlert, CircleDashed, CircleOff, Clock, Copy, FileText, FolderPlus, Info, KeyRound, Library, MapPin, Pencil, Plus, Power, RefreshCw, Terminal, TriangleAlert, UserRound, Workflow, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Check as CheckIcon, ChevronLeft, ChevronRight, Circle, CircleAlert, CircleDashed, CircleOff, Clock, Copy, FileText, FolderPlus, Info, KeyRound, Library, MapPin, Pencil, Plus, Power, RefreshCw, Terminal, TriangleAlert, UserRound, Workflow, type LucideIcon } from 'lucide-react'
 import { useCollections } from '@/features/workspace/api'
 import { Chip, Empty } from '@/features/workspace/ui'
 import { cx, copyText } from '@/lib/format'
@@ -16,6 +16,47 @@ import { relative, when } from './settings/Integrations'
 import { byAttention, dockerPush, envFile, everyText, lines, runSummary, stateOf, statusLabel, toneOf, usePipelineApi, usePipelines, validatePipeline, type Pipeline, type Run, type State, type StepStatus } from './pipelines'
 
 export const pipelinesBase = '/admin/pipelines'
+export const pipelineUrl = (name: string) => `${pipelinesBase}/${encodeURIComponent(name)}`
+export const editUrl = (name: string) => `${pipelineUrl(name)}/edit`
+export const newUrl = `${pipelinesBase}?new`
+
+/** /admin/pipelines/:name/edit, and /admin/pipelines?new for a new one: the form had outgrown a dialog. */
+export function PipelineEditPage({ name }: { name: string | null }) {
+  const nav = useNavigate()
+  const q = usePipelines()
+  const [shown, setShown] = useState<{ pipeline: Pipeline; token: string } | null>(null)
+  const p = name ? q.data?.find((x) => x.name === name) : null
+  if (name && !p)
+    return (
+      <Page>
+        <Link to={pipelinesBase} className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
+          <ChevronLeft size={14} aria-hidden /> Pipelines
+        </Link>
+        {q.isLoading || q.error ? (
+          <Loading q={q} />
+        ) : (
+          <Empty icon={Workflow} title="No such pipeline">
+            There is no pipeline named {name}.
+          </Empty>
+        )}
+      </Page>
+    )
+  return (
+    <>
+      <PipelineForm
+        page
+        pipeline={p ?? null}
+        onClose={() => nav(p ? pipelineUrl(p.name) : pipelinesBase)}
+        onSaved={(saved, token) => {
+          if (token) return setShown({ pipeline: saved, token })
+          toast('Saved')
+          nav(pipelineUrl(saved.name))
+        }}
+      />
+      {shown && <TokenDialog pipeline={shown.pipeline} token={shown.token} onClose={() => nav(pipelineUrl(shown.pipeline.name))} />}
+    </>
+  )
+}
 
 const icons = { pending: Circle, never: Circle, ok: CheckIcon, warning: TriangleAlert, late: TriangleAlert, failed: CircleAlert, skipped: CircleDashed, off: CircleOff }
 
@@ -145,7 +186,7 @@ export function WhereItRuns({ run }: { run: Pick<Run, 'source' | 'started_at'> |
 }
 
 /** Create (pipeline = null) or edit. onSaved gets the pipeline and, for a new one, its token. */
-export function PipelineForm({ pipeline, onClose, onSaved }: { pipeline: Pipeline | null; onClose: () => void; onSaved: (p: Pipeline, token?: string) => void }) {
+export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: Pipeline | null; onClose: () => void; onSaved: (p: Pipeline, token?: string) => void; page?: boolean }) {
   const cols = useCollections()
   const pa = usePipelineApi()
   const [name, setName] = useState(pipeline?.name ?? '')
@@ -193,6 +234,17 @@ export function PipelineForm({ pipeline, onClose, onSaved }: { pipeline: Pipelin
         title={pipeline ? `Edit ${pipeline.name}` : 'New pipeline'}
         saveLabel={pipeline ? 'Save changes' : 'Create pipeline'}
         width="w-[min(60rem,calc(100vw-2rem))]"
+        page={
+          page
+            ? {
+                back: (
+                  <Link to={pipeline ? pipelineUrl(pipeline.name) : pipelinesBase} className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
+                    <ChevronLeft size={14} aria-hidden /> {pipeline ? pipeline.title || pipeline.name : 'Pipelines'}
+                  </Link>
+                ),
+              }
+            : undefined
+        }
         managed={pipeline?.managed}
         form={form}
         fields={formFields}
@@ -354,12 +406,9 @@ export function PipelineForm({ pipeline, onClose, onSaved }: { pipeline: Pipelin
 export function PipelinesPage() {
   const q = usePipelines()
   const nav = useNavigate()
-  const [creating, setCreating] = useState(false)
-  const [editing, setEditing] = useState<Pipeline | null>(null)
-  const [shown, setShown] = useState<{ pipeline: Pipeline; token: string } | null>(null)
   const list = [...(q.data ?? [])].sort(byAttention)
   const add = (id: string) => (
-    <Btn variant="primary" onClick={() => setCreating(true)} data-testid={id}>
+    <Btn variant="primary" onClick={() => nav(newUrl)} data-testid={id}>
       <Plus size={14} aria-hidden /> New pipeline
     </Btn>
   )
@@ -453,7 +502,7 @@ export function PipelinesPage() {
                         )}
                       </td>
                       <td className={cx(tdCls, 'whitespace-nowrap text-right')}>
-                        <Btn variant="ghost" className="px-2 py-1" aria-label={`Edit ${p.name}`} title="Edit" data-testid={`edit-${p.name}`} onClick={() => setEditing(p)}>
+                        <Btn variant="ghost" className="px-2 py-1" aria-label={`Edit ${p.name}`} title="Edit" data-testid={`edit-${p.name}`} onClick={() => nav(editUrl(p.name))}>
                           <Pencil size={14} aria-hidden />
                         </Btn>
                         <ChevronRight size={16} className="ml-1 inline text-muted" aria-hidden />
@@ -465,27 +514,6 @@ export function PipelinesPage() {
             </table>
           </div>
         </Card>
-      )}
-      {creating && (
-        <PipelineForm
-          pipeline={null}
-          onClose={() => setCreating(false)}
-          onSaved={(p, token) => {
-            setCreating(false)
-            if (token) setShown({ pipeline: p, token })
-          }}
-        />
-      )}
-      {editing && <PipelineForm pipeline={editing} onClose={() => setEditing(null)} onSaved={() => (setEditing(null), toast('Saved'))} />}
-      {shown && (
-        <TokenDialog
-          pipeline={shown.pipeline}
-          token={shown.token}
-          onClose={() => {
-            setShown(null)
-            nav(`${pipelinesBase}/${encodeURIComponent(shown.pipeline.name)}`)
-          }}
-        />
       )}
     </Page>
   )

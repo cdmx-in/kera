@@ -1,11 +1,11 @@
 // Lazy chunk: the admin console.
-import { NavLink, Navigate, useParams } from 'react-router'
+import { NavLink, Navigate, useParams, useSearchParams } from 'react-router'
 import { useMe } from '@/api/queries'
 import { AdminFrame, pillCls } from './Frame'
 import { AnalyticsPage } from './Analytics'
 import { GroupsPage } from './Groups'
 import { PipelineDetail } from './PipelineRuns'
-import { PipelinesPage } from './Pipelines'
+import { PipelineEditPage, PipelinesPage } from './Pipelines'
 import { SkillsPage } from './Skills'
 import { SpendPage } from './Spend'
 import { UsersPage } from './Users'
@@ -50,6 +50,7 @@ function sections(): [string, string][] {
 export default function AdminPage() {
   const { data: me } = useMe()
   const [section = 'users', sub, item] = (useParams()['*'] ?? '').split('/').filter(Boolean)
+  const [search] = useSearchParams()
   if (me && me.role !== 'admin') return <Navigate to="/" replace />
   let body: React.ReactNode
   if (section === 'users') body = <UsersPage />
@@ -57,7 +58,7 @@ export default function AdminPage() {
   else if (section === 'skills') body = <SkillsPage />
   else if (section === 'analytics') body = <AnalyticsPage />
   else if (section === 'spend') body = <SpendPage />
-  else if (section === 'pipelines') body = sub ? <PipelineDetail name={sub} run={item} /> : <PipelinesPage />
+  else if (section === 'pipelines') body = sub ? item === 'edit' ? <PipelineEditPage name={sub} /> : <PipelineDetail name={sub} run={item} /> : search.has('new') ? <PipelineEditPage name={null} /> : <PipelinesPage />
   else if (section === 'settings') {
     const tab = settingsTabs.find(([k]) => k === sub)
     if (!tab) return <Navigate to="/admin/settings/connections" replace />

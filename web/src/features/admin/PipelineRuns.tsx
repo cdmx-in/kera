@@ -10,7 +10,7 @@ import { copyText, cx } from '@/lib/format'
 import { toast } from '@/stores/toast'
 import { Dialog, DialogHeader } from '@/ui/Dialog'
 import { attempt, Badge, Btn, Card, Confirm, Loading, ManagedBadge, Page } from './ui'
-import { CopyBlock, lateText, PipelineForm, pipelinesBase, StatusBadge, TokenDialog, tones } from './Pipelines'
+import { CopyBlock, editUrl, lateText, pipelinesBase, StatusBadge, TokenDialog, tones } from './Pipelines'
 import { relative, when } from './settings/Integrations'
 import {
   atBottom,
@@ -115,7 +115,6 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
   const pa = usePipelineApi()
   const [params] = useSearchParams()
   const [limit, setLimit] = useState(30)
-  const [edit, setEdit] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [ask, setAsk] = useState<Ask>(null)
   const runs = useRuns(p.name, limit)
@@ -165,7 +164,7 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
           <Btn variant="ghost" aria-label="Refresh" onClick={() => void qc.invalidateQueries({ queryKey: ['admin', 'pipelines'] })}>
             <RefreshCw size={14} />
           </Btn>
-          <Btn onClick={() => setEdit(true)} data-testid="pipeline-edit">
+          <Btn onClick={() => nav(editUrl(p.name))} data-testid="pipeline-edit">
             <Pencil size={14} aria-hidden /> Edit
           </Btn>
           <Btn onClick={() => setAsk('rotate')} data-testid="pipeline-rotate">
@@ -238,7 +237,6 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
       )}
 
       <StepDrawer name={p.name} run={run} seq={seq} now={now} onClose={() => run && seq !== null && leaveStep(nav, navState, urlOf(p.name, run.id))} />
-      {edit && <PipelineForm pipeline={p} onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />}
       {token && <TokenDialog pipeline={p} token={token} onClose={() => setToken(null)} />}
       <Confirm
         open={ask === 'rotate'}

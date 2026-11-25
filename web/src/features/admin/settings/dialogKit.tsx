@@ -155,6 +155,8 @@ export function EditorDialog(props: {
   wide?: boolean
   /** a full width class, for a two-pane form */
   width?: string
+  /** render as a page (a big form that outgrew a dialog): back is the link above the title */
+  page?: { back: ReactNode }
   saveLabel?: string
   form: FormErrors
   fields: string[]
@@ -186,41 +188,52 @@ export function EditorDialog(props: {
   }
   const running = test?.state?.state === 'running'
   const nameOf = (t: EventTarget) => (t as HTMLInputElement).name ?? ''
+  const formEl = (
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault()
+            void submit()
+          }}
+          onChange={(e) => {
+            form.touch(nameOf(e.target))
+            test?.clear()
+          }}
+          onBlur={(e) => form.touch(nameOf(e.target))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !form.valid && e.target instanceof HTMLInputElement) form.revealAll()
+          }}
+          className={props.page ? 'space-y-4' : 'max-h-[calc(100dvh-8rem)] space-y-3 overflow-y-auto p-4'}
+        >
+          {props.managed && <p className="text-xs text-amber-700 dark:text-amber-400">{managedWarning}</p>}
+          {props.children}
+          {test?.state?.state === 'done' && <TestPanel r={test.state.r} />}
+          <div className={props.page ? 'sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 rounded-xl border border-line bg-surface/95 px-4 py-3 shadow-[var(--shadow)] backdrop-blur' : 'sticky -bottom-4 z-10 -mx-4 -mb-4 flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface px-4 py-3'}>
+            {props.onTest && (
+              <Btn onClick={runTest} disabled={running} className="mr-auto" data-testid="test-draft" title="Try the unsaved settings">
+                {running ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Test
+              </Btn>
+            )}
+            {!form.valid && form.hidden && <span className="text-xs text-muted">Fill in the required fields</span>}
+            <Btn onClick={props.onClose}>Cancel</Btn>
+            <Btn type="submit" variant="primary" disabled={!form.valid || saving} data-testid="save-server">
+              {saving && <Loader2 size={14} className="animate-spin" />} {props.saveLabel ?? 'Save'}
+            </Btn>
+          </div>
+        </form>
+    )
+  if (props.page)
+    return (
+      <div className="mx-auto w-full max-w-[100rem] space-y-4 p-4 sm:p-6 lg:px-8" data-testid="editor-page">
+        {props.page.back}
+        <h2 className="text-lg font-semibold">{props.title}</h2>
+        {formEl}
+      </div>
+    )
   return (
     <Dialog open onClose={props.onClose} label={props.title} className={props.width ?? (props.wide ? 'w-[min(48rem,calc(100vw-2rem))]' : 'w-[min(40rem,calc(100vw-2rem))]')}>
       <DialogHeader title={props.title} onClose={props.onClose} />
-      <form
-        noValidate
-        onSubmit={(e) => {
-          e.preventDefault()
-          void submit()
-        }}
-        onChange={(e) => {
-          form.touch(nameOf(e.target))
-          test?.clear()
-        }}
-        onBlur={(e) => form.touch(nameOf(e.target))}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !form.valid && e.target instanceof HTMLInputElement) form.revealAll()
-        }}
-        className="max-h-[calc(100dvh-8rem)] space-y-3 overflow-y-auto p-4"
-      >
-        {props.managed && <p className="text-xs text-amber-700 dark:text-amber-400">{managedWarning}</p>}
-        {props.children}
-        {test?.state?.state === 'done' && <TestPanel r={test.state.r} />}
-        <div className="sticky -bottom-4 z-10 -mx-4 -mb-4 flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface px-4 py-3">
-          {props.onTest && (
-            <Btn onClick={runTest} disabled={running} className="mr-auto" data-testid="test-draft" title="Try the unsaved settings">
-              {running ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Test
-            </Btn>
-          )}
-          {!form.valid && form.hidden && <span className="text-xs text-muted">Fill in the required fields</span>}
-          <Btn onClick={props.onClose}>Cancel</Btn>
-          <Btn type="submit" variant="primary" disabled={!form.valid || saving} data-testid="save-server">
-            {saving && <Loader2 size={14} className="animate-spin" />} {props.saveLabel ?? 'Save'}
-          </Btn>
-        </div>
-      </form>
+      {formEl}
     </Dialog>
   )
 }

@@ -193,6 +193,13 @@ button:disabled {
   }
 }
 
+/* Outside the layer on purpose: a dialog rendered inside a space-y-* container (an admin Page) got
+   margin-block 0/1.25rem from that utility, which beats the components layer, so it stuck to the top.
+   A dialog that places itself (mt-[12vh] on search) keeps its own margin. */
+dialog.modal:not(.drawer, [class*='mt-']) {
+  margin-block: auto;
+}
+
 /* Message rows skip layout/paint when off screen. */
 .msg-row {
   content-visibility: auto;
