@@ -179,6 +179,34 @@ func TestEngines(t *testing.T) {
 	}
 }
 
+func TestSearchSkipsHitsWithoutAHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The shape one SearXNG engine in the pinned release returns.
+		fmt.Fprint(w, `{"results":[`+
+			`{"url":"http:///go/v1/redirect","title":"engine artifact","content":"no host"},`+
+			`{"url":"https://example.com/real","title":"Real","content":"has a host"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	e := &Engines{HTTP: srv.Client()}
+	hits, err := e.Search(context.Background(), EngineConfig{Engine: "searxng", URL: srv.URL}, "kera", 5)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Link != "https://example.com/real" {
+		t.Fatalf("hostless hit kept: %+v", hits)
+	}
+	// The filter is not SearXNG-specific: a relative or scheme-less link is
+	// unusable whichever engine produced it.
+	for _, link := range []string{"", "/relative", "example.com/no-scheme", "http:///nohost", "mailto:a@b"} {
+		if hasHost(link) {
+			t.Errorf("%q accepted as a usable link", link)
+		}
+	}
+	if !hasHost("https://example.com/ok") {
+		t.Error("an https URL with a host was rejected")
+	}
+}
+
 func TestBudgets(t *testing.T) {
 	b := &budgets{m: map[string]*budget{}}
 	for i := range 3 {

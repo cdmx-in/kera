@@ -62,10 +62,26 @@ func (e *Engines) Search(ctx context.Context, cfg EngineConfig, query string, n 
 	if err != nil {
 		return nil, err
 	}
+	// Some engines return hits whose URL has no host ("http:///go/v1/...");
+	// Kera cannot open or cite those, so they would only waste a result slot
+	// (issue #33).
+	usable := hits[:0]
+	for _, h := range hits {
+		if hasHost(h.Link) {
+			usable = append(usable, h)
+		}
+	}
+	hits = usable
 	if len(hits) > n {
 		hits = hits[:n]
 	}
 	return hits, nil
+}
+
+// hasHost reports whether a hit's link is an absolute http(s) URL with a host.
+func hasHost(link string) bool {
+	u, err := url.Parse(link)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != ""
 }
 
 func (e *Engines) get(req *http.Request) ([]byte, error) {
