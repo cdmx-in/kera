@@ -342,10 +342,10 @@ func (s *Service) queue(ctx context.Context, kid string, fileIDs []string) (int,
 // moves to that embedding model: new chunks are written beside the old ones,
 // which keep serving queries until every file is done (see finishReindex).
 func (s *Service) Reindex(ctx context.Context, kid, conn, model string) (int, error) {
-	if err := s.syncPrefixes(ctx, kid); err != nil {
-		return 0, err
-	}
 	if model == "" {
+		if err := s.syncPrefixes(ctx, kid); err != nil {
+			return 0, err
+		}
 		// Cancels a move in progress: drop the chunks it already wrote.
 		if _, err := s.db.Exec(ctx, `WITH k AS (UPDATE knowledge SET meta = meta - 'reindex_to' WHERE id = $1 RETURNING embedding_model_id)
 			DELETE FROM chunk c USING k WHERE c.knowledge_id = $1 AND k.embedding_model_id IS NOT NULL
@@ -368,6 +368,10 @@ func (s *Service) Reindex(ctx context.Context, kid, conn, model string) (int, er
 		THEN meta - 'reindex_to' ELSE meta || jsonb_build_object('reindex_to', $2::text) END,
 		embedding_model_id = coalesce(embedding_model_id, $2) WHERE id = $1`, kid, m.ID); err != nil {
 		return 0, fmt.Errorf("start reindex: %w", err)
+	}
+	// after the move is recorded, so the target model's row gets the prefixes too, even when it existed before
+	if err := s.syncPrefixes(ctx, kid); err != nil {
+		return 0, err
 	}
 	return s.queue(ctx, kid, nil)
 }

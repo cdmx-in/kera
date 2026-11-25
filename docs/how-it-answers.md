@@ -311,7 +311,7 @@ Read: [How knowledge search works](retrieval.md)
 | `rag.embedding.model` | `nomic-embed-text` | Settings > Retrieval |
 | `rag.embedding.query_prefix` | empty | Settings > Retrieval |
 
-Changing the embedding model or its prefixes needs kera reindex.
+Changing the embedding model or its prefixes needs kera reindex (`none` as a prefix means no prefix; see docs/retrieval.md).
 
 When it misbehaves:
 
