@@ -1,0 +1,298 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="348" viewBox="0 0 880 348" role="img" aria-labelledby="t d">
+  <title id="t">The agent loop: one round, and how a run leaves it</title>
+  <desc id="d">A round has four steps: the model call (1), the tool calls it asked for (2), their results (3), and fitting the prompt to the window (4); then the next round starts. A model call that fails before any output goes to Retry and back. The loop ends with a final answer when a round has no tool calls, with a final report at the round cap, or with an error when the retries are used up.</desc>
+  <!-- Icons from Lucide (ISC licence). Blocks, numbers and settings match Admin > Help (web/src/features/admin/help/data.ts). -->
+  <defs>
+    <symbol id="i-file-text" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></g></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4a1 1 0 0 1 .4-.8A6 6 0 0 1 8 2c3 0 5 2 7.333 2q2 0 3.067-.8A1 1 0 0 1 20 4v10a1 1 0 0 1-.4.8A6 6 0 0 1 16 16c-3 0-5-2-8-2a6 6 0 0 0-4 1.528"/></g></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></g></symbol>
+    <symbol id="i-message-square-quote" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14a2 2 0 0 0 2-2V8h-2"/><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M8 14a2 2 0 0 0 2-2V8H8"/></g></symbol>
+    <symbol id="i-octagon-x" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 9-6 6"/><path d="M2.586 16.726A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2h6.624a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586z"/><path d="m9 9 6 6"/></g></symbol>
+    <symbol id="i-rotate-ccw" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></g></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></g></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"/></g></symbol>
+    <marker id="ah-n" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-n" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-in" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-in" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-cx" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-cx" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-kn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-kn" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-gd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-gd" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-md" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-md" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-tl" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-tl" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-ot" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-ot" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-bd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-bd" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-mds" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-md" d="M1 1 L9 5 L1 9 Z"/></marker>
+  </defs>
+  <style>
+    svg { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .panel { fill: #ffffff; stroke: #d0d7de; stroke-width: 1; }
+    .band { fill: #f6f8fa; stroke: #d8dee4; stroke-width: 1; }
+    .band-label rect { fill: #ffffff; stroke: #d8dee4; }
+    .band-label text { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; fill: #4b5563; }
+    .frame { fill: none; stroke-width: 1.6; stroke-dasharray: 7 5; }
+    .t { font-size: 13.5px; font-weight: 700; fill: #1f2328; }
+    .s { font-size: 12px; fill: #4b5563; }
+    .note { font-size: 11px; fill: #4b5563; }
+    .card { stroke-width: 1.5; }
+    .chip text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 10.5px; }
+    .num text { font-size: 11px; font-weight: 700; }
+    .pill text { font-size: 11px; font-weight: 700; }
+    .ln { fill: none; stroke: #6e7781; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .dash { stroke-dasharray: 6 6; }
+    .halo { fill: none; stroke-width: 6; stroke-opacity: 0.25; }
+    .edge { fill: none; stroke-width: 2.5; }
+    .glow { opacity: 0; }
+    .in .card { fill: #ebf3fe; stroke: #89b4fa; }
+    .in .tile { fill: #2563eb; }
+    .in .ico { color: #ffffff; }
+    .in .chip rect { fill: #d8e6fd; }
+    .in .chip text { fill: #1e4fbc; }
+    .in .num circle, .in .num rect { fill: #2563eb; stroke: #f6f8fa; stroke-width: 2; }
+    .in .num text { fill: #ffffff; }
+    .in .halo, .in .edge { stroke: #2563eb; }
+    .pill.in rect { fill: #2563eb; }
+    .pill.in text { fill: #ffffff; }
+    .mk-in { fill: #2563eb; }
+    .ln.in { stroke: #2563eb; }
+    .frame.in { stroke: #2563eb; }
+    .dot-in { fill: #2563eb; }
+    .cx .card { fill: #eff0fe; stroke: #a1a3f7; }
+    .cx .tile { fill: #4f46e5; }
+    .cx .ico { color: #ffffff; }
+    .cx .chip rect { fill: #e0e0fc; }
+    .cx .chip text { fill: #3f38b7; }
+    .cx .num circle, .cx .num rect { fill: #4f46e5; stroke: #f6f8fa; stroke-width: 2; }
+    .cx .num text { fill: #ffffff; }
+    .cx .halo, .cx .edge { stroke: #4f46e5; }
+    .pill.cx rect { fill: #4f46e5; }
+    .pill.cx text { fill: #ffffff; }
+    .mk-cx { fill: #4f46e5; }
+    .ln.cx { stroke: #4f46e5; }
+    .frame.cx { stroke: #4f46e5; }
+    .dot-cx { fill: #4f46e5; }
+    .kn .card { fill: #eaf5f7; stroke: #7fc4d0; }
+    .kn .tile { fill: #1e7f8c; }
+    .kn .ico { color: #ffffff; }
+    .kn .chip rect { fill: #d4ebef; }
+    .kn .chip text { fill: #186670; }
+    .kn .num circle, .kn .num rect { fill: #1e7f8c; stroke: #f6f8fa; stroke-width: 2; }
+    .kn .num text { fill: #ffffff; }
+    .kn .halo, .kn .edge { stroke: #1e7f8c; }
+    .pill.kn rect { fill: #1e7f8c; }
+    .pill.kn text { fill: #ffffff; }
+    .mk-kn { fill: #1e7f8c; }
+    .ln.kn { stroke: #1e7f8c; }
+    .frame.kn { stroke: #1e7f8c; }
+    .dot-kn { fill: #1e7f8c; }
+    .gd .card { fill: #fbf5e7; stroke: #e8c06f; }
+    .gd .tile { fill: #a16207; }
+    .gd .ico { color: #ffffff; }
+    .gd .chip rect { fill: #f7eacf; }
+    .gd .chip text { fill: #814e06; }
+    .gd .num circle, .gd .num rect { fill: #a16207; stroke: #f6f8fa; stroke-width: 2; }
+    .gd .num text { fill: #ffffff; }
+    .gd .halo, .gd .edge { stroke: #a16207; }
+    .pill.gd rect { fill: #a16207; }
+    .pill.gd text { fill: #ffffff; }
+    .mk-gd { fill: #a16207; }
+    .ln.gd { stroke: #a16207; }
+    .frame.gd { stroke: #a16207; }
+    .dot-gd { fill: #a16207; }
+    .md .card { fill: #f3effe; stroke: #b99dfa; }
+    .md .tile { fill: #7c3aed; }
+    .md .ico { color: #ffffff; }
+    .md .chip rect { fill: #e8defd; }
+    .md .chip text { fill: #632ebe; }
+    .md .num circle, .md .num rect { fill: #7c3aed; stroke: #f6f8fa; stroke-width: 2; }
+    .md .num text { fill: #ffffff; }
+    .md .halo, .md .edge { stroke: #7c3aed; }
+    .pill.md rect { fill: #7c3aed; }
+    .pill.md text { fill: #ffffff; }
+    .mk-md { fill: #7c3aed; }
+    .ln.md { stroke: #7c3aed; }
+    .frame.md { stroke: #7c3aed; }
+    .dot-md { fill: #7c3aed; }
+    .tl .card { fill: #fef1e8; stroke: #fbab73; }
+    .tl .tile { fill: #c2410c; }
+    .tl .ico { color: #ffffff; }
+    .tl .chip rect { fill: #fee3d0; }
+    .tl .chip text { fill: #9b340a; }
+    .tl .num circle, .tl .num rect { fill: #c2410c; stroke: #f6f8fa; stroke-width: 2; }
+    .tl .num text { fill: #ffffff; }
+    .tl .halo, .tl .edge { stroke: #c2410c; }
+    .pill.tl rect { fill: #c2410c; }
+    .pill.tl text { fill: #ffffff; }
+    .mk-tl { fill: #c2410c; }
+    .ln.tl { stroke: #c2410c; }
+    .frame.tl { stroke: #c2410c; }
+    .dot-tl { fill: #c2410c; }
+    .ot .card { fill: #e9f6ef; stroke: #7ac89c; }
+    .ot .tile { fill: #15803d; }
+    .ot .ico { color: #ffffff; }
+    .ot .chip rect { fill: #d3edde; }
+    .ot .chip text { fill: #116631; }
+    .ot .num circle, .ot .num rect { fill: #15803d; stroke: #f6f8fa; stroke-width: 2; }
+    .ot .num text { fill: #ffffff; }
+    .ot .halo, .ot .edge { stroke: #15803d; }
+    .pill.ot rect { fill: #15803d; }
+    .pill.ot text { fill: #ffffff; }
+    .mk-ot { fill: #15803d; }
+    .ln.ot { stroke: #15803d; }
+    .frame.ot { stroke: #15803d; }
+    .dot-ot { fill: #15803d; }
+    .bd .card { fill: #fceded; stroke: #ef9194; }
+    .bd .tile { fill: #c2312f; }
+    .bd .ico { color: #ffffff; }
+    .bd .chip rect { fill: #fadadb; }
+    .bd .chip text { fill: #9b2726; }
+    .bd .num circle, .bd .num rect { fill: #c2312f; stroke: #f6f8fa; stroke-width: 2; }
+    .bd .num text { fill: #ffffff; }
+    .bd .halo, .bd .edge { stroke: #c2312f; }
+    .pill.bd rect { fill: #c2312f; }
+    .pill.bd text { fill: #ffffff; }
+    .mk-bd { fill: #c2312f; }
+    .ln.bd { stroke: #c2312f; }
+    .frame.bd { stroke: #c2312f; }
+    .dot-bd { fill: #c2312f; }
+    .mk-n { fill: #6e7781; }
+    .dot .halo2 { fill: #1e7f8c; opacity: 0.28; }
+    .dot .core { fill: #1e7f8c; stroke: #ffffff; stroke-width: 2; }
+    .junction { fill: #6e7781; }
+    .legend text { font-size: 11px; fill: #1f2328; }
+    .legend text.note { fill: #4b5563; }
+    .kp { fill: #ffffff; stroke: #d8dee4; stroke-width: 1; stroke-dasharray: 3 4; }
+    .cap { font-weight: 700; letter-spacing: 0.8px; font-size: 10px; }
+    .frame.md { fill: #f7f4fe; }
+    .loop-label rect { stroke: #7c3aed; }
+    .loop-label text { fill: #632ebe; }
+    .dashed .card { stroke-dasharray: 6 4; }
+    .flow { stroke-dasharray: 6 6; animation: flow 0.9s linear infinite; }
+    @keyframes flow { to { stroke-dashoffset: -12; } }
+    @keyframes ret { to { stroke-dashoffset: -11; } }
+    .ret { stroke-dasharray: 5 6; animation: ret 0.9s linear infinite; }
+    .g-modelCall { animation: g-modelCall 12s linear infinite; }
+    .g-run { animation: g-run 12s linear infinite; }
+    .g-results { animation: g-results 12s linear infinite; }
+    .g-fit { animation: g-fit 12s linear infinite; }
+    .g-final { animation: g-final 12s linear infinite; }
+    @keyframes g-modelCall{0%{opacity:0}1.83%{opacity:0}3.33%{opacity:1}7.5%{opacity:1}10.83%{opacity:0}38.75%{opacity:0}40.25%{opacity:1}44.58%{opacity:1}47.91%{opacity:0}75.61%{opacity:0}77.11%{opacity:1}81.44%{opacity:1}84.78%{opacity:0}100%{opacity:0}}
+    @keyframes g-run{0%{opacity:0}7.16%{opacity:0}8.66%{opacity:1}13.17%{opacity:1}16.5%{opacity:0}44.02%{opacity:0}45.52%{opacity:1}50.03%{opacity:1}53.37%{opacity:0}100%{opacity:0}}
+    @keyframes g-results{0%{opacity:0}12.83%{opacity:0}14.33%{opacity:1}18.84%{opacity:1}22.17%{opacity:0}49.69%{opacity:0}51.19%{opacity:1}55.7%{opacity:1}59.04%{opacity:0}100%{opacity:0}}
+    @keyframes g-fit{0%{opacity:0}18.5%{opacity:0}20%{opacity:1}24.51%{opacity:1}27.84%{opacity:0}55.36%{opacity:0}56.86%{opacity:1}61.38%{opacity:1}64.71%{opacity:0}100%{opacity:0}}
+    @keyframes g-final{0%{opacity:0}86.67%{opacity:0}88.17%{opacity:1}92.5%{opacity:1}95.83%{opacity:0}100%{opacity:0}}
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .glow { opacity: 0; }
+      .dot { display: none; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="879" height="347" rx="16"/>
+  <rect class="frame md" x="11" y="24" width="858" height="142" rx="14"/>
+  <rect class="band" x="10" y="222" width="860" height="116" rx="14"/>
+  <g class="band-label loop-label"><rect x="250" y="14" width="180" height="20" rx="10"/><text x="261" y="27.6">ONE ROUND, REPEATED</text></g>
+
+  <g id="connectors">
+  <path class="ln flow tl" d="M208 109 L234 109" marker-end="url(#ah-tl)"/>
+  <path class="ln flow" d="M424 109 L450 109" marker-end="url(#ah-n)"/>
+  <path class="ln flow" d="M640 109 L666 109" marker-end="url(#ah-n)"/>
+  <path class="ln ret md" d="M763 64 L763 53 Q763 44 754 44 L180 44 Q172 44 172 52 L172 60" marker-end="url(#ah-md)"/>
+  <path class="ln flow bd" d="M82 154 L82 232" marker-end="url(#ah-bd)"/>
+  <path class="ln flow ot" d="M152 154 L152 199 Q152 208 161 208 L322 208 Q331 208 331 217 L331 232" marker-end="url(#ah-ot)"/>
+  <path class="ln ret md" d="M188 158 L188 171 Q188 180 197 180 L538 180 Q547 180 547 189 L547 232" marker-end="url(#ah-md)" marker-start="url(#ah-mds)"/>
+  <path class="ln flow ot" d="M763 154 L763 232" marker-end="url(#ah-ot)"/>
+  </g>
+
+  <g class="dot" opacity="0">
+    <circle class="halo2" r="11"/>
+    <circle class="core" r="5"/>
+    <animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;0;0.03014;0.04096;0.07077;0.07077;0.10092;0.11173;0.14155;0.14155;0.17169;0.1825;0.21232;0.21232;0.22674;0.43447;0.44856;0.44856;0.46003;0.47084;0.50066;0.50066;0.5308;0.54161;0.57143;0.57143;0.60157;0.61239;0.6422;0.6422;0.65662;0.86435;0.87844;0.87844;0.89941;0.98591;1;1;1" keyTimes="0;0.03333;0.075;0.07848;0.08659;0.09004;0.1317;0.13519;0.14329;0.14674;0.18841;0.19189;0.2;0.20345;0.24511;0.24678;0.4025;0.40413;0.4458;0.44712;0.45523;0.45868;0.50034;0.50383;0.51193;0.51538;0.55705;0.56053;0.56864;0.57208;0.61375;0.61542;0.77114;0.77277;0.81444;0.81686;0.8817;0.88333;0.925;1" path="M115 109 L331 109 L547 109 L763 109 L763 44 L172 44 L172 109 L331 109 L547 109 L763 109 L763 44 L172 44 L172 109 L152 109 L152 208 L331 208 L331 281"/>
+    <animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.01333;0.03333;0.925;0.95;1"/>
+  </g>
+
+  <g id="blocks">
+<g id="b-modelCall" class="blk md" data-box="modelCall" data-step="1">
+  <rect class="card" x="22" y="64" width="186" height="90" rx="12"/>
+  <rect class="tile" x="36" y="78" width="26" height="26" rx="8"/>
+  <use href="#i-sparkles" class="ico" x="41" y="83" width="16" height="16"/>
+  <text class="t" x="71" y="96">Model call</text>
+  <text class="s" x="36" y="118">Answers, or asks for tools</text>
+  <g class="chip"><rect x="36" y="126" width="166" height="18" rx="9"/><text x="43" y="138.8">chat.max_tool_iterations</text></g>
+  <g class="num"><circle cx="31" cy="67" r="10"/><text x="31" y="71" text-anchor="middle">1</text></g>
+  <g class="glow g-modelCall"><rect x="19" y="61" width="192" height="96" rx="15" class="halo"/><rect x="22" y="64" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-run" class="blk tl" data-box="run" data-step="2">
+  <rect class="card" x="238" y="64" width="186" height="90" rx="12"/>
+  <rect class="tile" x="252" y="78" width="26" height="26" rx="8"/>
+  <use href="#i-wrench" class="ico" x="257" y="83" width="16" height="16"/>
+  <text class="t" x="287" y="96">Run tool calls</text>
+  <text class="s" x="252" y="118">Read-only calls overlap</text>
+  <g class="chip"><rect x="252" y="126" width="135" height="18" rx="9"/><text x="259" y="138.8">chat.parallel_tools</text></g>
+  <g class="num"><circle cx="247" cy="67" r="10"/><text x="247" y="71" text-anchor="middle">2</text></g>
+  <g class="glow g-run"><rect x="235" y="61" width="192" height="96" rx="15" class="halo"/><rect x="238" y="64" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-results" class="blk tl" data-box="results" data-step="3">
+  <rect class="card" x="454" y="64" width="186" height="90" rx="12"/>
+  <rect class="tile" x="468" y="78" width="26" height="26" rx="8"/>
+  <use href="#i-file-text" class="ico" x="473" y="83" width="16" height="16"/>
+  <text class="t" x="503" y="96">Results</text>
+  <text class="s" x="468" y="118">Long ones become files</text>
+  <g class="chip"><rect x="468" y="126" width="122" height="18" rx="9"/><text x="475" y="138.8">tools.spill_chars</text></g>
+  <g class="num"><circle cx="463" cy="67" r="10"/><text x="463" y="71" text-anchor="middle">3</text></g>
+  <g class="glow g-results"><rect x="451" y="61" width="192" height="96" rx="15" class="halo"/><rect x="454" y="64" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-fit" class="blk cx" data-box="fit" data-step="4">
+  <rect class="card" x="670" y="64" width="186" height="90" rx="12"/>
+  <rect class="tile" x="684" y="78" width="26" height="26" rx="8"/>
+  <use href="#i-gauge" class="ico" x="689" y="83" width="16" height="16"/>
+  <text class="t" x="719" y="96">Fit to window</text>
+  <text class="s" x="684" y="118">Clears, then summarises</text>
+  <g class="chip"><rect x="684" y="126" width="147" height="18" rx="9"/><text x="691" y="138.8">chat.context.clear_at</text></g>
+  <g class="num"><circle cx="679" cy="67" r="10"/><text x="679" y="71" text-anchor="middle">4</text></g>
+  <g class="glow g-fit"><rect x="667" y="61" width="192" height="96" rx="15" class="halo"/><rect x="670" y="64" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-fail" class="blk bd" data-box="fail">
+  <rect class="card" x="22" y="236" width="186" height="90" rx="12"/>
+  <rect class="tile" x="36" y="250" width="26" height="26" rx="8"/>
+  <use href="#i-octagon-x" class="ico" x="41" y="255" width="16" height="16"/>
+  <text class="t" x="71" y="268">Run fails</text>
+  <text class="s" x="36" y="290">The saved work is kept</text>
+  <g class="chip"><rect x="36" y="298" width="128" height="18" rx="9"/><text x="43" y="310.8">chat.model_retries</text></g>
+
+</g>
+<g id="b-final" class="blk ot" data-box="final">
+  <rect class="card" x="238" y="236" width="186" height="90" rx="12"/>
+  <rect class="tile" x="252" y="250" width="26" height="26" rx="8"/>
+  <use href="#i-message-square-quote" class="ico" x="257" y="255" width="16" height="16"/>
+  <text class="t" x="287" y="268">Final answer</text>
+  <text class="s" x="252" y="290">A round had no tool calls</text>
+
+  <g class="glow g-final"><rect x="235" y="233" width="192" height="96" rx="15" class="halo"/><rect x="238" y="236" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-retry" class="blk md dashed" data-box="retry">
+  <rect class="card" x="454" y="236" width="186" height="90" rx="12"/>
+  <rect class="tile" x="468" y="250" width="26" height="26" rx="8"/>
+  <use href="#i-rotate-ccw" class="ico" x="473" y="255" width="16" height="16"/>
+  <text class="t" x="503" y="268">Retry</text>
+  <text class="s" x="468" y="290">Tries again, 1 s then 2 s</text>
+  <g class="chip"><rect x="468" y="298" width="128" height="18" rx="9"/><text x="475" y="310.8">chat.model_retries</text></g>
+
+</g>
+<g id="b-cap" class="blk ot" data-box="cap">
+  <rect class="card" x="664" y="236" width="196" height="90" rx="12"/>
+  <rect class="tile" x="678" y="250" width="26" height="26" rx="8"/>
+  <use href="#i-flag" class="ico" x="683" y="255" width="16" height="16"/>
+  <text class="t" x="713" y="268">Round cap report</text>
+  <text class="s" x="678" y="290">One last call, a report</text>
+  <g class="chip"><rect x="678" y="298" width="166" height="18" rx="9"/><text x="685" y="310.8">chat.max_tool_iterations</text></g>
+
+</g>
+  </g>
+
+  <g id="labels">
+  <g class="pill bd "><rect x="26.5" y="170" width="115" height="20" rx="10"/><text x="84" y="184" text-anchor="middle">out of retries</text></g>
+  <g class="pill ot "><rect x="197.5" y="198" width="108" height="20" rx="10"/><text x="251.5" y="212" text-anchor="middle">no tool calls</text></g>
+  <g class="pill md "><rect x="316.5" y="170" width="150" height="20" rx="10"/><text x="391.5" y="184" text-anchor="middle">fails before output</text></g>
+  <g class="pill ot "><rect x="695" y="170" width="136" height="20" rx="10"/><text x="763" y="184" text-anchor="middle">round cap reached</text></g>
+  <g class="pill md "><rect x="516.5" y="34" width="87" height="20" rx="10"/><text x="560" y="48" text-anchor="middle">next round</text></g>
+  </g>
+</svg>

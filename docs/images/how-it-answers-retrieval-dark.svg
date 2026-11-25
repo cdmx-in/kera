@@ -1,0 +1,440 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="526" viewBox="0 0 880 526" role="img" aria-labelledby="t d">
+  <title id="t">How knowledge search works: the retrieval pipeline</title>
+  <desc id="d">Eight numbered steps. The queries (1) go to three searches that run side by side: by meaning (2), by words (3) and by file name and heading (4). Their rankings are fused into one list (5). An optional reranker re-reads the best candidates (6), the neighbouring chunks of each hit are added (7), and the passages are numbered so that a citation such as [2] means the same passage everywhere in the run (8). The candidates shown are an invented example.</desc>
+  <!-- Icons from Lucide (ISC licence). Blocks, numbers and settings match Admin > Help (web/src/features/admin/help/data.ts); the candidates A to E are the worked example from docs/how-it-answers.md. -->
+  <defs>
+    <symbol id="i-arrow-up-down" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></g></symbol>
+    <symbol id="i-circle-question-mark" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></g></symbol>
+    <symbol id="i-heading" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/><path d="M6 20V4"/><path d="M18 20V4"/></g></symbol>
+    <symbol id="i-list-ordered" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5h10"/><path d="M11 12h10"/><path d="M11 19h10"/><path d="M4 4h1v5"/><path d="M4 9h2"/><path d="M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02"/></g></symbol>
+    <symbol id="i-merge" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 6 4-4 4 4"/><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22"/><path d="m20 22-5-5"/></g></symbol>
+    <symbol id="i-text-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H3"/><path d="M10 12H3"/><path d="M10 19H3"/><circle cx="17" cy="15" r="3"/><path d="m21 19-1.9-1.9"/></g></symbol>
+    <symbol id="i-unfold-horizontal" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 12h6"/><path d="M8 12H2"/><path d="M12 2v2"/><path d="M12 8v2"/><path d="M12 14v2"/><path d="M12 20v2"/><path d="m19 15 3-3-3-3"/><path d="m5 9-3 3 3 3"/></g></symbol>
+    <symbol id="i-waypoints" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10.586 5.414-5.172 5.172"/><path d="m18.586 13.414-5.172 5.172"/><path d="M6 12h12"/><circle cx="12" cy="20" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="20" cy="12" r="2"/><circle cx="4" cy="12" r="2"/></g></symbol>
+    <marker id="ah-n" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-n" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-in" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-in" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-cx" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-cx" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-kn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-kn" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-gd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-gd" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-md" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-md" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-tl" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-tl" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-ot" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-ot" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-bd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-bd" d="M1 1 L9 5 L1 9 Z"/></marker>
+  </defs>
+  <style>
+    svg { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .panel { fill: #0d1117; stroke: #30363d; stroke-width: 1; }
+    .band { fill: #161b22; stroke: #30363d; stroke-width: 1; }
+    .band-label rect { fill: #0d1117; stroke: #30363d; }
+    .band-label text { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; fill: #a8b3c0; }
+    .frame { fill: none; stroke-width: 1.6; stroke-dasharray: 7 5; }
+    .t { font-size: 13.5px; font-weight: 700; fill: #e6edf3; }
+    .s { font-size: 12px; fill: #a8b3c0; }
+    .note { font-size: 11px; fill: #a8b3c0; }
+    .card { stroke-width: 1.5; }
+    .chip text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 10.5px; }
+    .num text { font-size: 11px; font-weight: 700; }
+    .pill text { font-size: 11px; font-weight: 700; }
+    .ln { fill: none; stroke: #7d8590; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .dash { stroke-dasharray: 6 6; }
+    .halo { fill: none; stroke-width: 6; stroke-opacity: 0.25; }
+    .edge { fill: none; stroke-width: 2.5; }
+    .glow { opacity: 0; }
+    .in .card { fill: #1a293b; stroke: #4779b6; }
+    .in .tile { fill: #60a5fa; }
+    .in .ico { color: #0d1117; }
+    .in .chip rect { fill: #233954; }
+    .in .chip text { fill: #83b9fb; }
+    .in .num circle, .in .num rect { fill: #60a5fa; stroke: #161b22; stroke-width: 2; }
+    .in .num text { fill: #0d1117; }
+    .in .halo, .in .edge { stroke: #60a5fa; }
+    .pill.in rect { fill: #60a5fa; }
+    .pill.in text { fill: #0d1117; }
+    .mk-in { fill: #60a5fa; }
+    .ln.in { stroke: #60a5fa; }
+    .frame.in { stroke: #60a5fa; }
+    .dot-in { fill: #60a5fa; }
+    .cx .card { fill: #20253b; stroke: #5e67b5; }
+    .cx .tile { fill: #818cf8; }
+    .cx .ico { color: #0d1117; }
+    .cx .chip rect { fill: #2c3254; }
+    .cx .chip text { fill: #9da5fa; }
+    .cx .num circle, .cx .num rect { fill: #818cf8; stroke: #161b22; stroke-width: 2; }
+    .cx .num text { fill: #0d1117; }
+    .cx .halo, .cx .edge { stroke: #818cf8; }
+    .pill.cx rect { fill: #818cf8; }
+    .pill.cx text { fill: #0d1117; }
+    .mk-cx { fill: #818cf8; }
+    .ln.cx { stroke: #818cf8; }
+    .frame.cx { stroke: #818cf8; }
+    .dot-cx { fill: #818cf8; }
+    .kn .card { fill: #152a33; stroke: #2f8090; }
+    .kn .tile { fill: #3dafc4; }
+    .kn .ico { color: #0d1117; }
+    .kn .chip rect { fill: #1a3c46; }
+    .kn .chip text { fill: #68c1d1; }
+    .kn .num circle, .kn .num rect { fill: #3dafc4; stroke: #161b22; stroke-width: 2; }
+    .kn .num text { fill: #0d1117; }
+    .kn .halo, .kn .edge { stroke: #3dafc4; }
+    .pill.kn rect { fill: #3dafc4; }
+    .pill.kn text { fill: #0d1117; }
+    .mk-kn { fill: #3dafc4; }
+    .ln.kn { stroke: #3dafc4; }
+    .frame.kn { stroke: #3dafc4; }
+    .dot-kn { fill: #3dafc4; }
+    .gd .card { fill: #332d19; stroke: #b48b20; }
+    .gd .tile { fill: #fbbf24; }
+    .gd .ico { color: #0d1117; }
+    .gd .chip rect { fill: #4d401b; }
+    .gd .chip text { fill: #fccd54; }
+    .gd .num circle, .gd .num rect { fill: #fbbf24; stroke: #161b22; stroke-width: 2; }
+    .gd .num text { fill: #0d1117; }
+    .gd .halo, .gd .edge { stroke: #fbbf24; }
+    .pill.gd rect { fill: #fbbf24; }
+    .pill.gd text { fill: #0d1117; }
+    .mk-gd { fill: #fbbf24; }
+    .ln.gd { stroke: #fbbf24; }
+    .frame.gd { stroke: #fbbf24; }
+    .dot-gd { fill: #fbbf24; }
+    .md .card { fill: #26253b; stroke: #7966b6; }
+    .md .tile { fill: #a78bfa; }
+    .md .ico { color: #0d1117; }
+    .md .chip rect { fill: #373254; }
+    .md .chip text { fill: #baa5fb; }
+    .md .num circle, .md .num rect { fill: #a78bfa; stroke: #161b22; stroke-width: 2; }
+    .md .num text { fill: #0d1117; }
+    .md .halo, .md .edge { stroke: #a78bfa; }
+    .pill.md rect { fill: #a78bfa; }
+    .pill.md text { fill: #0d1117; }
+    .mk-md { fill: #a78bfa; }
+    .ln.md { stroke: #a78bfa; }
+    .frame.md { stroke: #a78bfa; }
+    .dot-md { fill: #a78bfa; }
+    .tl .card { fill: #33261d; stroke: #b46b31; }
+    .tl .tile { fill: #fb923c; }
+    .tl .ico { color: #0d1117; }
+    .tl .chip rect { fill: #4d3421; }
+    .tl .chip text { fill: #fcaa67; }
+    .tl .num circle, .tl .num rect { fill: #fb923c; stroke: #161b22; stroke-width: 2; }
+    .tl .num text { fill: #0d1117; }
+    .tl .halo, .tl .edge { stroke: #fb923c; }
+    .pill.tl rect { fill: #fb923c; }
+    .pill.tl text { fill: #0d1117; }
+    .mk-tl { fill: #fb923c; }
+    .ln.tl { stroke: #fb923c; }
+    .frame.tl { stroke: #fb923c; }
+    .dot-tl { fill: #fb923c; }
+    .ot .card { fill: #13302c; stroke: #289972; }
+    .ot .tile { fill: #34d399; }
+    .ot .ico { color: #0d1117; }
+    .ot .chip rect { fill: #18453a; }
+    .ot .chip text { fill: #61ddaf; }
+    .ot .num circle, .ot .num rect { fill: #34d399; stroke: #161b22; stroke-width: 2; }
+    .ot .num text { fill: #0d1117; }
+    .ot .halo, .ot .edge { stroke: #34d399; }
+    .pill.ot rect { fill: #34d399; }
+    .pill.ot text { fill: #0d1117; }
+    .mk-ot { fill: #34d399; }
+    .ln.ot { stroke: #34d399; }
+    .frame.ot { stroke: #34d399; }
+    .dot-ot { fill: #34d399; }
+    .bd .card { fill: #332025; stroke: #b25456; }
+    .bd .tile { fill: #f87171; }
+    .bd .ico { color: #0d1117; }
+    .bd .chip rect { fill: #4c2b2f; }
+    .bd .chip text { fill: #fa9090; }
+    .bd .num circle, .bd .num rect { fill: #f87171; stroke: #161b22; stroke-width: 2; }
+    .bd .num text { fill: #0d1117; }
+    .bd .halo, .bd .edge { stroke: #f87171; }
+    .pill.bd rect { fill: #f87171; }
+    .pill.bd text { fill: #0d1117; }
+    .mk-bd { fill: #f87171; }
+    .ln.bd { stroke: #f87171; }
+    .frame.bd { stroke: #f87171; }
+    .dot-bd { fill: #f87171; }
+    .mk-n { fill: #7d8590; }
+    .dot .halo2 { fill: #3dafc4; opacity: 0.28; }
+    .dot .core { fill: #ffffff; stroke: #3dafc4; stroke-width: 2; }
+    .junction { fill: #7d8590; }
+    .legend text { font-size: 11px; fill: #e6edf3; }
+    .legend text.note { fill: #a8b3c0; }
+    .cd text { font-size: 10.5px; font-weight: 700; fill: #0d1117; }
+    .cA circle { fill: #60a5fa; }
+    .cB circle { fill: #a78bfa; }
+    .cC circle { fill: #3dafc4; }
+    .cD circle { fill: #94a3b8; }
+    .cE circle { fill: #fb923c; }
+    .bar { fill: #818cf8; }
+    .sc { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 10.5px; fill: #a8b3c0; }
+    .rng rect { fill: #2c3254; } .rng text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 10.5px; fill: #9da5fa; }
+    .cite rect { fill: #34d399; } .cite text { font-size: 10.5px; font-weight: 700; fill: #0d1117; }
+    .drop { opacity: 0.32; }
+    .listcap { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; fill: #a8b3c0; }
+    .flow { stroke-dasharray: 6 6; animation: flow 0.9s linear infinite; }
+    @keyframes flow { to { stroke-dashoffset: -12; } }
+    @keyframes ret { to { stroke-dashoffset: -11; } }
+    .ret { stroke-dasharray: 5 6; animation: ret 0.9s linear infinite; }
+    .g-fuse { animation: g-fuse 10s linear infinite; }
+    .g-rerank { animation: g-rerank 10s linear infinite; }
+    .g-nb { animation: g-nb 10s linear infinite; }
+    .g-num { animation: g-num 10s linear infinite; }
+    .g-q { animation: g-q 10s linear infinite; }
+    .g-vec { animation: g-vec 10s linear infinite; }
+    .g-kw { animation: g-kw 10s linear infinite; }
+    .g-head { animation: g-head 10s linear infinite; }
+    .s-vec-0 { animation: s-vec-0 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-vec-1 { animation: s-vec-1 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-vec-2 { animation: s-vec-2 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-vec-3 { animation: s-vec-3 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-vec-4 { animation: s-vec-4 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-kw-0 { animation: s-kw-0 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-kw-1 { animation: s-kw-1 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-kw-2 { animation: s-kw-2 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-head-0 { animation: s-head-0 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-head-1 { animation: s-head-1 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .s-head-2 { animation: s-head-2 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .fly-C { animation: fly-C 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .bar-0 { animation: bar-0 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .sc-0 { animation: sc-0 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .fly-A { animation: fly-A 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .bar-1 { animation: bar-1 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .sc-1 { animation: sc-1 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .fly-B { animation: fly-B 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .bar-2 { animation: bar-2 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .sc-2 { animation: sc-2 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .fly-E { animation: fly-E 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .bar-3 { animation: bar-3 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .sc-3 { animation: sc-3 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .fly-D { animation: fly-D 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .bar-4 { animation: bar-4 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .sc-4 { animation: sc-4 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .bar { transform-box: fill-box; transform-origin: 0 50%; }
+    .rr-A { animation: rr-A 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .rr-C { animation: rr-C 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .rr-E { animation: rr-E 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .rr-B { animation: rr-B 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .rr-D { animation: rr-D 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .nb-A { animation: nb-A 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .nb-C { animation: nb-C 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .nb-E { animation: nb-E 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .ct-1 { animation: ct-1 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .ct-2 { animation: ct-2 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .ct-3 { animation: ct-3 10s cubic-bezier(.3,.7,.3,1) infinite; }
+    .strip, .row .cd, .drop, .rng, .cite { transform-box: fill-box; transform-origin: center; }
+    @keyframes s-vec-0{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}27.5%{opacity:0;transform:scale(0.4)}30.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-vec-1{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}28.5%{opacity:0;transform:scale(0.4)}31.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-vec-2{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}29.5%{opacity:0;transform:scale(0.4)}32.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-vec-3{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}30.5%{opacity:0;transform:scale(0.4)}33.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-vec-4{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}31.5%{opacity:0;transform:scale(0.4)}34.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-kw-0{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}30%{opacity:0;transform:scale(0.4)}33%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-kw-1{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}31%{opacity:0;transform:scale(0.4)}34%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-kw-2{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}32%{opacity:0;transform:scale(0.4)}35%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-head-0{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}32.5%{opacity:0;transform:scale(0.4)}35.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-head-1{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}33.5%{opacity:0;transform:scale(0.4)}36.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes s-head-2{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}34.5%{opacity:0;transform:scale(0.4)}37.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes fly-C{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:translate(-205px,-71px)}40%{opacity:0;transform:translate(-205px,-71px)}47.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes bar-0{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scaleX(0)}45%{opacity:0;transform:scaleX(0)}50%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes sc-0{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:none}45.5%{opacity:0;transform:none}49.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes fly-A{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:translate(-183px,-96px)}43.2%{opacity:0;transform:translate(-183px,-96px)}50.7%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes bar-1{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scaleX(0)}48.2%{opacity:0;transform:scaleX(0)}53.2%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes sc-1{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:none}48.7%{opacity:0;transform:none}52.7%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes fly-B{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:translate(-161px,-121px)}46.4%{opacity:0;transform:translate(-161px,-121px)}53.9%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes bar-2{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scaleX(0)}51.4%{opacity:0;transform:scaleX(0)}56.4%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes sc-2{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:none}51.9%{opacity:0;transform:none}55.9%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes fly-E{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:translate(-139px,-146px)}49.6%{opacity:0;transform:translate(-139px,-146px)}57.1%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes bar-3{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scaleX(0)}54.6%{opacity:0;transform:scaleX(0)}59.6%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes sc-3{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:none}55.1%{opacity:0;transform:none}59.1%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes fly-D{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:translate(-117px,-171px)}52.8%{opacity:0;transform:translate(-117px,-171px)}60.3%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes bar-4{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scaleX(0)}57.8%{opacity:0;transform:scaleX(0)}62.8%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes sc-4{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:none}58.3%{opacity:0;transform:none}62.3%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes rr-A{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}63.5%{opacity:0;transform:scale(0.4)}66.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes rr-C{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}64.7%{opacity:0;transform:scale(0.4)}67.7%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes rr-E{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}65.9%{opacity:0;transform:scale(0.4)}68.9%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes rr-B{0%{opacity:0.32;transform:none}14%{opacity:0.32;transform:none}16.5%{opacity:0;transform:scale(0.4)}67.1%{opacity:0;transform:scale(0.4)}69.5%{opacity:1;transform:none}70.1%{opacity:1;transform:none}72.5%{opacity:0.32;transform:none}100%{opacity:0.32;transform:none}}
+    @keyframes rr-D{0%{opacity:0.32;transform:none}14%{opacity:0.32;transform:none}16.5%{opacity:0;transform:scale(0.4)}68.3%{opacity:0;transform:scale(0.4)}69.5%{opacity:1;transform:none}71.3%{opacity:1;transform:none}72.5%{opacity:0.32;transform:none}100%{opacity:0.32;transform:none}}
+    @keyframes nb-A{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}77%{opacity:0;transform:scale(0.4)}80%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes nb-C{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}78.5%{opacity:0;transform:scale(0.4)}81.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes nb-E{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}80%{opacity:0;transform:scale(0.4)}83%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes ct-1{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}87%{opacity:0;transform:scale(0.4)}90%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes ct-2{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}88.5%{opacity:0;transform:scale(0.4)}91.5%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes ct-3{0%{opacity:1;transform:none}14%{opacity:1;transform:none}16.5%{opacity:0;transform:scale(0.4)}90%{opacity:0;transform:scale(0.4)}93%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+    @keyframes g-fuse{0%{opacity:0}38.2%{opacity:0}40%{opacity:1}60%{opacity:1}64%{opacity:0}100%{opacity:0}}
+    @keyframes g-rerank{0%{opacity:0}69.54%{opacity:0}71.34%{opacity:1}76.12%{opacity:1}80.12%{opacity:0}100%{opacity:0}}
+    @keyframes g-nb{0%{opacity:0}78.92%{opacity:0}80.72%{opacity:1}86.06%{opacity:1}90.06%{opacity:0}100%{opacity:0}}
+    @keyframes g-num{0%{opacity:0}88.86%{opacity:0}90.66%{opacity:1}96%{opacity:1}100%{opacity:0}}
+    @keyframes g-q{0%{opacity:0}17.2%{opacity:0}19%{opacity:1}26%{opacity:1}30%{opacity:0}100%{opacity:0}}
+    @keyframes g-vec{0%{opacity:0}25.7%{opacity:0}27.5%{opacity:1}35%{opacity:1}39%{opacity:0}100%{opacity:0}}
+    @keyframes g-kw{0%{opacity:0}28.2%{opacity:0}30%{opacity:1}37.5%{opacity:1}41.5%{opacity:0}100%{opacity:0}}
+    @keyframes g-head{0%{opacity:0}30.7%{opacity:0}32.5%{opacity:1}40%{opacity:1}44%{opacity:0}100%{opacity:0}}
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .glow { opacity: 0; }
+      .dot { display: none; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="879" height="525" rx="16"/>
+  <rect class="band" x="10" y="14" width="860" height="350" rx="14"/>
+  <rect class="band" x="10" y="388" width="860" height="128" rx="14"/>
+  <g class="band-label"><rect x="28" y="4" width="263" height="20" rx="10"/><text x="39" y="17.6">SEARCH THREE WAYS, THEN MERGE</text></g>
+  <g class="band-label"><rect x="28" y="378" width="164" height="20" rx="10"/><text x="39" y="391.6">REFINE AND NUMBER</text></g>
+
+  <g id="connectors">
+  <path class="ln flow kn" d="M208 198 L220 198 Q230 198 230 188 L230 101 Q230 92 239 92 L248 92" marker-end="url(#ah-kn)"/>
+  <path class="ln flow cx" d="M542 92 L564 92 Q574 92 574 102 L574 124 Q574 134 584 134 L602 134" marker-end="url(#ah-cx)"/>
+  <path class="ln flow kn" d="M208 198 L230 198 Q230 198 NaN NaN LNaN NaN Q230 198 230 198 L248 198" marker-end="url(#ah-kn)"/>
+  <path class="ln flow cx" d="M542 198 L564 198 Q574 198 574 188 L574 188 Q574 178 584 178 L602 178" marker-end="url(#ah-cx)"/>
+  <path class="ln flow kn" d="M208 198 L220 198 Q230 198 230 208 L230 295 Q230 304 239 304 L248 304" marker-end="url(#ah-kn)"/>
+  <path class="ln flow cx" d="M542 304 L564 304 Q574 304 574 294 L574 272 Q574 262 584 262 L602 262" marker-end="url(#ah-cx)"/>
+  <path class="ln flow cx" d="M734 314 L734 410" marker-end="url(#ah-cx)"/>
+  <path class="ln flow" d="M606 459 L575 459" marker-end="url(#ah-n)"/>
+  <path class="ln flow" d="M315 459 L284 459" marker-end="url(#ah-n)"/>
+  </g>
+
+  <g class="dot" opacity="0"><circle class="halo2" r="11"/><circle class="core" r="5"/>
+    <animateMotion dur="10s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.195;0.295;1" path="M115 198 L230 198 L230 92 L397 92"/>
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.185;0.195;0.275;0.295;1"/></g>
+  <g class="dot" opacity="0"><circle class="halo2" r="11"/><circle class="core" r="5"/>
+    <animateMotion dur="10s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.205;0.305;1" path="M115 198 L230 198 L230 198 L397 198"/>
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.195;0.205;0.285;0.305;1"/></g>
+  <g class="dot" opacity="0"><circle class="halo2" r="11"/><circle class="core" r="5"/>
+    <animateMotion dur="10s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.215;0.315;1" path="M115 198 L230 198 L230 304 L397 304"/>
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.205;0.215;0.295;0.315;1"/></g>
+  <g class="dot" opacity="0"><circle class="halo2" r="11"/><circle class="core" r="5"/>
+    <animateMotion dur="10s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;0;0.0332;0.16999;0.22709;0.22709;0.39575;0.44622;0.61355;0.61355;0.7822;0.83267;1;1;1" keyTimes="0;0.61;0.61;0.61167;0.71336;0.71623;0.76123;0.7697;0.80721;0.81561;0.86061;0.86908;0.9066;0.915;0.96;1" path="M734 288 L734 459 L443 459 L152 459"/>
+    <animate attributeName="opacity" dur="10s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.6;0.61;0.95;0.97;1"/></g>
+
+  <g id="blocks">
+<g id="b-q" class="blk in" data-box="q" data-step="1">
+  <rect class="card" x="22" y="153" width="186" height="90" rx="12"/>
+  <rect class="tile" x="36" y="167" width="26" height="26" rx="8"/>
+  <use href="#i-circle-question-mark" class="ico" x="41" y="172" width="16" height="16"/>
+  <text class="t" x="71" y="185">Queries</text>
+  <text class="s" x="36" y="207">As typed, then keywords</text>
+  <g class="chip"><rect x="36" y="215" width="84" height="18" rx="9"/><text x="43" y="227.8">tasks.query</text></g>
+  <g class="num"><circle cx="31" cy="156" r="10"/><text x="31" y="160" text-anchor="middle">1</text></g>
+  <g class="glow g-q"><rect x="19" y="150" width="192" height="96" rx="15" class="halo"/><rect x="22" y="153" width="186" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-vec" class="blk kn" data-box="vec" data-step="2">
+  <rect class="card" x="252" y="46" width="290" height="92" rx="12"/>
+  <rect class="tile" x="266" y="60" width="26" height="26" rx="8"/>
+  <use href="#i-waypoints" class="ico" x="271" y="65" width="16" height="16"/>
+  <text class="t" x="301" y="78">Vector search</text>
+  <text class="s" x="266" y="100">Finds passages that mean the same</text>
+  <g class="chip"><rect x="266" y="108" width="71" height="18" rx="9"/><text x="273" y="120.8">rag.top_k</text></g>
+  <g class="num"><circle cx="261" cy="49" r="10"/><text x="261" y="53" text-anchor="middle">2</text></g>
+  <g class="glow g-vec"><rect x="249" y="43" width="296" height="98" rx="15" class="halo"/><rect x="252" y="46" width="290" height="92" rx="12" class="edge"/></g>
+</g>
+<g id="b-kw" class="blk kn" data-box="kw" data-step="3">
+  <rect class="card" x="252" y="152" width="290" height="92" rx="12"/>
+  <rect class="tile" x="266" y="166" width="26" height="26" rx="8"/>
+  <use href="#i-text-search" class="ico" x="271" y="171" width="16" height="16"/>
+  <text class="t" x="301" y="184">Keyword search</text>
+  <text class="s" x="266" y="206">Finds passages with the same words</text>
+  <g class="chip"><rect x="266" y="214" width="154" height="18" rx="9"/><text x="273" y="226.8">rag.hybrid.bm25_weight</text></g>
+  <g class="num"><circle cx="261" cy="155" r="10"/><text x="261" y="159" text-anchor="middle">3</text></g>
+  <g class="glow g-kw"><rect x="249" y="149" width="296" height="98" rx="15" class="halo"/><rect x="252" y="152" width="290" height="92" rx="12" class="edge"/></g>
+</g>
+<g id="b-head" class="blk kn" data-box="head" data-step="4">
+  <rect class="card" x="252" y="258" width="290" height="92" rx="12"/>
+  <rect class="tile" x="266" y="272" width="26" height="26" rx="8"/>
+  <use href="#i-heading" class="ico" x="271" y="277" width="16" height="16"/>
+  <text class="t" x="301" y="290">Heading search</text>
+  <text class="s" x="266" y="312">Matches section titles and file names</text>
+  <g class="chip"><rect x="266" y="320" width="154" height="18" rx="9"/><text x="273" y="332.8">rag.hybrid.head_weight</text></g>
+  <g class="num"><circle cx="261" cy="261" r="10"/><text x="261" y="265" text-anchor="middle">4</text></g>
+  <g class="glow g-head"><rect x="249" y="255" width="296" height="98" rx="15" class="halo"/><rect x="252" y="258" width="290" height="92" rx="12" class="edge"/></g>
+</g>
+<g id="b-fuse" class="blk cx" data-box="fuse" data-step="5">
+  <rect class="card" x="606" y="82" width="256" height="232" rx="12"/>
+  <rect class="tile" x="620" y="96" width="26" height="26" rx="8"/>
+  <use href="#i-merge" class="ico" x="625" y="101" width="16" height="16"/>
+  <text class="t" x="655" y="114">Fuse rankings</text>
+  <text class="s" x="620" y="136">weight / (60 + rank), added up</text>
+  <g class="chip"><rect x="620" y="144" width="116" height="18" rx="9"/><text x="627" y="156.8">rag.fuse_queries</text></g><g class="chip"><rect x="741" y="144" width="71" height="18" rx="9"/><text x="748" y="156.8">rag.top_k</text></g>
+  <g class="num"><circle cx="615" cy="85" r="10"/><text x="615" y="89" text-anchor="middle">5</text></g>
+  <g class="glow g-fuse"><rect x="603" y="79" width="262" height="238" rx="15" class="halo"/><rect x="606" y="82" width="256" height="232" rx="12" class="edge"/></g>
+</g>
+<g id="b-rerank" class="blk md" data-box="rerank" data-step="6">
+  <rect class="card" x="606" y="414" width="256" height="90" rx="12"/>
+  <rect class="tile" x="620" y="428" width="26" height="26" rx="8"/>
+  <use href="#i-arrow-up-down" class="ico" x="625" y="433" width="16" height="16"/>
+  <text class="t" x="655" y="446">Rerank (optional)</text>
+  <text class="s" x="620" y="468">Re-reads each candidate</text>
+  <g class="chip"><rect x="620" y="476" width="116" height="18" rx="9"/><text x="627" y="488.8">rag.reranker.url</text></g>
+  <g class="num"><circle cx="615" cy="417" r="10"/><text x="615" y="421" text-anchor="middle">6</text></g>
+  <g class="glow g-rerank"><rect x="603" y="411" width="262" height="96" rx="15" class="halo"/><rect x="606" y="414" width="256" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-nb" class="blk cx" data-box="nb" data-step="7">
+  <rect class="card" x="315" y="414" width="256" height="90" rx="12"/>
+  <rect class="tile" x="329" y="428" width="26" height="26" rx="8"/>
+  <use href="#i-unfold-horizontal" class="ico" x="334" y="433" width="16" height="16"/>
+  <text class="t" x="364" y="446">Add neighbours</text>
+  <text class="s" x="329" y="468">Adds the chunks around each hit</text>
+  <g class="chip"><rect x="329" y="476" width="97" height="18" rx="9"/><text x="336" y="488.8">rag.neighbors</text></g>
+  <g class="num"><circle cx="324" cy="417" r="10"/><text x="324" y="421" text-anchor="middle">7</text></g>
+  <g class="glow g-nb"><rect x="312" y="411" width="262" height="96" rx="15" class="halo"/><rect x="315" y="414" width="256" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-num" class="blk ot" data-box="num" data-step="8">
+  <rect class="card" x="24" y="414" width="256" height="90" rx="12"/>
+  <rect class="tile" x="38" y="428" width="26" height="26" rx="8"/>
+  <use href="#i-list-ordered" class="ico" x="43" y="433" width="16" height="16"/>
+  <text class="t" x="73" y="446">Number citations</text>
+  <text class="s" x="38" y="468">[1] to [n], fixed for the run</text>
+
+  <g class="num"><circle cx="33" cy="417" r="10"/><text x="33" y="421" text-anchor="middle">8</text></g>
+  <g class="glow g-num"><rect x="21" y="411" width="262" height="96" rx="15" class="halo"/><rect x="24" y="414" width="256" height="90" rx="12" class="edge"/></g>
+</g>
+  </g>
+
+  <g id="example" aria-hidden="true">
+  <g class="cd cC strip s-vec-0" data-cand="C"><circle cx="429" cy="117" r="9"/><text x="429" y="120.8" text-anchor="middle">C</text></g>
+  <g class="cd cA strip s-vec-1" data-cand="A"><circle cx="451" cy="117" r="9"/><text x="451" y="120.8" text-anchor="middle">A</text></g>
+  <g class="cd cB strip s-vec-2" data-cand="B"><circle cx="473" cy="117" r="9"/><text x="473" y="120.8" text-anchor="middle">B</text></g>
+  <g class="cd cE strip s-vec-3" data-cand="E"><circle cx="495" cy="117" r="9"/><text x="495" y="120.8" text-anchor="middle">E</text></g>
+  <g class="cd cD strip s-vec-4" data-cand="D"><circle cx="517" cy="117" r="9"/><text x="517" y="120.8" text-anchor="middle">D</text></g>
+  <g class="cd cB strip s-kw-0" data-cand="B"><circle cx="473" cy="223" r="9"/><text x="473" y="226.8" text-anchor="middle">B</text></g>
+  <g class="cd cC strip s-kw-1" data-cand="C"><circle cx="495" cy="223" r="9"/><text x="495" y="226.8" text-anchor="middle">C</text></g>
+  <g class="cd cA strip s-kw-2" data-cand="A"><circle cx="517" cy="223" r="9"/><text x="517" y="226.8" text-anchor="middle">A</text></g>
+  <g class="cd cA strip s-head-0" data-cand="A"><circle cx="473" cy="329" r="9"/><text x="473" y="332.8" text-anchor="middle">A</text></g>
+  <g class="cd cE strip s-head-1" data-cand="E"><circle cx="495" cy="329" r="9"/><text x="495" y="332.8" text-anchor="middle">E</text></g>
+  <g class="cd cC strip s-head-2" data-cand="C"><circle cx="517" cy="329" r="9"/><text x="517" y="332.8" text-anchor="middle">C</text></g>
+  <g class="row">
+    <g class="cd cC fly-C" data-cand="C"><circle cx="634" cy="188" r="9"/><text x="634" y="191.8" text-anchor="middle">C</text></g>
+    <rect class="bar bar-0" x="654" y="184" width="138" height="8" rx="4"/>
+    <text class="sc sc-0" x="848" y="191.8" text-anchor="end">0.0202</text>
+  </g>
+  <g class="row">
+    <g class="cd cA fly-A" data-cand="A"><circle cx="634" cy="213" r="9"/><text x="634" y="216.8" text-anchor="middle">A</text></g>
+    <rect class="bar bar-1" x="654" y="209" width="137" height="8" rx="4"/>
+    <text class="sc sc-1" x="848" y="216.8" text-anchor="end">0.0201</text>
+  </g>
+  <g class="row">
+    <g class="cd cB fly-B" data-cand="B"><circle cx="634" cy="238" r="9"/><text x="634" y="241.8" text-anchor="middle">B</text></g>
+    <rect class="bar bar-2" x="654" y="234" width="110" height="8" rx="4"/>
+    <text class="sc sc-2" x="848" y="241.8" text-anchor="end">0.0161</text>
+  </g>
+  <g class="row">
+    <g class="cd cE fly-E" data-cand="E"><circle cx="634" cy="263" r="9"/><text x="634" y="266.8" text-anchor="middle">E</text></g>
+    <rect class="bar bar-3" x="654" y="259" width="81" height="8" rx="4"/>
+    <text class="sc sc-3" x="848" y="266.8" text-anchor="end">0.0118</text>
+  </g>
+  <g class="row">
+    <g class="cd cD fly-D" data-cand="D"><circle cx="634" cy="288" r="9"/><text x="634" y="291.8" text-anchor="middle">D</text></g>
+    <rect class="bar bar-4" x="654" y="284" width="52" height="8" rx="4"/>
+    <text class="sc sc-4" x="848" y="291.8" text-anchor="end">0.0077</text>
+  </g>
+  <g class="cd cA rr-A" data-cand="A"><circle cx="749" cy="485" r="9"/><text x="749" y="488.8" text-anchor="middle">A</text></g>
+  <g class="cd cC rr-C" data-cand="C"><circle cx="771" cy="485" r="9"/><text x="771" y="488.8" text-anchor="middle">C</text></g>
+  <g class="cd cE rr-E" data-cand="E"><circle cx="793" cy="485" r="9"/><text x="793" y="488.8" text-anchor="middle">E</text></g>
+  <g class="cd cB drop rr-B" data-cand="B"><circle cx="815" cy="485" r="9"/><text x="815" y="488.8" text-anchor="middle">B</text></g>
+  <g class="cd cD drop rr-D" data-cand="D"><circle cx="837" cy="485" r="9"/><text x="837" y="488.8" text-anchor="middle">D</text></g>
+  <g class="rng nb-A"><rect x="435" y="476" width="38" height="18" rx="9"/><text x="454" y="488.8" text-anchor="middle">3–5</text></g>
+  <g class="rng nb-C"><rect x="477" y="476" width="38" height="18" rx="9"/><text x="496" y="488.8" text-anchor="middle">7–9</text></g>
+  <g class="rng nb-E"><rect x="519" y="476" width="38" height="18" rx="9"/><text x="538" y="488.8" text-anchor="middle">1–3</text></g>
+  <g class="cite ct-1"><rect x="38" y="476" width="28" height="18" rx="9"/><text x="52" y="488.8" text-anchor="middle">[1]</text></g>
+  <g class="cite ct-2"><rect x="71" y="476" width="28" height="18" rx="9"/><text x="85" y="488.8" text-anchor="middle">[2]</text></g>
+  <g class="cite ct-3"><rect x="104" y="476" width="28" height="18" rx="9"/><text x="118" y="488.8" text-anchor="middle">[3]</text></g>
+
+  </g>
+</svg>
