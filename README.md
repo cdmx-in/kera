@@ -184,6 +184,38 @@ The screenshots follow your light or dark theme. They show a demo workspace for 
   </tr>
 </table>
 
+**Pipelines up close.** A scratch workspace with five invented pipelines whose scripts really ran on two runners: run times, a run that waited for a runner, the step that failed. More screens, and where each timing shows up, are in [Pipelines in pictures](docs/pipelines.md#pipelines-in-pictures).
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="docs/pipelines.md#pipelines-in-pictures"><img src="docs/images/pipelines-overview-light.png" alt="The Pipelines page with five pipelines: Invoice check failed, Nightly report with a warning, Knowledge base refresh running, Docs sync and Ticket digest OK, each with its timetable, next run and last run" width="100%"></a>
+      <br>
+      <sub><b>The list.</b> State, timetable, next run and last run for each pipeline.</sub>
+    </td>
+    <td width="50%">
+      <a href="docs/pipelines.md#a-finished-run"><picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/pipeline-run-ok-dark.png">
+        <img src="docs/images/pipeline-run-ok-light.png" alt="A finished Docs sync run: Finished OK in 1 min 35 s, a progress bar with four green segments, and a step waterfall with four steps and their durations" width="100%">
+      </picture></a>
+      <br>
+      <sub><b>A finished run.</b> Total time, the usual time, and how long each step took.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <a href="docs/pipelines.md#a-run-in-progress"><img src="docs/images/pipeline-run-live-light.png" alt="A Knowledge base refresh run in progress: Running, step 2 of 4, an elapsed clock at 2 min 23 s, and the open step with a striped bar and a growing log" width="100%"></a>
+      <br>
+      <sub><b>A run in progress.</b> The elapsed clock, the open step and its log.</sub>
+    </td>
+    <td width="50%">
+      <a href="docs/pipelines.md#a-failed-run"><img src="docs/images/pipeline-run-failed-light.png" alt="A failed Invoice check run: Failed at Validate invoices, the error in a red block, the failing step open with its log lines, and two steps skipped" width="100%"></a>
+      <br>
+      <sub><b>A failed run.</b> Which step failed, why, and the last log lines.</sub>
+    </td>
+  </tr>
+</table>
+
 <a id="architecture"></a>
 ## 🧩 Architecture
 
