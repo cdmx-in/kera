@@ -83,6 +83,20 @@ func (s *Service) stats(ctx context.Context, kids []string) (map[string]*stats, 
 	return out, rows.Err()
 }
 
+// reindexIncomplete is how many files a move to another embedding model cannot finish with (see reindexProgress):
+// 0 when no move is under way or it is still working.
+func (s *Service) reindexIncomplete(ctx context.Context, c *Collection) int {
+	to, _ := c.Meta["reindex_to"].(string)
+	if to == "" {
+		return 0
+	}
+	busy, missing, err := reindexProgress(ctx, s.db, c.ID, to)
+	if err != nil || busy {
+		return 0
+	}
+	return missing
+}
+
 // collJSON is the Open WebUI-compatible collection object plus ingestion state.
 func (s *Service) collJSON(ctx context.Context, c *Collection, st *stats, write bool) map[string]any {
 	if st == nil {
@@ -97,7 +111,7 @@ func (s *Service) collJSON(ctx context.Context, c *Collection, st *stats, write 
 	em := map[string]any(nil)
 	if c.EmbeddingModelID != nil {
 		if m, err := s.modelByID(ctx, *c.EmbeddingModelID); err == nil {
-			em = map[string]any{"id": m.ID, "connection": m.ConnectionID, "model": m.Model, "dim": m.Dim}
+			em = map[string]any{"id": m.ID, "connection": m.ConnectionID, "model": m.Model, "dim": m.Dim, "reindex_incomplete": s.reindexIncomplete(ctx, c)}
 		}
 	}
 	return map[string]any{

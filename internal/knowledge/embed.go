@@ -69,42 +69,65 @@ var knownPrefixes = map[string][2]string{
 	"multilingual-e5-large": {"passage: ", "query: "},
 }
 
-// prefixesFor returns the prefixes a new embedding_model row of model gets:
-// rag.embedding.doc_prefix and rag.embedding.query_prefix when set, else the
-// known ones, else none. ponytail: an empty setting means "automatic", so a
-// known model cannot be forced to no prefix; set a model that needs none under another name.
-func (s *Service) prefixesFor(ctx context.Context, model string) (doc, query string) {
-	name, _, _ := strings.Cut(model, ":")
-	if p, ok := knownPrefixes[name]; ok {
-		doc, query = p[0], p[1]
+// noPrefix, as the value of rag.embedding.doc_prefix or query_prefix, means
+// "no prefix at all" even for a model Kera knows; an empty setting means
+// "automatic" (the known prefix of the model, else none).
+const noPrefix = "none"
+
+// resolvePrefix turns one prefix setting into the prefix a model row gets;
+// auto is the known prefix of the model ("" when it has none).
+func resolvePrefix(setting, auto string) string {
+	switch setting {
+	case "":
+		return auto
+	case noPrefix:
+		return ""
 	}
-	var v string
-	if _ = s.settings.Get(ctx, "rag.embedding.doc_prefix", &v); v != "" {
-		doc = v
-	}
-	v = ""
-	if _ = s.settings.Get(ctx, "rag.embedding.query_prefix", &v); v != "" {
-		query = v
-	}
-	return doc, query
+	return setting
 }
 
-// syncPrefixes writes rag.embedding.doc_prefix / query_prefix, when set, to
-// the embedding model rows of a collection (its model and a reindex target).
-// A prefix change only takes effect for vectors made after it, so it is done
-// when the collection is reindexed.
+// prefixesFor returns the prefixes of model: rag.embedding.doc_prefix and
+// rag.embedding.query_prefix when set ("none" = no prefix), else the known
+// ones, else none. Used when a model row is created and by kera reindex.
+func (s *Service) prefixesFor(ctx context.Context, model string) (doc, query string) {
+	name, _, _ := strings.Cut(model, ":")
+	auto := knownPrefixes[name]
+	var d, q string
+	_ = s.settings.Get(ctx, "rag.embedding.doc_prefix", &d)
+	_ = s.settings.Get(ctx, "rag.embedding.query_prefix", &q)
+	return resolvePrefix(d, auto[0]), resolvePrefix(q, auto[1])
+}
+
+// syncPrefixes writes the prefixes the settings give (prefixesFor) to the
+// embedding model rows of a collection (its model and a reindex target), so a
+// reindex also reverts a prefix that was removed from the settings. A prefix
+// change only takes effect for vectors made after it, so it is done when the
+// collection is reindexed.
 func (s *Service) syncPrefixes(ctx context.Context, kid string) error {
-	var doc, query string
-	_ = s.settings.Get(ctx, "rag.embedding.doc_prefix", &doc)
-	_ = s.settings.Get(ctx, "rag.embedding.query_prefix", &query)
-	if doc == "" && query == "" {
-		return nil
-	}
-	if _, err := s.db.Exec(ctx, `UPDATE embedding_model SET doc_prefix = CASE WHEN $2 <> '' THEN $2 ELSE doc_prefix END,
-		query_prefix = CASE WHEN $3 <> '' THEN $3 ELSE query_prefix END
-		WHERE id IN (SELECT embedding_model_id FROM knowledge WHERE id = $1 UNION SELECT meta->>'reindex_to' FROM knowledge WHERE id = $1)`,
-		kid, doc, query); err != nil {
+	rows, err := s.db.Query(ctx, `SELECT id, model FROM embedding_model
+		WHERE id IN (SELECT embedding_model_id FROM knowledge WHERE id = $1 UNION SELECT meta->>'reindex_to' FROM knowledge WHERE id = $1)`, kid)
+	if err != nil {
 		return fmt.Errorf("embedding prefixes: %w", err)
+	}
+	type row struct{ id, model string }
+	var models []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.model); err != nil {
+			rows.Close()
+			return fmt.Errorf("embedding prefixes: %w", err)
+		}
+		models = append(models, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("embedding prefixes: %w", err)
+	}
+	for _, m := range models {
+		doc, query := s.prefixesFor(ctx, m.model)
+		if _, err := s.db.Exec(ctx, `UPDATE embedding_model SET doc_prefix = $2, query_prefix = $3 WHERE id = $1`, m.id, doc, query); err != nil {
+			return fmt.Errorf("embedding prefixes: %w", err)
+		}
 	}
 	return nil
 }

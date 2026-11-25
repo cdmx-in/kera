@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -477,8 +478,8 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 	for i, c := range calls {
 		skip[i] = st.repeated(c)
 	}
-	one := func(i int) {
-		content, imgs := e.runTool(ctx, x, table, b, calls[i], round, skip[i])
+	one := func(i int, c provider.ToolCall) {
+		content, imgs := e.runTool(ctx, x, table, b, c, round, skip[i])
 		out[i] = callResult{content, imgs}
 	}
 	if !st.parallel || len(calls) < 2 || !allReadOnly(table, calls) {
@@ -486,15 +487,19 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 			if ctx.Err() != nil {
 				break
 			}
-			one(i)
+			one(i, e.announce(x, table, calls[i]))
 		}
 		return out
 	}
+	x.run.mu.Lock()
+	first := len(x.run.tools)
+	x.run.mu.Unlock()
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxParallel)
 	for i := range calls {
 		wg.Add(1)
 		sem <- struct{}{}
+		c := e.announce(x, table, calls[i]) // here, not in the goroutine: goroutines start in any order
 		go func() {
 			defer func() {
 				if v := recover(); v != nil { // a goroutine's panic would end the server, not just this run
@@ -504,11 +509,19 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 				<-sem
 				wg.Done()
 			}()
-			one(i)
+			one(i, c)
 		}()
 	}
 	wg.Wait()
+	// the calls were recorded as they finished; the response lists them in the order the model made them
+	x.run.mu.Lock()
+	slices.SortStableFunc(x.run.tools[first:], func(a, b toolRecord) int { return cmp.Compare(callIndex(calls, a.ID), callIndex(calls, b.ID)) })
+	x.run.mu.Unlock()
 	return out
+}
+
+func callIndex(calls []provider.ToolCall, id string) int {
+	return slices.IndexFunc(calls, func(c provider.ToolCall) bool { return c.ID == id })
 }
 
 func allReadOnly(table map[string]toolEntry, calls []provider.ToolCall) bool {
@@ -521,16 +534,22 @@ func allReadOnly(table map[string]toolEntry, calls []provider.ToolCall) bool {
 	return true
 }
 
-// runTool executes one call and returns what the model reads back: the text
-// and, for a vision model, the result's images.
-// skip, when set, is the result instead of running the call (the repeat guard).
-func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, b *runBudget, c provider.ToolCall, round int, skip string) (string, []provider.Image) {
-	started := time.Now()
+// announce shows a call to the user as a step and returns it with its unset arguments dropped, ready for runTool.
+func (e *Engine) announce(x *exec, table map[string]toolEntry, c provider.ToolCall) provider.ToolCall {
 	entry, ok := table[c.Name]
 	if ok {
 		c.Arguments = dropUnsetArgs(entry.spec.Parameters, c.Arguments)
 	}
 	x.run.toolCall(c.ID, c.Name, entry.server, c.Arguments)
+	return c
+}
+
+// runTool executes one announced call and returns what the model reads back: the text
+// and, for a vision model, the result's images.
+// skip, when set, is the result instead of running the call (the repeat guard).
+func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, b *runBudget, c provider.ToolCall, round int, skip string) (string, []provider.Image) {
+	started := time.Now()
+	entry, ok := table[c.Name]
 	var res tools.Result
 	switch {
 	case !ok:

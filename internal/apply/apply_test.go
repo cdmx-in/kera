@@ -595,3 +595,41 @@ func TestApplyPinsPasswordSignInOffWithALoginProvider(t *testing.T) {
 		t.Fatalf("explicit true with a login provider: %q %v", v, err)
 	}
 }
+
+// An empty prefix value in the file is not a setting (a null, same as a missing key), so it leaves the
+// stored value alone; --prune deletes it (back to automatic), and "" writes the empty value. "none" is stored.
+func TestEmbeddingPrefixesInApply(t *testing.T) {
+	fx := setup(t)
+	ctx := context.Background()
+	stored := func(key string) string {
+		var v string
+		if err := fx.db.QueryRow(ctx, `SELECT value::text FROM config WHERE key = $1`, key).Scan(&v); err != nil {
+			return "(unset)"
+		}
+		return v
+	}
+	load := func(embedding string) *File {
+		t.Helper()
+		f, err := Parse([]byte("rag:\n  embedding: {"+embedding+"}\n"), "testdata", lookup(testEnv))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	mustApply(t, fx, load(`model: m, doc_prefix: none, query_prefix: "Q: "`), Options{})
+	if d, q := stored("rag.embedding.doc_prefix"), stored("rag.embedding.query_prefix"); d != `"none"` || q != `"Q: "` {
+		t.Fatalf("stored %s %s", d, q)
+	}
+	mustApply(t, fx, load(`model: m, doc_prefix: , query_prefix: `), Options{})
+	if d := stored("rag.embedding.doc_prefix"); d != `"none"` {
+		t.Fatalf("an empty value changed the setting: %s", d)
+	}
+	mustApply(t, fx, load(`model: m, doc_prefix: "", query_prefix: `), Options{})
+	if d := stored("rag.embedding.doc_prefix"); d != `""` {
+		t.Fatalf("an explicit empty string: %s", d)
+	}
+	mustApply(t, fx, load(`model: m`), Options{Prune: true})
+	if d, q := stored("rag.embedding.doc_prefix"), stored("rag.embedding.query_prefix"); d != "(unset)" || q != "(unset)" {
+		t.Fatalf("after --prune: %s %s, want both unset (automatic)", d, q)
+	}
+}

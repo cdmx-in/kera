@@ -57,7 +57,7 @@ The header says which step failed and why. The open step shows when it started, 
 
 ![A queued Ticket digest run: Queued, waiting for a runner, a Waiting clock at 25 s, and a note that a runner picks it up within a few seconds](images/pipeline-run-queued-light.png)
 
-A queued run has no steps yet. The clock reads **Waiting** and counts from the moment the run was queued; if no runner is online the note says so and links to the Runners page. A queued run that no runner takes within 10 minutes fails.
+A queued run has no steps yet. The clock reads **Waiting** and counts from the moment the run was queued; if no runner is online the note says so and links to the Runners page. A queued run that no runner takes within 10 minutes fails. Once a runner has taken it, the header shows a quiet fact such as "Waited 42 s to start" when the wait was 5 s or more. It is the time between `started_at` (the run was queued) and `claimed_at` (a runner took it, `null` until then and for a run started from outside); it is part of the total time, which counts from `started_at`.
 
 ### The notebook
 
@@ -302,7 +302,7 @@ The body is the file's bytes. The server checks the SHA-256 (`400 checksum_misma
 {"id": 12, "pipeline": "docs-sync", "trigger": "script", "dry_run": false,
  "status": "running", "client_done": true, "error": "",
  "source": {"host": "rad", "user": "root", "dir": "/srv/docs", "command": "kera pipeline push ...", "client": "kera v1.4.0"},
- "started_at": "...", "active_at": "...", "finished_at": null,
+ "started_at": "...", "claimed_at": null, "active_at": "...", "finished_at": null,
  "counts": {"listed": 25, "unchanged": 22, "uploaded": 3, "indexed": 25, "failed": 0, "removed": 0},
  "steps": [
    {"seq": 1, "kera": false, "key": "fetch", "name": "fetch", "status": "ok",

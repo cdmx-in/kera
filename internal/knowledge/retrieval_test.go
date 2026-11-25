@@ -255,6 +255,62 @@ func TestEmbeddingPrefixes(t *testing.T) {
 	}
 }
 
+// "none" is an explicit "no prefix" that wins over the known-model table; an
+// empty setting is automatic (the known prefix, else none); a reindex applies
+// both to the model rows it moves to, so removing a setting reverts to automatic.
+func TestEmbeddingPrefixNone(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	known := [2]string{"search_document: ", "search_query: "}
+	prefixes := func() [2]string {
+		t.Helper()
+		m, err := e.s.ensureModel(ctx, "ollama", "nomic-embed-text")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return [2]string{m.DocPrefix, m.QueryPrefix}
+	}
+	set := func(doc, query string) {
+		_ = e.st.Set(ctx, "rag.embedding.doc_prefix", doc, false)
+		_ = e.st.Set(ctx, "rag.embedding.query_prefix", query, false)
+	}
+	reindex := func(kid, model string) {
+		t.Helper()
+		if _, err := e.s.Reindex(ctx, kid, "", model); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kid := e.collection("K", docs{"a.md": "# A\nalpha"})
+
+	// a new row: none beats the known prefix on a known model, empty is automatic
+	set("none", "none")
+	m, err := e.s.ensureModel(ctx, "ollama", "mxbai-embed-large")
+	if err != nil || m.DocPrefix != "" || m.QueryPrefix != "" {
+		t.Fatalf("none on a known model: %+v, %v", m, err)
+	}
+	set("", "")
+	if got := prefixes(); got != known {
+		t.Fatalf("empty is automatic: %q", got)
+	}
+
+	// kera reindex moves the existing row to none, and back to automatic once the settings are empty again
+	set("none", "none")
+	reindex(kid, "nomic-embed-text")
+	if got := prefixes(); got != [2]string{} {
+		t.Fatalf("reindex with none: %q", got)
+	}
+	set("", "")
+	reindex(kid, "nomic-embed-text")
+	if got := prefixes(); got != known {
+		t.Fatalf("reindex back to automatic: %q", got)
+	}
+	set("none", "Q: ") // none and a value together; the plain reindex cancels the move and still applies them
+	reindex(kid, "")
+	if got := prefixes(); got != [2]string{"", "Q: "} {
+		t.Fatalf("none and a value: %q", got)
+	}
+}
+
 // query_knowledge_files numbers its passages through Call.Cite: a passage
 // found by a second search keeps its number, new ones continue; without a
 // registry each call numbers from 1.

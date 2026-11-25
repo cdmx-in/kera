@@ -24,6 +24,7 @@ import {
   syncSegments,
   typicalMs,
   usualSteps,
+  waitedText,
 } from './runview'
 
 const T0 = new Date('2026-03-10T06:00:00Z').getTime()
@@ -216,5 +217,19 @@ describe('the sentence of a run', () => {
     expect(runChip({ status: 'running', queued: false, cancel_requested: false, error: '' })).toBe('running')
     expect(runChip({ status: 'failed', queued: false, cancel_requested: false, error: 'Cancelled by an admin.' })).toBe('cancelled')
     expect(runChip({ status: 'failed', queued: false, cancel_requested: false, error: 'boom' })).toBe('failed')
+  })
+})
+
+describe('waitedText', () => {
+  it('names the wait to start once it is 5 s or more', () => {
+    expect(waitedText(run({ claimed_at: at(42) }))).toBe('Waited 42 s to start')
+    expect(waitedText(run({ claimed_at: at(5) }))).toBe('Waited 5 s to start')
+    expect(waitedText(run({ claimed_at: at(125) }))).toBe('Waited 2 min 5 s to start')
+  })
+  it('stays quiet for a short wait, a run still queued and one started from outside', () => {
+    expect(waitedText(run({ claimed_at: new Date(T0 + 4999).toISOString() }))).toBeNull()
+    expect(waitedText(run({ claimed_at: at(0) }))).toBeNull()
+    expect(waitedText(run({ claimed_at: null }))).toBeNull()
+    expect(waitedText(run())).toBeNull()
   })
 })

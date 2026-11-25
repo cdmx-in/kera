@@ -725,6 +725,67 @@ func TestParallelReadOnlyRound(t *testing.T) {
 	}
 }
 
+// revTool finishes call i after (3-i)*40 ms, so a round of four calls completes in reverse order.
+type revTool struct{}
+
+func (revTool) ID() string { return "builtin:web" }
+func (revTool) Tools(context.Context, *auth.User) ([]tools.Spec, error) {
+	return []tools.Spec{{Name: "search_web", Description: "test", Parameters: json.RawMessage(`{"type":"object","properties":{"i":{"type":"integer"}}}`)}}, nil
+}
+func (revTool) Execute(_ context.Context, c tools.Call) (tools.Result, error) {
+	var a struct{ I int }
+	_ = json.Unmarshal(c.Args, &a)
+	time.Sleep(time.Duration(3-a.I) * 40 * time.Millisecond)
+	return tools.Result{Content: fmt.Sprintf("hit-%d", a.I)}, nil
+}
+
+// Calls that ran together and finished in reverse order are still listed in the order the model made them:
+// the steps of the message, the tool_call events, kera.tool_calls of the API response and the messages sent back to the model.
+func TestParallelCallsKeepCallOrderWhateverFinishesFirst(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.pool.Exec(context.Background(), `INSERT INTO model (id, base_model_id, features) VALUES ('web', 'ctx-m', '{"web_search": true}')`); err != nil {
+		t.Fatal(err)
+	}
+	tools.Register(revTool{})
+	t.Cleanup(func() { tools.Register(inertSet("builtin:web")) })
+	m := h.ctxModel(t, func(n int, r ctxReq, s *sse) {
+		if n == 0 {
+			s.calls([3]string{"c0", "search_web", `{"i":0}`}, [3]string{"c1", "search_web", `{"i":1}`}, [3]string{"c2", "search_web", `{"i":2}`}, [3]string{"c3", "search_web", `{"i":3}`})
+			return
+		}
+		s.text("done")
+	})
+	h.set(t, map[string]any{"web.search.max_calls_per_turn": 0})
+	run := startModel(t, h, "web", &Request{Temporary: true, Features: map[string]bool{"web_search": true},
+		Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"go"`)}}})
+
+	want := []string{"c0", "c1", "c2", "c3"}
+	var recorded, stepped, announced, sent []string
+	for _, r := range run.tools {
+		recorded = append(recorded, r.ID)
+	}
+	for _, p := range run.state.Parts {
+		for _, st := range p.Steps {
+			stepped = append(stepped, st.CallID)
+		}
+	}
+	for _, ev := range run.events {
+		if ev.Type == "tool_call" {
+			announced = append(announced, fmt.Sprint(ev.Data["callId"]))
+		}
+	}
+	for _, mm := range m.requests()[1].Messages {
+		if mm["role"] == "tool" {
+			sent = append(sent, fmt.Sprint(mm["tool_call_id"]))
+		}
+	}
+	for what, got := range map[string][]string{"kera.tool_calls": recorded, "steps": stepped, "tool_call events": announced, "messages to the model": sent} {
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: %v, want %v", what, got, want)
+		}
+	}
+}
+
 func startModel(t *testing.T, h *harness, model string, req *Request) *Run {
 	t.Helper()
 	req.Model, req.StreamFormat = model, "events"

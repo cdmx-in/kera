@@ -64,7 +64,8 @@ const (
 
 // filter turns the query string into a WHERE clause and its arguments:
 //
-//	actor    an actor id, or text in the actor's email or name
+//	actor    an actor id, or text in the actor's email or name; also the failed sign-ins against that user
+//	         (they are stored with an anonymous actor and the attempted account as the target)
 //	action   action prefixes, comma-separated ("auth.,user.")
 //	target   a target id, or text in the target's name
 //	outcome  outcomes, comma-separated ("denied,failed")
@@ -79,7 +80,9 @@ func filter(r *http.Request) (string, []any, error) {
 		return "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(s) + "%"
 	}
 	if v := strings.TrimSpace(q.Get("actor")); v != "" {
-		where = append(where, fmt.Sprintf("(actor_id = %s OR actor_label ILIKE %s)", arg(v), arg(like(v))))
+		a, l := arg(v), arg(like(v))
+		where = append(where, fmt.Sprintf(`(actor_id = %[1]s OR actor_label ILIKE %[2]s OR (action = 'auth.sign_in_failed'
+			AND (target_id = %[1]s OR target_label ILIKE %[2]s OR lower(target_label) = (SELECT lower(email) FROM "user" WHERE id = %[1]s))))`, a, l))
 	}
 	if v := list(q.Get("action")); len(v) > 0 {
 		for i := range v {

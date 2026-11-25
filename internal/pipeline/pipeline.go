@@ -184,22 +184,23 @@ type run struct {
 	ScriptVersion           int
 	Runner                  string
 	StartedAt               time.Time
+	ClaimedAt               *time.Time // when a runner took a Kera-run run; nil for a run that was never queued
 	ActiveAt                time.Time
 	FinishedAt              *time.Time
 }
 
-const runCols = `id, pipeline_id, trigger, dry_run, status, client_done, targets, error, source, queued, cancel_requested, coalesce(script_version, 0), coalesce(runner_id, ''), started_at, active_at, finished_at`
+const runCols = `id, pipeline_id, trigger, dry_run, status, client_done, targets, error, source, queued, cancel_requested, coalesce(script_version, 0), coalesce(runner_id, ''), started_at, claimed_at, active_at, finished_at`
 
 func scanRun(row pgx.Row) (*run, error) {
 	r := &run{}
-	err := row.Scan(&r.ID, &r.PipelineID, &r.Trigger, &r.DryRun, &r.Status, &r.ClientDone, &r.Targets, &r.Error, &r.Source, &r.Queued, &r.CancelRequested, &r.ScriptVersion, &r.Runner, &r.StartedAt, &r.ActiveAt, &r.FinishedAt)
+	err := row.Scan(&r.ID, &r.PipelineID, &r.Trigger, &r.DryRun, &r.Status, &r.ClientDone, &r.Targets, &r.Error, &r.Source, &r.Queued, &r.CancelRequested, &r.ScriptVersion, &r.Runner, &r.StartedAt, &r.ClaimedAt, &r.ActiveAt, &r.FinishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNoRun
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan run: %w", err)
 	}
-	r.StartedAt, r.ActiveAt, r.FinishedAt = r.StartedAt.UTC(), r.ActiveAt.UTC(), utcPtr(r.FinishedAt)
+	r.StartedAt, r.ClaimedAt, r.ActiveAt, r.FinishedAt = r.StartedAt.UTC(), utcPtr(r.ClaimedAt), r.ActiveAt.UTC(), utcPtr(r.FinishedAt)
 	if r.Targets == nil {
 		r.Targets = map[string]target{}
 	}

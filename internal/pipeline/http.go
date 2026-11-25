@@ -485,7 +485,8 @@ type runOut struct {
 	Cancelling bool              `json:"cancel_requested"` // an admin asked to stop it
 	Version    int               `json:"script_version,omitempty"`
 	Runner     string            `json:"runner,omitempty"`
-	StartedAt  time.Time         `json:"started_at"`
+	StartedAt  time.Time         `json:"started_at"` // when the run was opened (for a Kera-run run: queued)
+	ClaimedAt  *time.Time        `json:"claimed_at"` // when a runner took it; claimed_at - started_at is how long it waited to start
 	ActiveAt   time.Time         `json:"active_at"`
 	FinishedAt *time.Time        `json:"finished_at"`
 	Counts     map[string]int64  `json:"counts"` // the collection steps' counts added up
@@ -513,7 +514,7 @@ func orEmpty(m map[string]string) map[string]string {
 func runView(r *run, name string, steps []step) runOut {
 	o := runOut{ID: r.ID, Pipeline: name, Trigger: r.Trigger, DryRun: r.DryRun, Status: r.Status, ClientDone: r.ClientDone, Error: r.Error, Source: orEmpty(r.Source),
 		Queued: r.Queued, Cancelling: r.CancelRequested, Version: r.ScriptVersion, Runner: r.Runner,
-		StartedAt: r.StartedAt, ActiveAt: r.ActiveAt, FinishedAt: r.FinishedAt, Counts: map[string]int64{}}
+		StartedAt: r.StartedAt, ClaimedAt: r.ClaimedAt, ActiveAt: r.ActiveAt, FinishedAt: r.FinishedAt, Counts: map[string]int64{}}
 	if steps != nil {
 		list := make([]stepOut, len(steps))
 		var cs []map[string]int64

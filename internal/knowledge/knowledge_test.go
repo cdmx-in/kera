@@ -513,6 +513,24 @@ func TestReindexKeepsTheOldModelWhileAFileHasNoNewChunks(t *testing.T) {
 	if after != before || moved != 1 {
 		t.Fatalf("chunks %d -> %d, move still pending %d: the old model must keep serving", before, after, moved)
 	}
+	// the operator is told: the collection says how many files block the move, and kera reindex prints it
+	incomplete := func() int {
+		t.Helper()
+		var got struct {
+			EmbeddingModel struct {
+				Incomplete int `json:"reindex_incomplete"`
+			} `json:"embedding_model"`
+		}
+		e.req("root", "GET", "/api/v1/knowledge/"+c.ID, nil, 200, &got)
+		return got.EmbeddingModel.Incomplete
+	}
+	var report strings.Builder
+	if err := e.s.reportStalled(ctx, &report); err != nil {
+		t.Fatal(err)
+	}
+	if n := incomplete(); n != 1 || report.String() != "Docs: 1 file could not be re-embedded; the old model is still serving\n" {
+		t.Fatalf("reindex_incomplete %d, report %q", n, report.String())
+	}
 	// Once the file has a chunk under the new model the move completes and the old chunks go.
 	if _, err := e.s.db.Exec(ctx, `INSERT INTO chunk (knowledge_id, file_id, idx, text, embedding_model_id) VALUES ($1, $2, 0, 'new', $3)`, c.ID, fid, next.ID); err != nil {
 		t.Fatal(err)
@@ -524,6 +542,10 @@ func TestReindexKeepsTheOldModelWhileAFileHasNoNewChunks(t *testing.T) {
 	_ = e.s.db.QueryRow(ctx, `SELECT count(*) FROM chunk WHERE knowledge_id = $1 AND embedding_model_id IS DISTINCT FROM $2`, c.ID, next.ID).Scan(&left)
 	if left != 0 {
 		t.Fatalf("%d old chunks left after the move finished", left)
+	}
+	report.Reset()
+	if err := e.s.reportStalled(ctx, &report); err != nil || report.Len() != 0 || incomplete() != 0 {
+		t.Fatalf("after the move finished: reindex_incomplete %d, report %q, %v", incomplete(), report.String(), err)
 	}
 }
 

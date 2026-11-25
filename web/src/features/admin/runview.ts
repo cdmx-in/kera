@@ -10,6 +10,16 @@ export function runMs(r: Pick<Run, 'started_at' | 'finished_at'>, now: number): 
   return a === null ? 0 : Math.max(0, (ms(r.finished_at) ?? now) - a)
 }
 
+/** Waits shorter than this are not worth a line in the run header. */
+const startDelayMin = 5_000
+
+/** "Waited 42 s to start": how long a Kera-run run sat queued before a runner took it, when that was 5 s or more; null otherwise (or while it is still queued). */
+export function waitedText(r: Pick<Run, 'started_at' | 'claimed_at'>): string | null {
+  const a = ms(r.started_at)
+  const b = ms(r.claimed_at)
+  return a === null || b === null || b - a < startDelayMin ? null : `Waited ${duration(r.started_at, r.claimed_at)} to start`
+}
+
 /** Length of a step: 0 for one that never started; an open one runs to `now`. */
 export function stepMs(s: Pick<Step, 'started_at' | 'finished_at'>, now: number): number {
   const a = ms(s.started_at)

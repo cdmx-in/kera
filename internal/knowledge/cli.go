@@ -133,5 +133,29 @@ func (s *Service) drain(ctx context.Context, out io.Writer) error {
 		fmt.Fprintf(out, "; %d are being indexed by a running server", busy)
 	}
 	fmt.Fprintln(out)
+	return s.reportStalled(ctx, out)
+}
+
+// reportStalled names every collection whose move to another embedding model cannot finish.
+func (s *Service) reportStalled(ctx context.Context, out io.Writer) error {
+	rows, err := s.db.Query(ctx, `SELECT id, name, meta->>'reindex_to' FROM knowledge WHERE coalesce(meta->>'reindex_to', '') <> '' ORDER BY name`)
+	if err != nil {
+		return fmt.Errorf("list moving collections: %w", err)
+	}
+	type move struct{ id, name, to string }
+	moves, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (move, error) {
+		var m move
+		return m, r.Scan(&m.id, &m.name, &m.to)
+	})
+	if err != nil {
+		return fmt.Errorf("list moving collections: %w", err)
+	}
+	for _, m := range moves {
+		if busy, missing, err := reindexProgress(ctx, s.db, m.id, m.to); err != nil {
+			return err
+		} else if !busy && missing > 0 {
+			fmt.Fprintf(out, "%s: %s\n", m.name, stalledNote(missing))
+		}
+	}
 	return nil
 }
