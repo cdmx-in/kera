@@ -8,6 +8,7 @@ Kera itself never executes a script: its image has no shell and no Docker socket
 - [Set one up](#set-one-up)
 - [The script and its files](#the-script-and-its-files)
 - [Environment and secrets](#environment-and-secrets)
+- [Notebook and checks](#notebook-and-checks)
 - [Timetable](#timetable)
 - [Cancel, limits and failures](#cancel-limits-and-failures)
 - [Alerts](#alerts)
@@ -43,6 +44,29 @@ Kera itself never executes a script: its image has no shell and no Docker socket
 Variables are stored encrypted (AES-256-GCM, from `KERA_SECRET_KEY`). A **secret** variable is write-only: the page shows that it is set, never its value, and the API never returns it. A plain variable can be read back. Names starting with `KERA_` are reserved.
 
 The value reaches the runner when it claims a run. The runner masks every secret value it knows in the run log and in its own output, in addition to the server's filter for key shapes.
+
+## Notebook and checks
+
+The Script tab works like a notebook. The script is still **one file** (the entry); its cells are separated by header lines that are plain comments:
+
+```bash
+#%% fetch data
+curl -fsS "$SOURCE_URL" -o data.json
+#%% build
+python3 "$KERA_SCRIPT_DIR/build.py"
+```
+
+Text before the first header is a first, unnamed cell. When Kera runs the script, the runner turns each header into a step marker, **one line for one line** (so line numbers in errors still match the editor): `fetch data` becomes the step `fetch-data` (step names are one word), and an empty title becomes `cell-2`. Because the headers are comments the same file also runs without the runner, just without step reporting.
+
+**Run a cell** runs it in a live **session** on a runner: one shell (`bash`) or Python process per session, in a scratch folder, so variables, imports, the working folder and files carry from cell to cell. The cell's output streams back under it. Everything a real run has is there (the stored environment with secrets masked in the output, `KERA_URL`, `KERA_SCRIPT_DIR`), plus `KERA_TEST=1`.
+
+- **Nothing real changes.** The session is backed by a **dry-run** pipeline run, so `kera pipeline push` inside a cell lists and plans but never uploads or removes anything. By default the cells work in a scratch folder, not the pipeline's workspace; ticking **Use the real workspace** lets them read (and change) the real files, with a warning.
+- **Stop** interrupts a Python cell and keeps the session's variables. A shell cannot be interrupted without ending the cell's remaining commands, so Stop restarts the shell and its variables are lost.
+- **Run all** runs every cell in order and stops at the first one that fails.
+- A session closes when you leave the page, after 20 minutes without a cell, or after 3 hours. It does not hold up scheduled runs.
+- Test sessions appear in the run list as **Notebook** runs; they are never the pipeline's "last run" and do not count for Late or alerts.
+
+**Checks** run on the runner, so they use the same tools as the script: `bash -n` and ShellCheck for `.sh` files, a Python syntax parse for `.py` files. The page runs them a moment after you stop typing and marks the problem lines.
 
 ## Timetable
 
