@@ -420,7 +420,7 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
               icon={Library}
               tone="sky"
               title="Collections"
-              hint="Where the synced files go. The pipeline can write to these and nothing else."
+              hint="Where the synced files go. The pipeline can write to these and nothing else. Optional: a script that only runs tasks or reports runs needs none."
               aside={targets.length > 0 ? <Badge tone="accent">{targets.length} selected</Badge> : undefined}
             >
               <fieldset className="space-y-1.5">

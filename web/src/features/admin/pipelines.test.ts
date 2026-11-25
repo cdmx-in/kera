@@ -292,12 +292,17 @@ describe('runCommand and envFile', () => {
 })
 
 describe('validatePipeline', () => {
+  it('does not require a collection: script-only and reporting pipelines write to none', () => {
+    expect(validatePipeline({ name: 'alert-ai', every: '0', targets: [], fresh: [] }, true)).toEqual({})
+    expect(validatePipeline({ name: 'alert-ai', every: '0', targets: [], fresh: [], mode: 'kera' }, false)).toEqual({})
+  })
+
   const ok = { name: 'docs-sync', every: '1440', targets: ['k1'], fresh: [] as string[] }
   it('accepts a good form, and lets an edit keep its name', () => {
     expect(validatePipeline(ok, true)).toEqual({})
     expect(validatePipeline({ ...ok, name: 'Not A Slug' }, false)).toEqual({})
   })
-  it('checks the name, the interval and the collections', () => {
+  it('checks the name and the interval', () => {
     expect(validatePipeline({ ...ok, name: 'Docs Sync' }, true).name).toBeTruthy()
     expect(validatePipeline({ ...ok, name: '-docs' }, true).name).toBeTruthy()
     expect(validatePipeline({ ...ok, name: 'a'.repeat(41) }, true).name).toBeTruthy()
@@ -306,7 +311,7 @@ describe('validatePipeline', () => {
     expect(validatePipeline({ ...ok, every: '-1' }, true).every_minutes).toBeTruthy()
     expect(validatePipeline({ ...ok, every: '525601' }, true).every_minutes).toBeTruthy()
     expect(validatePipeline({ ...ok, every: '0' }, true)).toEqual({})
-    expect(validatePipeline({ ...ok, targets: [] }, true).targets).toBeTruthy()
+    expect(validatePipeline({ ...ok, targets: [] }, true)).toEqual({}) // collections are optional
     expect(validatePipeline({ ...ok, targets: [], fresh: ['Product docs'] }, true)).toEqual({})
   })
 })

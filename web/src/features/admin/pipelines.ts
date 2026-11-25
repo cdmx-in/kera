@@ -282,7 +282,7 @@ export function validatePipeline(f: { name: string; every: string; targets: stri
   if (isNew && !slugRe.test(f.name)) e.name = 'Use 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit'
   const n = Number(f.every)
   if (f.mode !== 'kera' && (f.every.trim() === '' || !Number.isInteger(n) || n < 0 || n > 525600)) e.every_minutes = 'A whole number of minutes, 0 (no expectation) to 525600'
-  if (!f.targets.length && !f.fresh.length) e.targets = 'Pick at least one collection, or name a new one'
+  // no collection is fine: a pipeline that only runs a script or reports runs (alert-ai) writes to none
   return e
 }
 
