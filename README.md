@@ -84,7 +84,7 @@ How it differs from Open WebUI, LibreChat, AnythingLLM and Onyx, row by row and 
 - 🧰 **Tools.** OpenAPI and MCP tool servers, with per-user OAuth for services like Google Sheets, Gmail and Docs. Built-in web search (SearXNG, Brave or DuckDuckGo).
 - 🧪 **Code interpreter.** With a Jupyter server, runs Python, Node.js, TypeScript, Bash, PHP, Ruby, Go, Java and R, and returns the files and images the code creates.
 - 🖥️ **Cowork.** A task mode in which the model drives a sandboxed Linux desktop (browser and shell). You watch it live and can take over at any time.
-- **Scheduled tasks.** Save a Cowork task with a timetable (hourly, daily, weekdays, weekly) and the server runs it by itself as you, with your connected apps. Each run is a normal task, and the task keeps notes from run to run.
+- **Scheduled tasks.** A step-by-step wizard (goal, assistant, apps, schedule, review) starts a Cowork task or saves it with a timetable (hourly, daily, weekdays, weekly); the server runs it by itself as you, with your connected apps. A read-only test run on the last step shows what it would do before anything is scheduled. Each run is a normal task, and the task keeps notes from run to run (see [docs/cowork.md](docs/cowork.md)).
 - 🧠 **Memory.** Automatic memory capture, which users manage in Settings.
 - 🛡️ **Guardrails.** Personal-data redaction or blocking, prompt-injection and blocklist checks, and optional moderation on every model call, with an audit trail (see below).
 - 🧾 **Audit log.** Who did what and when: sign-ins, admin changes, stored secrets, pipelines and sharing, one plain sentence per event under Admin > Audit, with filters, a CSV export and a retention setting. Names of what changed are kept, values never are (see [docs/audit.md](docs/audit.md)).

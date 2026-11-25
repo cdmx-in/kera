@@ -33,6 +33,12 @@ const unattendedPrompt = "This run is unattended: no person is watching and nobo
 	"do not retry it; leave that step undone and say so. When you cannot make progress, stop and report what blocked you. " +
 	"Your final message is what the person reads later, so make it a complete report: what you did, what changed, what failed."
 
+// readOnlyPrompt is added to test runs (Request.ReadOnly).
+const readOnlyPrompt = "This is a test run: you can only read. Tools that change data, send messages or write to an app are not available, " +
+	"and nothing you do here is kept. Do every part of the goal that only reads. For each step that would change something, " +
+	"do not look for a way around it: say exactly what you would have done (which app, which item, which values). " +
+	"Start your final report with \"Test run\", then list what you read, what you found and what you would have changed."
+
 // renderVars fills the {{...}} placeholders of a system prompt.
 func renderVars(prompt string, u *auth.User, p userProfile, now time.Time) string {
 	if !strings.Contains(prompt, "{{") {
@@ -62,7 +68,10 @@ func renderVars(prompt string, u *auth.User, p userProfile, now time.Time) strin
 // buildContext assembles the system prompt, knowledge, attachments and the
 // provider-native tools.
 func (e *Engine) buildContext(ctx context.Context, x *exec) error {
-	// prepended in reverse: preset persona, then the cowork prompt, then the unattended note, then the rest
+	// prepended in reverse: preset persona, then the cowork prompt, then the unattended and test notes, then the rest
+	if x.req.ReadOnly {
+		x.system = append([]string{readOnlyPrompt}, x.system...)
+	}
 	if x.req.Unattended {
 		x.system = append([]string{unattendedPrompt}, x.system...)
 	}

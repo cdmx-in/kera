@@ -128,12 +128,13 @@ func fakeModel(t *testing.T) *httptest.Server {
 
 // fakeTools is a tool provider: fake_tool reports status, optionally asks.
 type fakeTools struct {
-	ask bool
+	ask      bool
+	readOnly bool // fake_tool declares itself read-only
 }
 
 func (f *fakeTools) ID() string { return "fake-server" }
 func (f *fakeTools) Tools(context.Context, *auth.User) ([]tools.Spec, error) {
-	return []tools.Spec{{Name: "fake_tool", Description: "test", Parameters: json.RawMessage(`{"type":"object"}`)}}, nil
+	return []tools.Spec{{Name: "fake_tool", Description: "test", Parameters: json.RawMessage(`{"type":"object"}`), ReadOnly: f.readOnly}}, nil
 }
 func (f *fakeTools) Execute(ctx context.Context, c tools.Call) (tools.Result, error) {
 	c.Emit(tools.Event{Type: "status", Data: map[string]any{"description": "working", "action": "tool_call"}})

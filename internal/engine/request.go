@@ -36,6 +36,9 @@ type Request struct {
 	// its links are no consent and the guardrails and hooks still see it.
 	Unattended bool   `json:"-"`
 	Preface    string `json:"-"`
+	// ReadOnly is a test run: only tools their server declares read-only (and the built-in sets
+	// that change nothing outside the run) are offered, so a trial cannot write to a connected app.
+	ReadOnly bool `json:"-"`
 }
 
 // UserMessage is the new user turn the web app sends with a completion.

@@ -99,6 +99,8 @@ func Mount(a *app.App) error {
 	} {
 		a.Server.Handle(p, a.Auth.Permission("features.cowork_schedule", f))
 	}
+	a.Server.Handle("POST /api/v1/cowork/schedules/preview", a.Auth.Permission("features.cowork_schedule", http.HandlerFunc(s.preview)))
+	a.Server.Handle("POST /api/v1/cowork/test-run", a.Auth.Permission("features.cowork", http.HandlerFunc(s.testRun)))
 	go s.loop()
 	return nil
 }
@@ -334,39 +336,61 @@ func (f *form) apply(t *Task) {
 	}
 }
 
-// validate checks a task as it would be stored and keeps only the tool servers
-// that work for the owner today (so a saved task never asks for an app that is
-// not connected). It cleans Features and Files into storable form.
-func (s *scheduler) validate(ctx context.Context, u *auth.User, t *Task) error {
-	bad := func(field, msg string) error { return api.FieldErr(field, "invalid", msg) }
+// invalid is a field error for the form.
+func invalid(field, msg string) error { return api.FieldErr(field, "invalid", msg) }
+
+// checkGoal checks what the task does (instruction, assistant, switches, files) and cleans Features and
+// Files into storable form. A scheduled task and a test run share it.
+func checkGoal(t *Task) error {
 	switch {
-	case t.Title == "" || len([]rune(t.Title)) > 120:
-		return bad("title", "Give the task a name of up to 120 characters")
 	case t.Prompt == "" || len(t.Prompt) > 50000:
-		return bad("prompt", "Write what the assistant should do (up to 50,000 characters)")
+		return invalid("prompt", "Write what the assistant should do (up to 50,000 characters)")
 	case t.ModelID == "":
-		return bad("model_id", "Choose an assistant")
-	case !slices.Contains([]string{"hourly", "daily", "weekdays", "weekly"}, t.Frequency):
-		return bad("frequency", "Frequency must be hourly, daily, weekdays or weekly")
-	case t.AtMinute < 0 || t.AtMinute > 1439 || (t.Frequency == "hourly" && t.AtMinute > 59):
-		return bad("at_minute", "That time of day is not valid")
-	case t.Weekday < 0 || t.Weekday > 6:
-		return bad("weekday", "Weekday must be 0 (Sunday) to 6 (Saturday)")
-	case t.Timezone == "" || t.Timezone == "Local":
-		return bad("timezone", "Time zone is required")
-	}
-	if _, err := time.LoadLocation(t.Timezone); err != nil {
-		return bad("timezone", "Unknown time zone")
+		return invalid("model_id", "Choose an assistant")
 	}
 	if len(t.Features) == 0 || string(t.Features) == "null" {
 		t.Features = nil
 	} else if err := json.Unmarshal(t.Features, &map[string]bool{}); err != nil {
-		return bad("features", "Features must be an object of true or false values")
+		return invalid("features", "Features must be an object of true or false values")
 	}
 	if len(t.Files) == 0 || string(t.Files) == "null" {
 		t.Files = json.RawMessage(`[]`)
 	} else if err := json.Unmarshal(t.Files, &[]map[string]any{}); err != nil {
-		return bad("files", "Files must be a list")
+		return invalid("files", "Files must be a list")
+	}
+	return nil
+}
+
+// checkTiming checks the timetable fields. The preview shares it with saving.
+func checkTiming(t *Task) error {
+	switch {
+	case !slices.Contains([]string{"hourly", "daily", "weekdays", "weekly"}, t.Frequency):
+		return invalid("frequency", "Frequency must be hourly, daily, weekdays or weekly")
+	case t.AtMinute < 0 || t.AtMinute > 1439 || (t.Frequency == "hourly" && t.AtMinute > 59):
+		return invalid("at_minute", "That time of day is not valid")
+	case t.Weekday < 0 || t.Weekday > 6:
+		return invalid("weekday", "Weekday must be 0 (Sunday) to 6 (Saturday)")
+	case t.Timezone == "" || t.Timezone == "Local":
+		return invalid("timezone", "Time zone is required")
+	}
+	if _, err := time.LoadLocation(t.Timezone); err != nil {
+		return invalid("timezone", "Unknown time zone")
+	}
+	return nil
+}
+
+// validate checks a task as it would be stored and keeps only the tool servers
+// that work for the owner today (so a saved task never asks for an app that is
+// not connected).
+func (s *scheduler) validate(ctx context.Context, u *auth.User, t *Task) error {
+	if t.Title == "" || len([]rune(t.Title)) > 120 {
+		return invalid("title", "Give the task a name of up to 120 characters")
+	}
+	if err := checkGoal(t); err != nil {
+		return err
+	}
+	if err := checkTiming(t); err != nil {
+		return err
 	}
 	usable, err := s.e.UsableServers(ctx, u, t.ModelID, cleanIDs(t.ToolIDs))
 	if err != nil {

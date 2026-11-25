@@ -103,6 +103,9 @@ func fakeModel(t *testing.T, unblock chan struct{}) *httptest.Server {
 			}
 		}
 		reply := "hello"
+		if strings.Contains(last, "echo system") { // which run notes the system prompt carries (not the text: it would echo "block")
+			reply = fmt.Sprintf("test=%v unattended=%v", strings.Contains(sys, "This is a test run: you can only read"), strings.Contains(sys, "This run is unattended"))
+		}
 		if strings.Contains(sys, "Reply with JSON") {
 			reply = `{"title":"t","tags":[],"follow_ups":[],"queries":[]}`
 		}

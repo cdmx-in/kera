@@ -18,6 +18,9 @@ type Spec struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Parameters  json.RawMessage `json:"parameters"` // JSON schema object
+	// ReadOnly means the tool only reads, as its server declared it (an MCP readOnlyHint, an OpenAPI GET).
+	// Unset means unknown, and a read-only run (a test) treats unknown as a write.
+	ReadOnly bool `json:"-"`
 }
 
 // Event is a progress message a tool emits while it runs. Types match the

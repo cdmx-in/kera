@@ -12,12 +12,12 @@ function userMessage(text: string, files: FileRef[], parentId: string | null): M
   return { id: newId(), parentId, childrenIds: [], role: 'user', createdAt: Date.now(), status: 'done', parts: [{ type: 'text', text }], files, sources: [], pendingCalls: [] }
 }
 
-async function ensureChat(model: string): Promise<string | null> {
+async function ensureChat(model: string, title = 'New Chat'): Promise<string | null> {
   const st = useChat.getState()
   if (st.temporary || st.chatId) return st.chatId
-  const chat = await api<{ id: string }>('/api/v1/chats/new', { method: 'POST', json: { chat: { title: 'New Chat', models: [model], history: { messages: {}, currentId: null }, ...(st.mode && { mode: st.mode }) } } })
+  const chat = await api<{ id: string }>('/api/v1/chats/new', { method: 'POST', json: { chat: { title, models: [model], history: { messages: {}, currentId: null }, ...(st.mode && { mode: st.mode }) } } })
   useChat.getState().setChatId(chat.id)
-  useChat.getState().setTitle('New Chat')
+  useChat.getState().setTitle(title)
   void queryClient.invalidateQueries({ queryKey: ['chats'] })
   return chat.id
 }
@@ -27,8 +27,8 @@ function run(user: Message, chatId: string | null) {
   startCompletion({ chatId, temporary: useChat.getState().temporary, model: c.model, user, assistantId: newId(), features: c.features, toolIds: c.toolIds })
 }
 
-/** Sends a new user turn after the active leaf. New chats get their id here (temporary chats have none). */
-export async function sendMessage(text: string, files: FileRef[] = []): Promise<{ ok: boolean; chatId: string | null }> {
+/** Sends a new user turn after the active leaf. New chats get their id here (temporary chats have none) and the given title instead of the one the assistant writes. */
+export async function sendMessage(text: string, files: FileRef[] = [], title?: string): Promise<{ ok: boolean; chatId: string | null }> {
   const model = useComposer.getState().model
   if (!model) {
     toast('Select a model first', 'error')
@@ -36,7 +36,7 @@ export async function sendMessage(text: string, files: FileRef[] = []): Promise<
   }
   let chatId: string | null
   try {
-    chatId = await ensureChat(model)
+    chatId = await ensureChat(model, title)
   } catch (e) {
     toast(`Could not start the chat: ${(e as Error).message}`, 'error')
     return { ok: false, chatId: null }

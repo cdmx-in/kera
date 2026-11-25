@@ -348,6 +348,9 @@ type mcpTool struct {
 	Title       string          `json:"title"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"inputSchema"`
+	Annotations struct {
+		ReadOnlyHint bool `json:"readOnlyHint"`
+	} `json:"annotations"`
 }
 
 func (s *Server) listMCP(ctx context.Context, u *auth.User, tok string) (cachedSpecs, error) {
@@ -390,7 +393,7 @@ func toSpec(t mcpTool) tools.Spec {
 	if len(bytes.TrimSpace(params)) == 0 || string(params) == "null" {
 		params = json.RawMessage(`{"type":"object","properties":{}}`)
 	}
-	return tools.Spec{Name: t.Name, Description: desc, Parameters: params}
+	return tools.Spec{Name: t.Name, Description: desc, Parameters: params, ReadOnly: t.Annotations.ReadOnlyHint}
 }
 
 func (s *Server) callMCP(ctx context.Context, c tools.Call, tok string) (tools.Result, error) {

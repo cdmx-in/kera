@@ -137,6 +137,7 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 	table := map[string]toolEntry{}
 	var names []string
 	listed := map[string]bool{} // requested servers that offered at least one function
+	x.withheld = nil
 	add := func(p tools.Provider) {
 		specs, err := p.Tools(ctx, x.u)
 		if err != nil {
@@ -150,6 +151,10 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 		}
 		for _, s := range specs {
 			if e.toolDisabled(x, s.Name) {
+				continue
+			}
+			if x.req.ReadOnly && !s.ReadOnly && !testSets[p.ID()] {
+				x.withheld = append(x.withheld, s.Name)
 				continue
 			}
 			if _, dup := table[s.Name]; !dup {
@@ -459,6 +464,23 @@ func (st *loopState) repeated(c provider.ToolCall) string {
 
 // readOnlySets are the built-in sets whose calls never change anything, so one round's calls may run together.
 var readOnlySets = map[string]bool{"builtin:web": true, "builtin:knowledge": true, "builtin:files": true}
+
+// testSets are the built-in sets a read-only run keeps: none of them changes anything outside the run
+// (the code set runs in the sandbox). Memory is left out on purpose: it would change what is remembered.
+// ponytail: a tool server's tool is kept only when the server declares it read-only (Spec.ReadOnly), so a server
+// that annotates nothing offers nothing to a test; add a per-server list in its config if that proves too strict.
+var testSets = map[string]bool{"builtin:core": true, "builtin:files": true, "builtin:knowledge": true, "builtin:web": true, "builtin:skills": true, "builtin:code": true}
+
+// withheldNote tells the reader of a test run which tools were not offered.
+func withheldNote(names []string) string {
+	names = slices.Compact(slices.Sorted(slices.Values(names)))
+	more := ""
+	if len(names) > 8 {
+		more = fmt.Sprintf(" and %d more", len(names)-8)
+		names = names[:8]
+	}
+	return fmt.Sprintf("Test run: tools that may change things are not available (%s%s)", strings.Join(names, ", "), more)
+}
 
 // maxParallel bounds the calls of one round that run at once.
 // ponytail: a constant; make it a setting if a deployment's search or file backends want more.
