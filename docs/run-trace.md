@@ -13,7 +13,9 @@ A step records:
 | model round | the model, duration, prompt, completion and cached prompt tokens (cached only when the server reports them: OpenAI-compatible `prompt_tokens_details.cached_tokens` and Responses `input_tokens_details.cached_tokens`; Ollama does not), the stop reason (`stop`, `tool_calls`, `length`), a `truncated` flag for `length`, messages and characters sent, tools offered and the size of their definitions, characters of text and number of tool calls the model returned |
 | tool call | the tool name and server, characters of arguments and of the result, `is_error`, `truncated` (set when a tool server cut the result at its size cap), files and images returned |
 | retrieval | collections searched, whole documents added, passages found, the top scores, whether the search was reranked |
-| compaction | turns summarised, estimated tokens before and after |
+| compaction | turns summarised, estimated tokens before and after. Context management adds steps of this kind inside a run: `clear`, `summarise_run`, `spill` and `overflow_suspected` (see [context-management.md](context-management.md)) |
+
+Model calls that were retried, and the closing report at the tool-round cap (stop reason `round_cap`), are recorded as their own model steps; see [context-management.md](context-management.md).
 
 A failed model call stores a short code (`provider_error`, `timeout`, `cancelled`...) and the HTTP status, never the server's message.
 

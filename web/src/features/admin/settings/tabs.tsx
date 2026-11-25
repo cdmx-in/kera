@@ -43,17 +43,34 @@ export function ChatTab() {
       sections={[
         {
           title: 'Context compaction',
-          hint: 'Summarise older messages when a conversation grows past the threshold.',
+          hint: 'Between turns: summarise older messages when a conversation grows past the threshold. The threshold is 70% of the model window when the model declares one (params.context_window or num_ctx) and for local models; the setting below is used for other models.',
           fields: [
             f('chat.compaction.enable', 'bool', undefined, 'Enable compaction'),
-            f('chat.compaction.threshold', 'int', 'Estimated tokens before compacting.', 'Threshold (tokens)'),
+            f('chat.compaction.threshold', 'int', 'Estimated tokens before compacting; also the window assumed for a hosted model that declares none.', 'Threshold (tokens)'),
             f('chat.compaction.retention', 'int', 'Recent messages kept verbatim.', 'Messages kept'),
+            f('chat.context.digest', 'bool', 'Add a short list of the tool calls an earlier reply made to that reply when it is sent again. Hosted models get tool names only.', 'Earlier steps digest'),
+          ],
+        },
+        {
+          title: 'Context inside a run',
+          hint: 'While a run calls tools: long results are stored as files, old results are cleared when the window fills, and as a last step the run so far is summarised. See docs/context-management.md.',
+          fields: [
+            f('chat.context.enable', 'bool', 'Track the prompt size and clear or summarise before the window is full.', 'Manage the context'),
+            f('chat.context.window_local', 'int', 'Window assumed for a local model that declares none (params.context_window or num_ctx).', 'Local window (tokens)'),
+            f('chat.context.clear_at', 'float', 'Share of the window at which old tool results are cleared.', 'Start clearing at'),
+            f('chat.context.clear_to', 'float', 'Share of the window clearing stops at.', 'Clear down to'),
+            f('chat.context.keep_rounds', 'int', 'Newest tool rounds whose results are never cleared.', 'Rounds kept'),
+            f('chat.context.compact', 'bool', 'Summarise the run so far when clearing is not enough (uses the task model).', 'Summarise as a last step'),
+            f('tools.spill_chars', 'int', 'A longer tool result is stored as a file the model reads with view_file. 0 = one eighth of the window (at least 8,000), -1 = never.', 'Spill results longer than (characters)'),
           ],
         },
         {
           title: 'Tools and models',
           fields: [
-            f('chat.max_tool_iterations', 'int', 'Tool-calling rounds per reply before the model must answer.'),
+            f('chat.max_tool_iterations', 'int', 'Tool-calling rounds per reply before the model is asked for a final report without tools.'),
+            f('chat.model_retries', 'int', 'Extra tries of a model call that failed before it answered (429, 5xx, connection, timeout). 0 = none.', 'Model call retries'),
+            f('chat.repeat_limit', 'int', 'The same tool with the same arguments this many times in a row is not run again. 0 = off.', 'Repeat limit'),
+            f('chat.parallel_tools', 'bool', 'Run the calls of one round together when all are read-only built-in tools (web, knowledge, files).', 'Parallel read-only calls'),
             f('chat.local_lock', 'bool', 'A chat that used a local model cannot switch to a cloud model.', 'Local lock'),
             f('compat.throwaway_chats', 'bool', 'Accept the create-chat, complete, delete flow older API clients use.', 'Throwaway API chats'),
           ],
@@ -93,6 +110,11 @@ export function WebTab() {
         {
           title: 'Page reading',
           fields: [f('web.fetch.max_chars', 'int', 'Characters kept from a fetched page.', 'Max characters'), f('web.fetch.max_calls_per_turn', 'int', undefined, 'Page reads per reply')],
+        },
+        {
+          title: 'Tasks',
+          hint: 'A task (Cowork) runs many rounds, so it has its own web budget per run. Chat replies keep the per-reply limits above.',
+          fields: [f('cowork.web.max_searches', 'int', undefined, 'Searches per task'), f('cowork.web.max_fetches', 'int', undefined, 'Page reads per task')],
         },
       ]}
     />
