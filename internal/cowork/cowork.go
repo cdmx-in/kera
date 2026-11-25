@@ -59,7 +59,8 @@ type Task struct {
 	Title     string `json:"title"`
 	Status    string `json:"status"` // running | needs_input | done | stopped | error
 	Model     string `json:"model"`
-	Files     int    `json:"files"` // distinct files on assistant messages
+	Files     int    `json:"files"`          // distinct files on assistant messages
+	Test      bool   `json:"test,omitempty"` // a test run from the new-task wizard (read-only, nothing scheduled)
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
 }
@@ -80,7 +81,7 @@ func List(ctx context.Context, db *pgxpool.Pool, userID string) ([]Task, error) 
 			(SELECT count(DISTINCT f->>'id') FROM message am
 				CROSS JOIN jsonb_array_elements(CASE WHEN jsonb_typeof(am.files) = 'array' THEN am.files ELSE '[]' END) f
 				WHERE am.chat_id = c.id AND am.role = 'assistant' AND f->>'id' <> ''),
-			c.created_at, c.updated_at
+			c.created_at, c.updated_at, c.meta ? 'test_run'
 		FROM chat c LEFT JOIN message m ON m.id = c.current_message_id AND m.chat_id = c.id
 		WHERE c.user_id = $1 AND c.mode = 'cowork' AND NOT c.archived
 		ORDER BY c.updated_at DESC, c.id LIMIT 200`, userID)
@@ -92,7 +93,7 @@ func List(ctx context.Context, db *pgxpool.Pool, userID string) ([]Task, error) 
 	for rows.Next() {
 		var t Task
 		var cr, up time.Time
-		if err := rows.Scan(&t.ID, &t.Title, &t.Status, &t.Model, &t.Files, &cr, &up); err != nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.Status, &t.Model, &t.Files, &cr, &up, &t.Test); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 		t.CreatedAt, t.UpdatedAt = cr.Unix(), up.Unix()
