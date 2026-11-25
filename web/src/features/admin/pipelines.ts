@@ -775,7 +775,7 @@ export interface Runner {
   created_at: string
 }
 
-export const noRunnerText = 'No runner is connected, so scheduled runs will fail after 10 minutes. Create one under Runners.'
+export const noRunnerText = 'No runner is connected, so scheduled runs will fail after 10 minutes. Start the runner service (docker compose up -d runner) or create one under Runners.'
 
 /** The runner settings for a container's env file. */
 export const runnerEnvFile = (origin: string, token: string) => `KERA_URL=${origin}\nKERA_RUNNER_TOKEN=${token}`

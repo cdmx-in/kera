@@ -34,13 +34,16 @@ func (rn *runner) post(ctx context.Context, path string, in, out any) (int, erro
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+rn.token)
+	req.Header.Set("Authorization", "Bearer "+rn.bearer())
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := rn.hc.Do(req)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		rn.reloadToken()
+	}
 	if resp.StatusCode == http.StatusOK && out != nil {
 		return resp.StatusCode, json.NewDecoder(resp.Body).Decode(out)
 	}

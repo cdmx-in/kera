@@ -49,7 +49,7 @@ func (s *Service) runnerOnline(ctx context.Context) bool {
 	return n > 0
 }
 
-var errNoRunner = api.Errf(http.StatusConflict, "no_runner", "No runner is connected, so nothing can run or be checked. Create one under Admin > Pipelines > Runners.")
+var errNoRunner = api.Errf(http.StatusConflict, "no_runner", "No runner is connected, so nothing can run or be checked. Start the runner service (docker compose up -d runner) or create one under Admin > Pipelines > Runners.")
 
 // Sessions (browser) ------------------------------------------------------------------------------------
 
