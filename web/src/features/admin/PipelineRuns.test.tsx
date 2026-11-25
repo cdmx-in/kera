@@ -180,8 +180,8 @@ describe('History', () => {
 describe('WhereItRuns', () => {
   const run = { started_at: new Date(Date.now() - 3600_000).toISOString() }
   it('shows machine, folder and command, and says Kera does not start it', () => {
-    const html = renderToStaticMarkup(<WhereItRuns run={{ ...run, source: { host: 'rad.cdmx.in', user: 'root', dir: '/root/ollama/astra-kb', command: 'bash refresh.sh', client: 'kera v1.2.1' } }} />)
-    for (const s of ['root@rad.cdmx.in', '/root/ollama/astra-kb', 'bash refresh.sh', 'kera v1.2.1', 'Kera does not start this']) expect(html).toContain(s)
+    const html = renderToStaticMarkup(<WhereItRuns run={{ ...run, source: { host: 'build-01.example.com', user: 'root', dir: '/srv/kb/docs', command: 'bash refresh.sh', client: 'kera v1.2.1' } }} />)
+    for (const s of ['root@build-01.example.com', '/srv/kb/docs', 'bash refresh.sh', 'kera v1.2.1', 'Kera does not start this']) expect(html).toContain(s)
   })
   it('says so when nothing was reported (a pipeline that never ran, or an older run)', () => {
     expect(renderToStaticMarkup(<WhereItRuns run={null} />)).toContain('Not reported yet')

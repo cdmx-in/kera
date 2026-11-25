@@ -477,7 +477,7 @@ const stats: [string, string, 'text-green-700 dark:text-green-400' | 'text-amber
   ['waiting', 'Waiting', 'text-accent', false],
 ]
 
-/** "root@rad.cdmx.in: bash /srv/refresh.sh" for the run header; empty for a run that reported nothing. */
+/** "root@build-01.example.com: bash /srv/refresh.sh" for the run header; empty for a run that reported nothing. */
 export function runWhere(run: Pick<Run, 'source'>): string {
   const s = run.source ?? {}
   const who = [s.user, s.host].filter(Boolean).join('@')
