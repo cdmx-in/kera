@@ -321,6 +321,12 @@ describe('RunSummary', () => {
     expect(h).toContain('script v3')
     expect(h).toContain('Runner build-server')
   })
+  it('says how long a Kera-run run waited for a runner, only when that was 5 s or more', () => {
+    expect(header(run({ claimed_at: at('00:42') }))).toContain('Waited 42 s to start')
+    expect(header(run({ claimed_at: at('00:04') }))).not.toContain('Waited')
+    expect(header(run({ queued: true }))).not.toContain('Waited')
+    expect(header(run({}))).not.toContain('Waited')
+  })
   it('sums the state up in one sentence that is announced, next to a big clock', () => {
     const h = header(run({}), { steps: [step({ seq: 1, name: 'fetch-docs', status: 'running', finished_at: null })] })
     expect(h).toContain('aria-live="polite"')

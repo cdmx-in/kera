@@ -59,8 +59,14 @@ func TestKeraRunTimetableQueuesOnceAndRunnerClaims(t *testing.T) {
 	if n := e.count(`SELECT count(*) FROM pipeline_run WHERE queued AND trigger = 'schedule' AND script_version = 1`); n != 1 {
 		t.Fatalf("slot queued %d times", n)
 	}
+	var queued struct{ Runs []runOut }
+	e.call(e.admin, "GET", "/api/v1/admin/pipelines/docs/runs", nil, http.StatusOK, &queued)
+	if len(queued.Runs) != 1 || !queued.Runs[0].Queued || queued.Runs[0].ClaimedAt != nil {
+		t.Fatalf("a queued run has no claimed_at: %+v", queued.Runs)
+	}
 
 	var j job
+	e.clk.set(e.clk.now().Add(42 * time.Second)) // the runner takes 42 s to pick it up
 	e.call(tok, "POST", "/api/v1/runner/claim", map[string]any{"version": "v9", "host": "box"}, http.StatusOK, &j)
 	if j.Pipeline != "docs" || j.Entry != "run.sh" || j.Files["run.sh"] != "echo hi\n" || !strings.HasPrefix(j.Token, "kj-") {
 		t.Fatalf("job: %+v", j)
@@ -77,6 +83,10 @@ func TestKeraRunTimetableQueuesOnceAndRunnerClaims(t *testing.T) {
 	e.call(j.Token, "GET", runPath, nil, http.StatusOK, &rv)
 	if rv.Version != 1 || rv.Queued || rv.Source["client"] == "" {
 		t.Fatalf("run: %+v", rv)
+	}
+	// the run says when it was queued and when a runner took it, so the page can show how long it waited
+	if rv.ClaimedAt == nil || rv.ClaimedAt.Sub(rv.StartedAt) != 42*time.Second {
+		t.Fatalf("started_at %v, claimed_at %v: want 42 s apart", rv.StartedAt, rv.ClaimedAt)
 	}
 	e.call(j.Token, "GET", "/api/v1/pipelines/docs/runs/"+itoa(j.Run+1), nil, http.StatusUnauthorized, nil)
 	other, _ := e.mkPipe("other")

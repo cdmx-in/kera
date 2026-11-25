@@ -1,13 +1,13 @@
 // The head of the run view: one sentence of state, a big stopwatch, a progress rail with one segment per step, and quiet facts.
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { Ban, CalendarClock, FileCode2, Loader2, MousePointerClick, NotebookPen, Server, Terminal, Upload, type LucideIcon } from 'lucide-react'
+import { Ban, CalendarClock, Clock, FileCode2, Loader2, MousePointerClick, NotebookPen, Server, Terminal, Upload, type LucideIcon } from 'lucide-react'
 import { cx } from '@/lib/format'
 import { Btn } from './ui'
 import { runnersUrl } from './Pipelines'
 import { relative, when } from './settings/Integrations'
 import { cancellable, duration, isNotebookRun, scriptLabel, stageTitle, triggerLabel, type Run, type Stage, type Step } from './pipelines'
-import { clock, isCancelled, isClosedByAdmin, orderedSteps, runChip, runMs, runSentence, stepsDone } from './runview'
+import { clock, isCancelled, isClosedByAdmin, orderedSteps, runChip, runMs, runSentence, stepsDone, waitedText } from './runview'
 import { fillOf, inkOf, StatusChip, statusTone, statusWord } from './status'
 
 /** "root@build-01.example.com: bash /srv/refresh.sh" for the run header; empty for a run that reported nothing. */
@@ -92,6 +92,7 @@ export function RunSummary({
   const who = [src.user, src.host].filter(Boolean).join('@')
   const Trig = triggerIcon[run.trigger]
   const slow = typical !== null && took > typical * 1.3 && took - typical > 30_000
+  const waited = waitedText(run)
   return (
     <section className="@container relative overflow-hidden rounded-2xl border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04)]" data-testid="run-header" data-status={run.status}>
       <span aria-hidden className={cx('absolute inset-x-0 top-0 h-[3px]', fillOf[tone], chip === 'running' && 'bg-[linear-gradient(45deg,rgb(255_255_255/0.28)_25%,transparent_25%,transparent_50%,rgb(255_255_255/0.28)_50%,rgb(255_255_255/0.28)_75%,transparent_75%)] [background-size:1rem_1rem] motion-safe:animate-stripes')} />
@@ -202,6 +203,11 @@ export function RunSummary({
                 Runner {runner}
               </Meta>
             ) : null}
+            {waited && (
+              <Meta icon={Clock} title="Time between the run being queued and a runner taking it; it is part of the total time" testId="run-waited">
+                {waited}
+              </Meta>
+            )}
             {who && (
               <Meta mono title={where} testId="run-where">
                 {who}

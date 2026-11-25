@@ -41,7 +41,10 @@ export interface Run {
   error: string
   /** where the script runs, as it reported when it opened the run (host, user, dir, command, client); empty for older runs */
   source?: Partial<Record<'host' | 'user' | 'dir' | 'command' | 'client', string>>
+  /** when the run was opened; for a Kera-run run, when it was queued */
   started_at: string
+  /** Kera-run: when a runner took the run; null while it is queued and for a run started from outside */
+  claimed_at?: string | null
   active_at: string
   finished_at: string | null
   /** Kera-run: opened by the timetable or Run now, waiting for a runner to claim it (status is still running) */
