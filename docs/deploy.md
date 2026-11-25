@@ -249,6 +249,7 @@ The accounts are the ones in the backup: an admin that `./init.sh` printed on a 
 ```sh
 docker compose exec kera kera secrets check
 docker compose stop kera
+umask 077   # the key files must not be readable by other users
 sed -n 's/^KERA_SECRET_KEY=//p' .env > old.key
 openssl rand -hex 32 > new.key
 docker compose run --rm --no-deps -v "$PWD/old.key:/old.key:ro" -v "$PWD/new.key:/new.key:ro" \
