@@ -235,7 +235,7 @@ From your message to the saved reply. The shaded boxes are the guardrails and th
 flowchart TD
     ask["User message"] --> context["Build context"]
     context --> mode{"Knowledge mode"}
-    mode -->|"retrieve"| retrieve["Search the collections"]
+    mode -->|"retrieve"| retrieve["Retrieve passages"]
     mode -->|"full: whole documents"| place["Place passages"]
     mode -->|"tools: nothing added"| guardIn["Guardrails in"]
     retrieve --> place
@@ -243,7 +243,7 @@ flowchart TD
     guardIn --> model["Call the model"]
     model --> calls{"Tool calls?"}
     calls -->|"yes"| tools["Run tool calls"]
-    tools --> window["Keep within window"]
+    tools --> window["Fit to window"]
     window -->|"next round"| guardIn
     calls -->|"no, or the round cap"| answer["Answer with citations"]
     answer --> guardOut["Guardrails out"]

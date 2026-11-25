@@ -89,7 +89,7 @@ export const RRF_K = 60
 export type DocId = 'answers' | 'retrieval' | 'context' | 'trace' | 'audit' | 'guardrails'
 const REPO = 'https://github.com/cdmx-in/kera/blob/main/'
 export const DOCS: Record<DocId, { title: string; path: string; blurb: string }> = {
-  answers: { title: 'How Kera answers', path: 'docs/how-it-answers.md', blurb: 'This page as Mermaid diagrams, for reading on GitHub.' },
+  answers: { title: 'How Kera answers', path: 'docs/how-it-answers.md', blurb: 'This page as animated diagrams, for reading on GitHub.' },
   retrieval: { title: 'How knowledge search works', path: 'docs/retrieval.md', blurb: 'The ranking steps, their settings, what an upgrade needs, and how to check a change on your own questions.' },
   context: { title: 'Context management inside a run', path: 'docs/context-management.md', blurb: 'Window tracking, spilling, clearing, mid-run summaries, retries, the round cap and the repeat guard.' },
   trace: { title: 'Run trace and prompt layout', path: 'docs/run-trace.md', blurb: 'What each step of a trace records, and where retrieved passages go in the prompt.' },
@@ -169,7 +169,7 @@ export const FLOW: Box[] = [
   },
   {
     id: 'retrieve',
-    short: 'Search the collections',
+    short: 'Retrieve passages',
     title: 'Retrieve passages',
     summary: 'Vector, keyword and heading search, fused, optionally reranked, widened and numbered.',
     what: [
@@ -240,7 +240,7 @@ export const FLOW: Box[] = [
   },
   {
     id: 'window',
-    short: 'Keep within window',
+    short: 'Fit to window',
     title: 'Keep the prompt inside the window',
     summary: 'Spill long results to files, clear old results, then summarise the run.',
     what: [

@@ -10,7 +10,7 @@ Kera answers in two stages. First it builds the prompt and, if the assistant has
 flowchart TD
     ask["User message"] --> context["Build context"]
     context --> mode{"Knowledge mode"}
-    mode -->|"retrieve"| retrieve["Search the collections"]
+    mode -->|"retrieve"| retrieve["Retrieve passages"]
     mode -->|"full: whole documents"| place["Place passages"]
     mode -->|"tools: nothing added"| guardIn["Guardrails in"]
     retrieve --> place
@@ -18,7 +18,7 @@ flowchart TD
     guardIn --> model["Call the model"]
     model --> calls{"Tool calls?"}
     calls -->|"yes"| tools["Run tool calls"]
-    tools --> window["Keep within window"]
+    tools --> window["Fit to window"]
     window -->|"next round"| guardIn
     calls -->|"no, or the round cap"| answer["Answer with citations"]
     answer --> guardOut["Guardrails out"]
@@ -620,7 +620,7 @@ This repository has no built-in evaluation screen. The way to measure a retrieva
 
 ## E. Read more
 
-- [How Kera answers](how-it-answers.md): This page as Mermaid diagrams, for reading on GitHub.
+- [How Kera answers](how-it-answers.md): This page as animated diagrams, for reading on GitHub.
 - [How knowledge search works](retrieval.md): The ranking steps, their settings, what an upgrade needs, and how to check a change on your own questions.
 - [Context management inside a run](context-management.md): Window tracking, spilling, clearing, mid-run summaries, retries, the round cap and the repeat guard.
 - [Run trace and prompt layout](run-trace.md): What each step of a trace records, and where retrieved passages go in the prompt.
