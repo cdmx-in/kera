@@ -88,7 +88,7 @@ How it differs from Open WebUI, LibreChat, AnythingLLM and Onyx, row by row and 
 - 🧠 **Memory.** Automatic memory capture, which users manage in Settings.
 - 🛡️ **Guardrails.** Personal-data redaction or blocking, prompt-injection and blocklist checks, and optional moderation on every model call, with an audit trail (see below).
 - 🔗 **Integrations.** Scheduled directory sync from Google Workspace: users come in, departments become groups, and suspended or deleted users are disabled (see [docs/integrations.md](docs/integrations.md)).
-- 🔄 **Pipelines.** Keep a knowledge collection in sync with a source on a schedule, from your own script or with one command. A flow view shows each run step by step, with its logs and errors (see [docs/pipelines.md](docs/pipelines.md)).
+- 🔄 **Pipelines.** Keep a knowledge collection in sync with a source on a schedule, from your own script or with one command. A flow view shows each run step by step, with its logs and errors (see [docs/pipelines.md](docs/pipelines.md)). Or let Kera run the script too: the Compose stack includes a runner, so a timetable, a notebook editor and checks work with no setup ([docs/kera-run-pipelines.md](docs/kera-run-pipelines.md)).
 - 🎨 **Branding.** Your own name, logos and colours, set from the admin console.
 
 <a id="screenshots"></a>

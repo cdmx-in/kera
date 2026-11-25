@@ -1,4 +1,5 @@
-# Kera: the app, Postgres 18 with pgvector, and the extract service that reads PDF, DOCX, PPTX and ODT uploads.
+# Kera: the app, Postgres 18 with pgvector, the extract service that reads PDF, DOCX, PPTX and ODT uploads, and the runner
+# that executes pipeline scripts written in the admin pages (Kera-run pipelines; docs/kera-run-pipelines.md).
 #   KERA_ADMIN_EMAIL=you@example.com ./init.sh   # writes .env with random secrets and your first sign-in password
 #                                                (or: cp .env.example .env and edit)
 #   docker compose up -d
@@ -35,8 +36,12 @@ services:
       KERA_TRUSTED_PROXIES: ${KERA_TRUSTED_PROXIES:-}
       # The default of Admin > Settings > Retrieval > Extractor URL; a value saved there wins. Set it empty in .env to not use the extract service.
       KERA_EXTRACTOR_URL: ${KERA_EXTRACTOR_URL-http://extract:8000}
+      # Where Kera keeps the token of the "builtin" runner below (made at the first start). Remove it with the runner service.
+      KERA_RUNNER_TOKEN_FILE: /run/kera-runner/token
     extra_hosts: ["host.docker.internal:host-gateway"]
-    volumes: [kera_data:/data]
+    volumes:
+      - kera_data:/data
+      - kera_runner_token:/run/kera-runner   # Kera makes the runner's token here; the runner service reads it
     # All interfaces by default, so a LAN or VPS user can reach it; KERA_BIND=127.0.0.1 when a proxy on this host fronts it.
     ports: ["${KERA_BIND:-0.0.0.0}:${KERA_PORT:-8080}:8080"]
     healthcheck:
@@ -66,6 +71,32 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    restart: unless-stopped
+
+  # Runs the scripts of Kera-run pipelines (sidecars/runner): the Script tab's runs, notebook cells and checks. It signs in with a
+  # token Kera makes itself (the kera_runner_token volume), so there is nothing to create or paste. It only calls Kera: no published
+  # port, no Docker socket, not root, and its only writable places are /work (workspaces, kept) and /tmp. Scripts can reach the
+  # network like any container on this stack; give them more (mounts, networks) only on purpose.
+  runner:
+    image: ${KERA_RUNNER_IMAGE:-ghcr.io/cdmx-in/kera-runner:latest}
+    # Before the image is published for your version, or on a platform it does not cover, `docker compose up` builds it from this checkout.
+    build:
+      context: ../sidecars/runner
+      args: {KERA_IMAGE: "${KERA_IMAGE:-ghcr.io/cdmx-in/kera:latest}"}
+    depends_on:
+      kera: {condition: service_healthy}
+    environment:
+      KERA_URL: http://kera:8080
+      KERA_RUNNER_TOKEN_FILE: /run/kera-runner/token
+    volumes:
+      - kera_runner_token:/run/kera-runner:ro
+      - kera_runner_work:/work
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {memory: 1g}
     restart: unless-stopped
 
   # ---- profile "ollama": models on CPU, no account needed. Needs OLLAMA_BASE_URL=http://ollama:11434 in .env ----
@@ -206,5 +237,7 @@ services:
 volumes:
   kera_pgdata:
   kera_data:
+  kera_runner_token:
+  kera_runner_work:
   litellm_pgdata:
   ollama_models:

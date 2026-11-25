@@ -10,7 +10,7 @@ docker compose up -d
 
 Open http://localhost:8080 and sign in with that email and the printed password. The first start takes about a minute (Postgres sets itself up); `docker compose ps` shows `healthy` when Kera is ready.
 
-The stack has three services: `kera`, its Postgres `kera-db`, and `extract`, which reads PDF, DOCX, PPTX and ODT uploads and OCRs scanned pages ([Document extraction](#document-extraction)). Kera finds `extract` by itself; there is nothing to set up.
+The stack has four services: `kera`, its Postgres `kera-db`, `extract`, which reads PDF, DOCX, PPTX and ODT uploads and OCRs scanned pages ([Document extraction](#document-extraction)), and `runner`, which runs the scripts of pipelines that Kera starts itself ([Pipelines run by Kera](#pipelines-run-by-kera)). Kera finds both by itself; there is nothing to set up.
 
 Without `KERA_ADMIN_EMAIL`, `./init.sh` writes the same `.env` and prints how to get an admin. Before the first start you can delete `.env` and run it again with the variable. At any time while Kera has no users, you can add `KERA_ADMIN_EMAIL` and `KERA_ADMIN_PASSWORD` (10 or more characters) to `.env` and run `docker compose up -d`. Or run `docker compose exec kera kera user login-link you@example.com` for a one-time sign-in link.
 
@@ -152,6 +152,20 @@ services:
 | `extractor: HTTP 422: could not read .pdf file` | The file is damaged or password-protected. |
 | `extractor: HTTP 415: unsupported type .doc` | Save the file as `.docx`. |
 
+## Pipelines run by Kera
+
+The `runner` service ([sidecars/runner](../sidecars/runner/Dockerfile)) executes the scripts of Kera-run pipelines ([how they work](kera-run-pipelines.md)): the runs on a timetable and from Run now, the notebook cells and the checks on the Script tab. It just works: Kera makes the runner's token itself at its first start and keeps it in the `kera_runner_token` volume, which the runner reads, so nothing goes into `.env` and the runner shows up as `builtin` under Admin > Pipelines > Runners. Open Admin > Pipelines, make a pipeline and choose **How it runs: Run by Kera**.
+
+**What a script can touch.** The runner is not root (uid 10002), publishes no port and has no Docker socket. A script sees `/work`, one folder per pipeline in the `kera_runner_work` volume that stays between runs, and `/tmp`; it can reach the network like any container of the stack. To let scripts read a folder, add a volume to the `runner` service in a `docker-compose.override.yml`, read-only where you can (`/srv/docs:/repos/docs:ro`); a folder they write to must be writable by uid 10002.
+
+**Image, memory.** Compose pulls `ghcr.io/cdmx-in/kera-runner` (`KERA_RUNNER_IMAGE` changes it; amd64 and arm64): 290 MB on disk, with bash, ShellCheck, git and Python. Idle it uses about 30 MB; the compose file caps it at 1 GB (`deploy.resources.limits.memory`), raise that for scripts that need more. Before the image is published for your checkout, `docker compose up -d` builds it from `sidecars/runner`, as for `extract`.
+
+**Upgrading.** An install from before the runner existed needs nothing in `.env`: after `git pull`, `docker compose pull && docker compose up -d` adds the service and its two volumes and restarts Kera with the token file.
+
+**Another runner**, on another machine or with other mounts: Admin > Pipelines > Runners > New runner, copy the `kr-` token (shown once), and start [sidecars/runner/docker-compose.example.yml](../sidecars/runner/docker-compose.example.yml) there with `KERA_URL` and `KERA_RUNNER_TOKEN` set. Rotating the token of `builtin` on that page updates the file too, so the built-in runner keeps working.
+
+**Turn it off.** `docker compose up -d --scale runner=0` stops it, and `docker compose stop runner` does too until the next `up -d`. To drop it for good delete the `runner:` block and the `KERA_RUNNER_TOKEN_FILE` line of `kera` from the compose file, then delete `builtin` under Admin > Pipelines > Runners (Kera makes it again at every start while that variable is set). Kera-run pipelines then wait for another runner: a queued run that nobody claims fails after 10 minutes.
+
 ## Config as code
 
 Anything in Admin > Settings can also live in a YAML file. `docker compose exec kera kera export` prints the current configuration (secrets as `${NAME}`). Apply a file, after a dry run:
@@ -179,12 +193,12 @@ With nginx, answers stream, so turn buffering off for the location: `proxy_pass 
 
 ## What it needs
 
-Measured idle: Kera about 20 MB of memory (a burst of sign-ins can take up to 4 x 64 MiB for a moment: each password check holds 64 MiB, and at most 4 run at once, fewer on a machine with fewer cores), its Postgres about 50 MB, the `extract` service about 33 MB (more while it reads a file, see [Document extraction](#document-extraction)), LiteLLM about 700 MB, Ollama about 3 GB with `llama3.2:3b` loaded (the model sits in memory). Disk: Kera's database starts around 50 MB; the `extract` image is 301 MB (about 113 MB to download); the `ollama` profile adds 5 GB for the image and 2.3 GB for the models; LiteLLM's image is 1.4 GB.
+Measured idle: Kera about 20 MB of memory (a burst of sign-ins can take up to 4 x 64 MiB for a moment: each password check holds 64 MiB, and at most 4 run at once, fewer on a machine with fewer cores), its Postgres about 50 MB, the `extract` service about 33 MB (more while it reads a file, see [Document extraction](#document-extraction)), the `runner` about 30 MB (more while a script runs, see [Pipelines run by Kera](#pipelines-run-by-kera)), LiteLLM about 700 MB, Ollama about 3 GB with `llama3.2:3b` loaded (the model sits in memory). Disk: Kera's database starts around 50 MB; the `extract` image is 301 MB (about 113 MB to download) and the `runner` image 290 MB; the `ollama` profile adds 5 GB for the image and 2.3 GB for the models; LiteLLM's image is 1.4 GB.
 
 ## Ports, data, backup
 
-- Published: Kera on `8080` on every network interface (change the port with `KERA_PORT`, the interface with `KERA_BIND`) and, with the `litellm` profile, LiteLLM on `127.0.0.1:4000` (`LITELLM_PORT`). The databases, the `extract` service and Ollama are only reachable inside the stack.
-- Volumes: `kera_pgdata` (the database), `kera_data` (uploaded files, branding), `litellm_pgdata`, `ollama_models`. Compose prefixes them with the project name, which is the folder name unless you set `COMPOSE_PROJECT_NAME` or `-p`: by default `deploy_kera_pgdata` and `deploy_kera_data`. `docker volume ls` shows the names on your machine; use them in place of `deploy_` in the commands below.
+- Published: Kera on `8080` on every network interface (change the port with `KERA_PORT`, the interface with `KERA_BIND`) and, with the `litellm` profile, LiteLLM on `127.0.0.1:4000` (`LITELLM_PORT`). The databases, the `extract` and `runner` services and Ollama are only reachable inside the stack.
+- Volumes: `kera_pgdata` (the database), `kera_data` (uploaded files, branding), `kera_runner_token` (the built-in runner's token, made by Kera), `kera_runner_work` (the workspaces of Kera-run pipelines), `litellm_pgdata`, `ollama_models`. Compose prefixes them with the project name, which is the folder name unless you set `COMPOSE_PROJECT_NAME` or `-p`: by default `deploy_kera_pgdata` and `deploy_kera_data`. `docker volume ls` shows the names on your machine; use them in place of `deploy_` in the commands below.
 - `docker compose down` keeps all data. `docker compose down -v` deletes it.
 
 Back up the database and the uploads, and keep `.env` somewhere safe: it holds `KERA_SECRET_KEY`, which encrypts the API keys and secrets Kera stores and signs the sign-in sessions, and `KERA_DB_PASSWORD`. A backup without it cannot restore those. Take the two archives at about the same time, since the database lists the uploaded files.
@@ -226,7 +240,7 @@ The accounts are the ones in the backup: an admin that `./init.sh` printed on a 
 
 ### Upgrade
 
-Upgrade with `docker compose pull && docker compose up -d`; database migrations run on start. An install from before the `extract` service existed gets it by updating the checkout (`git pull`) and running `docker compose up -d`: Kera uses it with no setting changed, and files that failed earlier have a Retry button.
+Upgrade with `docker compose pull && docker compose up -d`; database migrations run on start. An install from before the `extract` service existed gets it by updating the checkout (`git pull`) and running `docker compose up -d`: Kera uses it with no setting changed, and files that failed earlier have a Retry button. The same goes for the `runner` service ([Pipelines run by Kera](#pipelines-run-by-kera)).
 
 ## Troubleshooting
 
@@ -244,6 +258,8 @@ Upgrade with `docker compose pull && docker compose up -d`; database migrations 
 | No models in the picker | Admin: Admin > Settings > Connections > Test shows why. Other users: see the note on models above. |
 | A PDF, DOCX, PPTX or ODT upload fails, or the card under Admin > Settings > Retrieval > Extractor URL is red | See the table in [Document extraction](#document-extraction): it lists what the file says and what to do. `docker compose logs extract` shows the service's side. |
 | `docker compose pull` stops with `denied` for `kera-extract` | The extractor image is not published for your checkout. `docker compose pull --ignore-buildable`, then `docker compose up -d`, which builds it from `sidecars/extract`. |
+| A pipeline run stays queued, or Admin > Pipelines says no runner is connected | `docker compose ps runner` and `docker compose logs runner`. "waiting for the token" means Kera has not written the token file: `docker compose logs kera` says why, and `permission denied` for `/run/kera-runner` means the `kera_runner_token` volume was made before the current Kera image (`docker compose down`, `docker volume rm` the volume, `docker compose up -d`). "Kera refused the runner token" that does not go away means the `builtin` runner was deleted under Admin > Pipelines > Runners: `docker compose restart kera` makes it again. |
+| `docker compose pull` stops with `denied` for `kera-runner` | The runner image is not published for your checkout. `docker compose pull --ignore-buildable`, then `docker compose up -d`, which builds it from `sidecars/runner`. |
 | Web search fails with `search engine answered HTTP 403` | The SearXNG that Kera asks does not allow the JSON format. The `searxng` profile turns it on in `deploy/searxng/settings.yml`; for a SearXNG of your own add `json` to its `search.formats`. |
 | Web search fails with `no such host` or `connection refused` for `searxng` | The service is not running: `docker compose ps searxng` (it needs `searxng` in `COMPOSE_PROFILES`, see [Web search with SearXNG](#web-search-with-searxng)) and `docker compose logs searxng`. |
 | A Knowledge upload fails with "model not found" | The embedding model is not pulled: `ollama pull nomic-embed-text` (with the `ollama` profile it is downloaded at first start; watch `docker compose logs -f ollama-pull`). |

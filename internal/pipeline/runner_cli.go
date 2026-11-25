@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	runnerUsage = `  kera runner             run scripts that Kera queues (Admin > Pipelines): reads KERA_URL, KERA_RUNNER_TOKEN, KERA_RUNNER_WORK (default /work)
+	runnerUsage = `  kera runner             run scripts that Kera queues (Admin > Pipelines): reads KERA_URL, KERA_RUNNER_TOKEN or KERA_RUNNER_TOKEN_FILE, KERA_RUNNER_WORK (default /work)
 `
 	scriptLimit = 3 * time.Hour // the server closes a run after this too
 	minMaskLen  = 6             // shorter values are not masked in logs: they would hide ordinary words
@@ -39,12 +39,15 @@ const (
 const RunnerUsage = runnerUsage
 
 type runner struct {
-	url, token, work, host string
-	tm                     timing
-	wait                   time.Duration // how long one claim waits for work
-	cancelEvery            time.Duration
-	out, errw              io.Writer
-	hc                     *http.Client
+	url, work, host string
+	tmu             sync.Mutex // guards token
+	token           string
+	tokenFile       string // where the token is re-read from after Kera refuses it (KERA_RUNNER_TOKEN_FILE); "" when it came from the environment
+	tm              timing
+	wait            time.Duration // how long one claim waits for work
+	cancelEvery     time.Duration
+	out, errw       io.Writer
+	hc              *http.Client
 
 	smu      sync.Mutex       // guards sessions
 	sessions map[string]*sess // live notebook sessions (runner_session.go)
@@ -55,11 +58,17 @@ func RunnerCommand(ctx context.Context, stdout, stderr io.Writer) error {
 	host, _ := os.Hostname()
 	rn := &runner{url: strings.TrimRight(os.Getenv("KERA_URL"), "/"), token: os.Getenv("KERA_RUNNER_TOKEN"), work: os.Getenv("KERA_RUNNER_WORK"),
 		host: host, tm: defaultTiming, wait: claimWaitMax, cancelEvery: 5 * time.Second, out: stdout, errw: stderr, hc: &http.Client{Timeout: claimWaitMax + 20*time.Second}}
+	if rn.token == "" {
+		rn.tokenFile = os.Getenv("KERA_RUNNER_TOKEN_FILE")
+	}
 	if rn.work == "" {
 		rn.work = "/work"
 	}
-	if rn.url == "" || rn.token == "" {
-		return errors.New("kera runner: KERA_URL and KERA_RUNNER_TOKEN must be set (create the token under Admin > Pipelines > Runners)")
+	if rn.url == "" || (rn.token == "" && rn.tokenFile == "") {
+		return errors.New("kera runner: KERA_URL and KERA_RUNNER_TOKEN (or KERA_RUNNER_TOKEN_FILE) must be set (create the token under Admin > Pipelines > Runners)")
+	}
+	if rn.tokenFile != "" && !rn.waitForToken(ctx, 2*time.Second) {
+		return nil
 	}
 	fmt.Fprintf(stdout, "kera runner %s: waiting for work from %s (workspace %s)\n", version.Version, rn.url, rn.work)
 	go rn.interactive(ctx) // notebook sessions and checks, beside the loop below that runs scheduled runs
@@ -80,6 +89,45 @@ func RunnerCommand(ctx context.Context, stdout, stderr io.Writer) error {
 	return nil
 }
 
+// bearer is the token to send.
+func (rn *runner) bearer() string {
+	rn.tmu.Lock()
+	defer rn.tmu.Unlock()
+	return rn.token
+}
+
+// reloadToken re-reads the token file (Kera rotated it, or made it after this runner started). Without a file it does nothing.
+func (rn *runner) reloadToken() {
+	if rn.tokenFile == "" {
+		return
+	}
+	if b, err := os.ReadFile(rn.tokenFile); err == nil {
+		if tok := strings.TrimSpace(string(b)); tok != "" {
+			rn.tmu.Lock()
+			rn.token = tok
+			rn.tmu.Unlock()
+		}
+	}
+}
+
+// waitForToken blocks until the token file has a token: Kera writes it when it starts, which may be after this runner.
+// It reports false when ctx ended first.
+func (rn *runner) waitForToken(ctx context.Context, poll time.Duration) bool {
+	for n := 0; ; n++ {
+		if rn.reloadToken(); rn.bearer() != "" {
+			return true
+		}
+		if n%15 == 0 {
+			fmt.Fprintf(rn.errw, "kera runner: waiting for the token in %s (Kera writes it when it starts)\n", rn.tokenFile)
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(poll):
+		}
+	}
+}
+
 // once asks for a job and, when there is one, runs it to the end. It reports whether a job ran.
 func (rn *runner) once(ctx context.Context) (bool, error) {
 	j, err := rn.claim(ctx)
@@ -96,7 +144,7 @@ func (rn *runner) claim(ctx context.Context) (*job, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+rn.token)
+	req.Header.Set("Authorization", "Bearer "+rn.bearer())
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := rn.hc.Do(req)
 	if err != nil {
@@ -110,6 +158,7 @@ func (rn *runner) claim(ctx context.Context) (*job, error) {
 		j := &job{}
 		return j, json.NewDecoder(resp.Body).Decode(j)
 	case http.StatusUnauthorized:
+		rn.reloadToken() // the next try uses a rotated token from the file
 		return nil, errors.New("Kera refused the runner token (rotated or deleted?)")
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 300))

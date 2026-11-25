@@ -11,10 +11,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_
 RUN apt-get update && apt-get install -y --no-install-recommends bash shellcheck git tar gzip diffutils findutils curl ca-certificates sqlite3 openssh-client tini \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=kera /usr/local/bin/kera /usr/local/bin/kera
+# Not root: a script is code from the admin pages, and the default stack gives it nothing but /work. uid 10002 owns /work, so a new named volume
+# mounted there is writable; folders you mount yourself (bind mounts) must be writable by 10002, or set `user:` in the compose file.
+RUN groupadd -g 10002 runner && useradd -u 10002 -g runner -d /work -M -s /usr/sbin/nologin runner
 # /work holds one folder per pipeline (the workspace a script keeps its state in) and .venvs (packages, cached by requirements.txt)
-RUN mkdir -p /work && chmod 0777 /work
+RUN mkdir -p /work && chown 10002:10002 /work && chmod 0777 /work
 WORKDIR /work
 ENV KERA_RUNNER_WORK=/work
-# no inbound port: the runner only calls Kera. It runs as the user the compose file names, because the folders it mounts have owners.
+USER 10002:10002
+# no inbound port: the runner only calls Kera
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/kera"]
 CMD ["runner"]
