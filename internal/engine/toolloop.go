@@ -3,10 +3,15 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -130,11 +135,11 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 	table := map[string]toolEntry{}
 	var names []string
 	listed := map[string]bool{} // requested servers that offered at least one function
-	for _, p := range order {
+	add := func(p tools.Provider) {
 		specs, err := p.Tools(ctx, x.u)
 		if err != nil {
 			slog.Warn("tool provider unavailable", "provider", p.ID(), "err", err)
-			continue
+			return
 		}
 		server := ""
 		if !strings.HasPrefix(p.ID(), "builtin:") {
@@ -149,6 +154,20 @@ func (e *Engine) assembleTools(ctx context.Context, x *exec) (map[string]toolEnt
 				names = append(names, s.Name)
 			}
 			table[s.Name] = toolEntry{spec: s, provider: p, server: server}
+		}
+	}
+	for _, p := range order {
+		add(p)
+	}
+	// A result too long for the prompt is stored as a file the model reads back with view_file, so the
+	// file tools join whenever the run has tools that can return long text (not only the core set).
+	if v, set := x.m.Tools.Builtins["files"]; !set || v {
+		if _, has := table["view_file"]; !has && e.spillOn(ctx) && hasWorkTools(table) {
+			for _, p := range all {
+				if p.ID() == "builtin:files" {
+					add(p)
+				}
+			}
 		}
 	}
 	// A server the run asked for but that did not join (not connected, local-only on
@@ -196,6 +215,23 @@ func (e *Engine) UsableServers(ctx context.Context, u *auth.User, model string, 
 	return out, nil
 }
 
+// spillOn reports whether long tool results may be stored as files (tools.spill_chars is not negative).
+func (e *Engine) spillOn(ctx context.Context) bool {
+	n := 0
+	e.setting(ctx, "tools.spill_chars", &n)
+	return n >= 0
+}
+
+// hasWorkTools reports whether the run has a tool besides the core set (time, questions, chat search).
+func hasWorkTools(table map[string]toolEntry) bool {
+	for _, t := range table {
+		if t.provider.ID() != "builtin:core" {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *Engine) toolDisabled(x *exec, name string) bool {
 	if v, ok := x.m.Tools.Builtins[name]; ok && !v {
 		return true
@@ -205,6 +241,10 @@ func (e *Engine) toolDisabled(x *exec, name string) bool {
 	}
 	return containsStr(x.m.Tools.Disabled, name) || x.disabledNames[name]
 }
+
+// finalReportNote is added at the round cap, in place of one more round of tool calls.
+const finalReportNote = "[The limit on tool rounds was reached. Do not call any more tools. Write the final report now: what was done, " +
+	"what was found, and what is still open or could not be done.]"
 
 // loop calls the model and runs tool calls until it answers without one.
 func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, specs []provider.Tool) error {
@@ -217,22 +257,38 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 		maxIter, key = 100, "cowork.max_tool_iterations"
 	}
 	e.setting(ctx, key, &maxIter)
+	maxIter = max(maxIter, 1)
 	msgs := x.messages()
+	toolJSON, _ := json.Marshal(specs)
+	_, hasView := table["view_file"]
+	b := e.newBudget(ctx, x, len(toolJSON), len(msgs), hasView)
+	st := e.newLoopState(ctx)
 	var imageTurns []int // indexes in msgs of the user turns carrying tool images
 	passthrough := len(x.req.Tools) > 0
 	for round := 0; ; round++ {
 		x.run.mu.Lock()
 		x.run.roundText = ""
 		x.run.mu.Unlock()
-		calls, finish, err := e.callModel(ctx, x, client, provider.Request{Model: x.m.ProviderModel, Messages: msgs,
-			Tools: specs, Params: x.params, ProviderTools: x.providerTools}, round)
+		msgs = e.fit(ctx, x, b, msgs, round)
+		req := provider.Request{Model: x.m.ProviderModel, Messages: msgs, Tools: specs, Params: x.params, ProviderTools: x.providerTools}
+		final := !passthrough && round >= maxIter
+		if final { // the cap: one last call without tools that asks for the report
+			x.run.status(StatusEvent{ID: "limit", Action: "tool_call", Description: fmt.Sprintf("Stopped after %d tool rounds", maxIter), Done: true})
+			req.Messages = append(slices.Clone(msgs), provider.Message{Role: "user", Content: finalReportNote})
+			req.Tools, req.ProviderTools = nil, nil
+		}
+		calls, finish, err := e.callModel(ctx, x, client, req, round, b, final)
 		if err != nil {
+			if final && ctx.Err() == nil { // the work is done and saved; only the closing report is missing
+				slog.Warn("final report call failed", "run", x.run.ID, "err", err)
+				return nil
+			}
 			return err
 		}
 		x.run.mu.Lock()
 		x.run.finish = finish
 		x.run.mu.Unlock()
-		if len(calls) == 0 {
+		if len(calls) == 0 || final {
 			return nil
 		}
 		if passthrough {
@@ -244,22 +300,18 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 			}
 			return nil
 		}
-		if round >= maxIter {
-			x.run.status(StatusEvent{ID: "limit", Action: "tool_call", Description: fmt.Sprintf("Stopped after %d tool rounds", maxIter), Done: true})
-			return nil
-		}
 		x.run.mu.Lock()
 		text := x.run.roundText
 		x.run.mu.Unlock()
 		msgs = append(msgs, provider.Message{Role: "assistant", Content: text, ToolCalls: calls})
+		results := e.runCalls(ctx, x, table, b, st, calls, round)
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
 		var shots []provider.Image
-		for _, c := range calls {
-			content, imgs := e.runTool(ctx, x, table, c, round)
-			if ctx.Err() != nil {
-				return context.Cause(ctx)
-			}
-			msgs = append(msgs, provider.Message{Role: "tool", ToolCallID: c.ID, Name: c.Name, Content: content})
-			shots = append(shots, imgs...)
+		for i, c := range calls {
+			msgs = append(msgs, provider.Message{Role: "tool", ToolCallID: c.ID, Name: c.Name, Content: results[i].content})
+			shots = append(shots, results[i].images...)
 		}
 		if len(shots) > 0 { // tool messages cannot carry images in every API; a user turn can
 			// ponytail: only the round's last image is sent (earlier ones are stale
@@ -278,51 +330,200 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 	}
 }
 
-// callModel streams one model call into the run and returns its tool calls.
-// round is the loop round, for the trace.
-func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client, req provider.Request, round int) (calls []provider.ToolCall, finish string, err error) {
-	var use *provider.Usage
-	textChars := 0
-	started := time.Now()
-	defer func() { x.traceModel(round, req, started, use, textChars, len(calls), finish, err) }()
-	finish = "stop"
+// retryDelay is the wait before retry n (0-based) of a model call; a variable so tests need not wait.
+var retryDelay = func(n int) time.Duration { return time.Second << n }
+
+// retryable reports whether a model call that failed before any event is worth repeating: the server was
+// busy or failing (429, 5xx), unreachable, or went quiet. A refusal (4xx, a blocked prompt) would fail again.
+func retryable(err error) bool {
+	var he *provider.HTTPError
+	if errors.As(err, &he) {
+		return he.Status == http.StatusTooManyRequests || he.Status >= 500
+	}
+	if errors.Is(err, provider.ErrIdleTimeout) {
+		return true
+	}
+	var ne net.Error
+	return !errors.Is(err, context.DeadlineExceeded) && (errors.As(err, &ne) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF))
+}
+
+// attempt is what one streamed model call produced.
+type attempt struct {
+	calls     []provider.ToolCall
+	finish    string
+	use       *provider.Usage
+	textChars int
+	got       bool // at least one event arrived
+	err       error
+}
+
+// callModel streams one model call into the run and returns its tool calls. A call that fails before
+// any event arrived (nothing shown, no side effect) is repeated up to chat.model_retries times when
+// the error is 429, 5xx, a connection error or the idle timeout. round is the loop round, for the
+// trace; final marks the call at the round cap.
+func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client, req provider.Request, round int, b *runBudget, final bool) ([]provider.ToolCall, string, error) {
+	retries := 2
+	e.setting(ctx, "chat.model_retries", &retries)
+	for try := 0; ; try++ {
+		started := time.Now()
+		a := e.streamOnce(ctx, x, client, req)
+		again := a.err != nil && !a.got && try < retries && ctx.Err() == nil && retryable(a.err)
+		x.traceModel(round, req, started, a, modelTrace{attempt: try + 1, retry: again, final: final})
+		if a.use != nil {
+			b.observe(x, round, len(req.Messages), a.use.PromptTokens)
+		}
+		if !again {
+			return a.calls, a.finish, a.err
+		}
+		slog.Warn("model call failed before any output, retrying", "run", x.run.ID, "model", x.m.ID, "attempt", try+1, "err", a.err)
+		select {
+		case <-time.After(retryDelay(try)):
+		case <-ctx.Done():
+			return nil, "", context.Cause(ctx)
+		}
+	}
+}
+
+// streamOnce makes one model call.
+func (e *Engine) streamOnce(ctx context.Context, x *exec, client provider.Client, req provider.Request) (a attempt) {
+	a.finish = "stop"
 	for ev, serr := range client.Stream(ctx, req) {
 		if serr != nil {
+			a.err = serr
 			if c := context.Cause(ctx); c != nil {
-				return nil, "", c
+				a.err = c
 			}
-			return nil, "", serr
+			a.calls, a.finish = nil, ""
+			return a
 		}
+		a.got = true
 		switch ev.Kind {
 		case provider.EventText:
-			textChars += utf8.RuneCountInString(ev.Text)
+			a.textChars += utf8.RuneCountInString(ev.Text)
 			x.run.delta(ev.Text)
 		case provider.EventReasoning:
 			x.run.reasoningDelta(ev.Text)
 		case provider.EventToolCall:
-			calls = append(calls, ev.ToolCall)
+			a.calls = append(a.calls, ev.ToolCall)
 		case provider.EventCitation:
 			x.run.sources([]Source{{URL: ev.Citation.URL, Title: ev.Citation.Title, Name: ev.Citation.Title}})
 		case provider.EventUsage:
 			x.run.addUsage(ev.Usage)
 			u := ev.Usage
-			use = &u
+			a.use = &u
 		case provider.EventDone:
 			if ev.FinishReason != "" {
-				finish = ev.FinishReason
+				a.finish = ev.FinishReason
 			}
 		}
 	}
 	x.run.reasoningDone()
-	if len(calls) > 0 {
-		finish = "tool_calls"
+	if len(a.calls) > 0 {
+		a.finish = "tool_calls"
 	}
-	return calls, finish, nil
+	return a
+}
+
+// loopState is what the rounds of one run share: the repeat guard and the limits.
+type loopState struct {
+	repeatLimit int  // the same call this many times in a row is not run again (0 = off)
+	parallel    bool // run read-only calls of one round at once
+	lastKey     string
+	lastCount   int
+}
+
+func (e *Engine) newLoopState(ctx context.Context) *loopState {
+	st := &loopState{repeatLimit: 3, parallel: e.Settings.Bool(ctx, "chat.parallel_tools")}
+	e.setting(ctx, "chat.repeat_limit", &st.repeatLimit)
+	return st
+}
+
+// repeated counts c against the calls before it and returns the text that replaces its result when
+// it is the repeatLimit-th identical call in a row ("" = run it).
+// ponytail: compares the raw argument text, so the same arguments in another key order pass; normalise if models do that.
+func (st *loopState) repeated(c provider.ToolCall) string {
+	key := c.Name + "\x00" + string(c.Arguments)
+	if key == st.lastKey {
+		st.lastCount++
+	} else {
+		st.lastKey, st.lastCount = key, 1
+	}
+	if st.repeatLimit <= 0 || st.lastCount < st.repeatLimit {
+		return ""
+	}
+	return fmt.Sprintf("Not run: %s was already called with these exact arguments %d times in a row. Repeating it will not give a different result. "+
+		"Try different arguments or another approach, or answer with what you already have.", c.Name, st.lastCount-1)
+}
+
+// readOnlySets are the built-in sets whose calls never change anything, so one round's calls may run together.
+var readOnlySets = map[string]bool{"builtin:web": true, "builtin:knowledge": true, "builtin:files": true}
+
+// maxParallel bounds the calls of one round that run at once.
+// ponytail: a constant; make it a setting if a deployment's search or file backends want more.
+const maxParallel = 4
+
+// callResult is what one call returns to the loop.
+type callResult struct {
+	content string
+	images  []provider.Image
+}
+
+// runCalls runs one round's calls and returns their results in call order. The calls run at once only
+// when there are several and every one belongs to a read-only built-in set; anything else stays serial.
+func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEntry, b *runBudget, st *loopState, calls []provider.ToolCall, round int) []callResult {
+	out := make([]callResult, len(calls))
+	skip := make([]string, len(calls))
+	for i, c := range calls {
+		skip[i] = st.repeated(c)
+	}
+	one := func(i int) {
+		content, imgs := e.runTool(ctx, x, table, b, calls[i], round, skip[i])
+		out[i] = callResult{content, imgs}
+	}
+	if !st.parallel || len(calls) < 2 || !allReadOnly(table, calls) {
+		for i := range calls {
+			if ctx.Err() != nil {
+				break
+			}
+			one(i)
+		}
+		return out
+	}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxParallel)
+	for i := range calls {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer func() {
+				if v := recover(); v != nil { // a goroutine's panic would end the server, not just this run
+					slog.Error("tool panic", "run", x.run.ID, "tool", calls[i].Name, "value", v)
+					out[i] = callResult{content: "Error: the tool crashed."}
+				}
+				<-sem
+				wg.Done()
+			}()
+			one(i)
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
+func allReadOnly(table map[string]toolEntry, calls []provider.ToolCall) bool {
+	for _, c := range calls {
+		t, ok := table[c.Name]
+		if !ok || !readOnlySets[t.provider.ID()] {
+			return false
+		}
+	}
+	return true
 }
 
 // runTool executes one call and returns what the model reads back: the text
 // and, for a vision model, the result's images.
-func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, c provider.ToolCall, round int) (string, []provider.Image) {
+// skip, when set, is the result instead of running the call (the repeat guard).
+func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, b *runBudget, c provider.ToolCall, round int, skip string) (string, []provider.Image) {
 	started := time.Now()
 	entry, ok := table[c.Name]
 	if ok {
@@ -330,9 +531,12 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	}
 	x.run.toolCall(c.ID, c.Name, entry.server, c.Arguments)
 	var res tools.Result
-	if !ok {
+	switch {
+	case !ok:
 		res = tools.Result{Content: fmt.Sprintf("Error: there is no tool named %q.", c.Name), IsError: true}
-	} else {
+	case skip != "":
+		res = tools.Result{Content: skip, IsError: true}
+	default:
 		var err error
 		res, err = entry.provider.Execute(ctx, e.toolCall(x, c))
 		if err != nil {
@@ -344,9 +548,14 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 			}
 		}
 	}
+	spillText, spillFile, spilledOut := e.spill(ctx, x, b, c, res, round)
+	if spilledOut {
+		res.Inputs = append(res.Inputs, spillFile.id) // an input of the step: the model reads it, the answer does not carry it
+	}
 	x.run.trace.add(traceStep{Kind: stepTool, Name: c.Name, Round: round, Started: started, Duration: time.Since(started),
 		Detail: map[string]any{"server": entry.server, "args_chars": len(c.Arguments), "result_chars": utf8.RuneCountInString(res.Content),
-			"is_error": res.IsError, "truncated": res.Truncated, "files": len(res.Files), "images": len(res.Images), "known": ok}})
+			"is_error": res.IsError, "truncated": res.Truncated, "files": len(res.Files), "images": len(res.Images), "known": ok,
+			"spilled": spilledOut, "repeat_refused": skip != ""}})
 	refs := e.fileRefs(ctx, res.Files)
 	x.run.files(refs)
 	var inputs []FileRef
@@ -357,9 +566,7 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	}
 	// later tool calls in this turn can open them (e.g. execute_code edits a .pptx a Drive tool just fetched)
 	for _, r := range append(slices.Clone(refs), inputs...) {
-		if !slices.Contains(x.fileIDs, r.ID) {
-			x.fileIDs = append(x.fileIDs, r.ID)
-		}
+		x.addFile(r.ID)
 	}
 	x.run.sources(toolSources(res.Sources))
 	for _, p := range res.Parts {
@@ -406,6 +613,9 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	x.run.tools = append(x.run.tools, toolRecord{ID: c.ID, Name: c.Name, Args: c.Arguments, Result: clip(res.Content, 20000), Error: res.IsError})
 	x.run.mu.Unlock()
 	content := res.Content
+	if spilledOut {
+		content = spillText
+	}
 	if content == "" && len(refs) > 0 {
 		var names []string
 		for _, f := range refs {
@@ -419,6 +629,22 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 	return content, imgs
 }
 
+// addFile makes a file readable by the run's later tool calls (calls of one round may run together).
+func (x *exec) addFile(id string) {
+	x.run.mu.Lock()
+	defer x.run.mu.Unlock()
+	if !slices.Contains(x.fileIDs, id) {
+		x.fileIDs = append(x.fileIDs, id)
+	}
+}
+
+// readableFiles is a copy of the files the run's tool calls may open.
+func (x *exec) readableFiles() []string {
+	x.run.mu.Lock()
+	defer x.run.mu.Unlock()
+	return slices.Clone(x.fileIDs)
+}
+
 // toolCall builds the provider-facing Call.
 func (e *Engine) toolCall(x *exec, c provider.ToolCall) tools.Call {
 	run := x.run
@@ -428,7 +654,7 @@ func (e *Engine) toolCall(x *exec, c provider.ToolCall) tools.Call {
 	}
 	tok, _ := signRunToken(e.Keys, run.ID, run.UserID, time.Now().Add(15*time.Minute))
 	return tools.Call{ID: c.ID, Name: c.Name, Args: c.Arguments, User: x.u, ModelID: x.m.ID, ChatID: chatID,
-		MessageID: run.MessageID, RunID: run.ID, FileIDs: x.fileIDs,
+		MessageID: run.MessageID, RunID: run.ID, Task: x.cowork(), FileIDs: x.readableFiles(),
 		CallbackURL: e.callbackURL(run.ID), CallbackToken: tok,
 		Emit: func(ev tools.Event) { e.applyEvent(run, c.ID, ev.Type, ev.Data) },
 		Ask: func(ctx context.Context, r tools.AskRequest) (json.RawMessage, error) {

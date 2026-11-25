@@ -31,6 +31,9 @@ func errResult(format string, a ...any) tools.Result {
 
 // ---- builtin:files ------------------------------------------------------------------
 
+// maxViewChars is where view_file stops adding lines to one page (the page then says where to continue).
+const maxViewChars = 30000
+
 type filesTools struct{ e *Engine }
 
 func (t *filesTools) ID() string { return "builtin:files" }
@@ -144,11 +147,17 @@ func (t *filesTools) Execute(ctx context.Context, c tools.Call) (tools.Result, e
 			return textResult("%s has %d lines; start_line %d is past the end.", f.Filename, len(lines), start), nil
 		}
 		end := min(start+n-1, len(lines))
+		var body strings.Builder
+		for i := start; i <= end; i++ {
+			if body.Len() >= maxViewChars { // a page of very long lines must not fill the prompt
+				end = i - 1
+				break
+			}
+			fmt.Fprintf(&body, "%d: %s\n", i, clip(lines[i-1], 2000))
+		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "%s, lines %d-%d of %d\n", f.Filename, start, end, len(lines))
-		for i := start; i <= end; i++ {
-			fmt.Fprintf(&b, "%d: %s\n", i, clip(lines[i-1], 2000))
-		}
+		b.WriteString(body.String())
 		if end < len(lines) {
 			fmt.Fprintf(&b, "[more: continue with start_line %d]\n", end+1)
 		}

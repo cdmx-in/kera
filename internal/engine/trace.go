@@ -84,8 +84,17 @@ func (t *runTrace) take() ([]traceStep, int) {
 
 func intp(n int) *int { return &n }
 
-// traceModel records one model call. use is what the server reported (nil when it reported nothing).
-func (x *exec) traceModel(round int, req provider.Request, started time.Time, use *provider.Usage, textChars, calls int, finish string, err error) {
+// modelTrace says what is special about a model call: which try it was, whether it will be repeated, and
+// whether it is the closing report at the round cap.
+type modelTrace struct {
+	attempt int
+	retry   bool
+	final   bool
+}
+
+// traceModel records one model call (one try of it). a.use is what the server reported (nil when it reported nothing).
+func (x *exec) traceModel(round int, req provider.Request, started time.Time, a attempt, mt modelTrace) {
+	use, textChars, calls, finish, err := a.use, a.textChars, len(a.calls), a.finish, a.err
 	t := &x.run.trace
 	t.mu.Lock()
 	if t.toolChars == 0 && len(req.Tools) > 0 {
@@ -106,6 +115,16 @@ func (x *exec) traceModel(round int, req provider.Request, started time.Time, us
 			"tool_def_chars": toolChars, "text_chars": textChars, "tool_calls": calls, "truncated": finish == "length"}}
 	if use != nil {
 		s.Prompt, s.Completion, s.Cached = intp(use.PromptTokens), intp(use.CompletionTokens), use.CachedTokens
+	}
+	if mt.attempt > 1 {
+		s.Detail["attempt"] = mt.attempt
+	}
+	if mt.retry {
+		s.Detail["will_retry"] = true
+	}
+	if mt.final { // the stop reason of the run is the cap, not what the model said about this call
+		s.Detail["final_report"], s.Detail["provider_finish"] = true, finish
+		s.Finish = "round_cap"
 	}
 	if err != nil {
 		s.Err = traceError(err, s.Detail)

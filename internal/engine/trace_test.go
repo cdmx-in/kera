@@ -99,6 +99,7 @@ func TestTraceRecordsRoundsAndToolCalls(t *testing.T) {
 // A failed model call is recorded as a code and a status, not the server's message.
 func TestTraceFlagsFailures(t *testing.T) {
 	h := newHarness(t)
+	h.set(t, map[string]any{"chat.model_retries": 0}) // retries are tested in context_test.go
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			http.Error(w, "upstream says: key sk-test-not-a-real-key rejected", http.StatusBadGateway)
@@ -156,10 +157,10 @@ func TestTraceRetrievalAndCompaction(t *testing.T) {
 	for _, s := range got {
 		kinds += s.Kind + " "
 	}
-	if kinds != "compaction retrieval model " {
+	if kinds != "retrieval compaction model " { // compaction runs once the prompt and tools exist, so their size counts
 		t.Fatalf("kinds %q", kinds)
 	}
-	c, r := got[0], got[1]
+	r, c := got[0], got[1]
 	if c.Name != "summarise" || c.Error != "" || c.Detail["turns_summarised"].(float64) < 2 || c.Detail["tokens_after"].(float64) >= c.Detail["tokens_before"].(float64) {
 		t.Fatalf("compaction step %+v", c)
 	}

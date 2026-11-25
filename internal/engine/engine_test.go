@@ -172,6 +172,7 @@ func newHarness(t *testing.T) *harness {
 	st := settings.New(pool)
 	e := New(pool, keys, st, models.New(pool, keys, st, ""), files.New(pool, st, t.TempDir()), &chats.Store{DB: pool}, "http://kera.test")
 	pingEvery = 50 * time.Millisecond
+	retryDelay = func(int) time.Duration { return time.Millisecond }
 	return &harness{e: e, pool: pool, u: &auth.User{ID: "u1", Name: "Ada", Email: "ada@example.com", Role: "admin"}, srv: srv}
 }
 
@@ -699,13 +700,13 @@ func TestCompactionSplit(t *testing.T) {
 		}
 		return ts
 	}
-	if splitForCompaction(mk(10, 100), 1000, 30) != 0 {
+	if splitForCompaction(mk(10, 100), 1000, 30, 0) != 0 {
 		t.Fatal("compacted under the threshold")
 	}
-	if cut := splitForCompaction(mk(11, 4000), 1000, 30); cut != 8 {
+	if cut := splitForCompaction(mk(11, 4000), 1000, 30, 0); cut != 8 {
 		t.Fatalf("cut %d, want 8 (keep 3 of 11)", cut)
 	}
-	if splitForCompaction(mk(3, 40000), 1000, 30) != 0 {
+	if splitForCompaction(mk(3, 40000), 1000, 30, 0) != 0 {
 		t.Fatal("compacted a 3-turn chat")
 	}
 }
@@ -1144,6 +1145,7 @@ func TestToolImages(t *testing.T) {
 	}
 	imageParts := func(m map[string]any) int { return len(imageURLs(m)) }
 
+	h.set(t, map[string]any{"chat.repeat_limit": 0}) // this tool is called with the same arguments every round
 	run := start(bob, "s.m1")
 	mu.Lock()
 	if len(reqs) != rounds+1 {
