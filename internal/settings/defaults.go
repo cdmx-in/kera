@@ -112,6 +112,8 @@ var Defaults = map[string]json.RawMessage{
 	"rag.embedding.connection":     raw(`""`),
 	"rag.embedding.model":          raw(`"nomic-embed-text"`), // the usual small Ollama embedding model; connection "" means "ollama"
 	"rag.embedding.dim":            raw(`0`),
+	"rag.embedding.doc_prefix":     raw(`""`), // prefix of text to embed; empty = the known prefix of the model, else none; applied by kera reindex
+	"rag.embedding.query_prefix":   raw(`""`), // prefix of a search query; same rules
 	"rag.embedding.batch":          raw(`32`),
 	"rag.reranker.url":             raw(`""`),
 	"rag.reranker.model":           raw(`""`),

@@ -342,6 +342,9 @@ func (s *Service) queue(ctx context.Context, kid string, fileIDs []string) (int,
 // moves to that embedding model: new chunks are written beside the old ones,
 // which keep serving queries until every file is done (see finishReindex).
 func (s *Service) Reindex(ctx context.Context, kid, conn, model string) (int, error) {
+	if err := s.syncPrefixes(ctx, kid); err != nil {
+		return 0, err
+	}
 	if model == "" {
 		// Cancels a move in progress: drop the chunks it already wrote.
 		if _, err := s.db.Exec(ctx, `WITH k AS (UPDATE knowledge SET meta = meta - 'reindex_to' WHERE id = $1 RETURNING embedding_model_id)

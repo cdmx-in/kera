@@ -164,7 +164,7 @@ export function RetrievalTab() {
         {
           title: 'Embedding',
           hint: 'Changing the embedding model needs a reindex (kera reindex).',
-          fields: [f('rag.embedding.connection', 'connection', undefined, 'Connection'), f('rag.embedding.model', 'text', undefined, 'Model'), f('rag.embedding.dim', 'int', undefined, 'Dimensions'), f('rag.embedding.batch', 'int', undefined, 'Batch size')],
+          fields: [f('rag.embedding.connection', 'connection', undefined, 'Connection'), f('rag.embedding.model', 'text', undefined, 'Model'), f('rag.embedding.dim', 'int', undefined, 'Dimensions'), f('rag.embedding.batch', 'int', undefined, 'Batch size'), f('rag.embedding.doc_prefix', 'text', 'Text put before every chunk when it is embedded, as the model card asks (empty = the known prefix of the model, else none).', 'Document prefix'), f('rag.embedding.query_prefix', 'text', 'Text put before every search query (empty = the known prefix of the model, else none). Both reach existing collections when you run kera reindex.', 'Query prefix')],
         },
         {
           title: 'Document extractor',

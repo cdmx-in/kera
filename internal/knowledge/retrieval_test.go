@@ -213,6 +213,47 @@ func TestSearchFusesQueries(t *testing.T) {
 	}
 }
 
+// A new embedding model row gets the prefixes its model card asks for (or the
+// ones set in the settings); an existing row changes only when its collection
+// is reindexed with a prefix set.
+func TestEmbeddingPrefixes(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	prefixes := func(model string) [2]string {
+		t.Helper()
+		m, err := e.s.ensureModel(ctx, "ollama", model)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return [2]string{m.DocPrefix, m.QueryPrefix}
+	}
+	// "stub" (the collection's model) is created before any prefix is set
+	kid := e.collection("K", docs{"a.md": "# A\nalpha"})
+	if got := prefixes("nomic-embed-text:latest"); got != [2]string{"search_document: ", "search_query: "} {
+		t.Fatalf("known model: %q", got)
+	}
+	if got := prefixes("mxbai-embed-large"); got[0] != "" || !strings.HasPrefix(got[1], "Represent this sentence") {
+		t.Fatalf("query-only prefix: %q", got)
+	}
+	_ = e.st.Set(ctx, "rag.embedding.query_prefix", "Q: ", false)
+	if got := prefixes("unlisted"); got != [2]string{"", "Q: "} {
+		t.Fatalf("setting on an unknown model: %q", got)
+	}
+	if got := prefixes("stub"); got != [2]string{} {
+		t.Fatalf("stub row: %q", got)
+	}
+	_ = e.st.Set(ctx, "rag.embedding.doc_prefix", "D: ", false)
+	if _, err := e.s.Reindex(ctx, kid, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := prefixes("stub"); got != [2]string{"D: ", "Q: "} {
+		t.Fatalf("after reindex: %q", got)
+	}
+	if got := prefixes("mxbai-embed-large"); got[0] != "" { // other models keep their rows
+		t.Fatalf("other model changed: %q", got)
+	}
+}
+
 func TestJoinChunksWritesTheOverlapOnce(t *testing.T) {
 	prev := "The first chunk talks about payouts. The bank confirms the payout on day two."
 	next := "The bank confirms the payout on day two. Then the beneficiary is credited."
