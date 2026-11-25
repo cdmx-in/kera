@@ -34,6 +34,7 @@ func (s *Service) routes() {
 		"POST /api/v1/pipelines/{name}/runs/{run}/finish": s.hFinish,
 		"GET /api/v1/pipelines/{name}/runs/{run}":         s.hRun,
 		"GET /api/v1/pipelines/{name}/health":             s.hHealth,
+		"POST /api/v1/runner/claim":                       s.hClaim, // runner token (kr-)
 	} {
 		s.a.Server.HandleFunc(p, f)
 	}
@@ -49,6 +50,19 @@ func (s *Service) routes() {
 		"GET /api/v1/admin/pipelines/{name}/runs/{run}":             s.aRun,
 		"GET /api/v1/admin/pipelines/{name}/runs/{run}/steps/{seq}": s.aStep,
 		"POST /api/v1/admin/pipelines/{name}/runs/{run}/close":      s.aClose,
+		"PUT /api/v1/admin/pipelines/{name}/schedule":               s.aSchedule,
+		"POST /api/v1/admin/pipelines/{name}/run":                   s.aRunNow,
+		"POST /api/v1/admin/pipelines/{name}/runs/{run}/cancel":     s.aCancel,
+		"GET /api/v1/admin/pipelines/{name}/script":                 s.aScript,
+		"PUT /api/v1/admin/pipelines/{name}/script":                 s.aScriptSave,
+		"GET /api/v1/admin/pipelines/{name}/script/{version}":       s.aScriptVersion,
+		"GET /api/v1/admin/pipelines/{name}/env":                    s.aEnv,
+		"PUT /api/v1/admin/pipelines/{name}/env":                    s.aEnvSet,
+		"DELETE /api/v1/admin/pipelines/{name}/env/{var}":           s.aEnvDelete,
+		"GET /api/v1/admin/pipeline-runners":                        s.aRunners,
+		"POST /api/v1/admin/pipeline-runners":                       s.aRunnerCreate,
+		"POST /api/v1/admin/pipeline-runners/{id}/token":            s.aRunnerRotate,
+		"DELETE /api/v1/admin/pipeline-runners/{id}":                s.aRunnerDelete,
 	} {
 		s.a.Server.Handle(p, s.a.Auth.Admin(f))
 	}
@@ -80,16 +94,25 @@ func (s *Service) tokenPipeline(w http.ResponseWriter, r *http.Request) (*Pipeli
 		api.Fail(w, r, api.Errf(http.StatusUnauthorized, "unauthenticated", "A valid pipeline token for this pipeline is required"))
 		return nil, false
 	}
-	if !strings.HasPrefix(tok, tokenPrefix) {
+	var p *Pipeline
+	var err error
+	switch {
+	case strings.HasPrefix(tok, jobPrefix): // a runner's job token: this pipeline, this run, while it is open
+		var ok bool
+		if p, ok = s.jobAuth(r, tok); !ok {
+			return deny()
+		}
+	case strings.HasPrefix(tok, tokenPrefix):
+		p, err = s.pipelineBy(r.Context(), s.db, "token_hash", auth.HashAPIKey(tok))
+		if errors.Is(err, errNoPipeline) || (err == nil && p.Name != r.PathValue("name")) {
+			return deny()
+		}
+		if err != nil {
+			api.Fail(w, r, err)
+			return nil, false
+		}
+	default:
 		return deny()
-	}
-	p, err := s.pipelineBy(r.Context(), s.db, "token_hash", auth.HashAPIKey(tok))
-	if errors.Is(err, errNoPipeline) || (err == nil && p.Name != r.PathValue("name")) {
-		return deny()
-	}
-	if err != nil {
-		api.Fail(w, r, err)
-		return nil, false
 	}
 	if !p.Enabled {
 		api.Fail(w, r, api.Errf(http.StatusForbidden, "pipeline_disabled", "This pipeline is switched off"))
@@ -441,7 +464,11 @@ type runOut struct {
 	Status     string            `json:"status"` // running | ok | warning | failed
 	ClientDone bool              `json:"client_done"`
 	Error      string            `json:"error"`
-	Source     map[string]string `json:"source"` // where the script runs, as it reported
+	Source     map[string]string `json:"source"`           // where the script runs, as it reported
+	Queued     bool              `json:"queued"`           // waiting for a runner
+	Cancelling bool              `json:"cancel_requested"` // an admin asked to stop it
+	Version    int               `json:"script_version,omitempty"`
+	Runner     string            `json:"runner,omitempty"`
 	StartedAt  time.Time         `json:"started_at"`
 	ActiveAt   time.Time         `json:"active_at"`
 	FinishedAt *time.Time        `json:"finished_at"`
@@ -469,6 +496,7 @@ func orEmpty(m map[string]string) map[string]string {
 
 func runView(r *run, name string, steps []step) runOut {
 	o := runOut{ID: r.ID, Pipeline: name, Trigger: r.Trigger, DryRun: r.DryRun, Status: r.Status, ClientDone: r.ClientDone, Error: r.Error, Source: orEmpty(r.Source),
+		Queued: r.Queued, Cancelling: r.CancelRequested, Version: r.ScriptVersion, Runner: r.Runner,
 		StartedAt: r.StartedAt, ActiveAt: r.ActiveAt, FinishedAt: r.FinishedAt, Counts: map[string]int64{}}
 	if steps != nil {
 		list := make([]stepOut, len(steps))
@@ -534,6 +562,8 @@ type pipelineOut struct {
 	UpdatedAt       time.Time   `json:"updated_at"`
 	Late            bool        `json:"late"`
 	Running         bool        `json:"running"`
+	RunMode         string      `json:"run_mode"` // external (cron, CI) | kera (script and timetable live in Kera)
+	Schedule        scheduleOut `json:"schedule"`
 	LastRun         *runOut     `json:"last_run"`
 	LastOKAt        *time.Time  `json:"last_ok_at"`
 }
@@ -576,6 +606,7 @@ func (s *Service) pipelineView(ctx context.Context, p *Pipeline) (pipelineOut, e
 		return o, err
 	}
 	o.Late = isLate(p.EveryMinutes, o.LastOKAt, p.CreatedAt, s.now())
+	o.RunMode, o.Schedule = p.RunMode, scheduleView(p)
 	return o, nil
 }
 

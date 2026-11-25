@@ -57,8 +57,9 @@ const (
 	maxCounts    = 20        // count keys per step
 	maxNodeLines = 200       // names a Kera step lists in its log per kind
 
-	idleLimit = 30 * time.Minute // no report from the script, or no indexing progress
-	scriptCap = 3 * time.Hour    // longest script phase
+	idleLimit  = 30 * time.Minute // no report from the script, or no indexing progress
+	queueLimit = 10 * time.Minute // a queued run that no runner claims
+	scriptCap  = 3 * time.Hour    // longest script phase
 
 	// keraSeqBase numbers the Kera steps so they never collide with script
 	// steps (at most maxSteps of them) and sort after them.
@@ -80,6 +81,10 @@ type Service struct {
 	// if two servers ever share a database (it must not be held across the
 	// knowledge calls: a poll storm would then use up the pool).
 	settleMu sync.Mutex
+
+	// alerting remembers which pipelines have a firing alert, so recovery sends one resolve (alert.go).
+	alertMu  sync.Mutex
+	alerting map[string]bool
 }
 
 // New builds the service; Mount also starts the ticker and the routes.
@@ -113,15 +118,22 @@ type Pipeline struct {
 	Adopt, AllowMassDelete  bool
 	Enabled, Managed        bool
 	CreatedAt, UpdatedAt    time.Time
+	// Kera-run pipelines (runner.go): the script and timetable live in Kera.
+	RunMode, Frequency, Timezone string
+	Scheduled                    bool
+	AtMinute, Weekday            int
+	NextRunAt                    *time.Time
 }
 
 const pipelineCols = `id, name, title, user_id, targets, every_minutes, coalesce(token_hash, ''), token_prefix,
-	adopt, allow_mass_delete, enabled, managed, created_at, updated_at`
+	adopt, allow_mass_delete, enabled, managed, created_at, updated_at,
+	run_mode, scheduled, frequency, at_minute, weekday, timezone, next_run_at`
 
 func scanPipeline(row pgx.Row) (*Pipeline, error) {
 	p := &Pipeline{}
 	err := row.Scan(&p.ID, &p.Name, &p.Title, &p.UserID, &p.Targets, &p.EveryMinutes, &p.TokenHash, &p.TokenPrefix,
-		&p.Adopt, &p.AllowMassDelete, &p.Enabled, &p.Managed, &p.CreatedAt, &p.UpdatedAt)
+		&p.Adopt, &p.AllowMassDelete, &p.Enabled, &p.Managed, &p.CreatedAt, &p.UpdatedAt,
+		&p.RunMode, &p.Scheduled, &p.Frequency, &p.AtMinute, &p.Weekday, &p.Timezone, &p.NextRunAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNoPipeline
 	}
@@ -164,16 +176,20 @@ type run struct {
 	Targets    map[string]target
 	Error      string
 	Source     map[string]string // where the script runs, as it reported (may be empty)
-	StartedAt  time.Time
-	ActiveAt   time.Time
-	FinishedAt *time.Time
+	// Kera-run: queued until a runner claims it; the runner and script version it used.
+	Queued, CancelRequested bool
+	ScriptVersion           int
+	Runner                  string
+	StartedAt               time.Time
+	ActiveAt                time.Time
+	FinishedAt              *time.Time
 }
 
-const runCols = `id, pipeline_id, trigger, dry_run, status, client_done, targets, error, source, started_at, active_at, finished_at`
+const runCols = `id, pipeline_id, trigger, dry_run, status, client_done, targets, error, source, queued, cancel_requested, coalesce(script_version, 0), coalesce(runner_id, ''), started_at, active_at, finished_at`
 
 func scanRun(row pgx.Row) (*run, error) {
 	r := &run{}
-	err := row.Scan(&r.ID, &r.PipelineID, &r.Trigger, &r.DryRun, &r.Status, &r.ClientDone, &r.Targets, &r.Error, &r.Source, &r.StartedAt, &r.ActiveAt, &r.FinishedAt)
+	err := row.Scan(&r.ID, &r.PipelineID, &r.Trigger, &r.DryRun, &r.Status, &r.ClientDone, &r.Targets, &r.Error, &r.Source, &r.Queued, &r.CancelRequested, &r.ScriptVersion, &r.Runner, &r.StartedAt, &r.ActiveAt, &r.FinishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNoRun
 	}
@@ -242,6 +258,10 @@ type startIn struct {
 	Steps   []string          `json:"steps"`
 	DryRun  bool              `json:"dry_run"`
 	Source  map[string]string `json:"source,omitempty"` // where the script runs; see cleanSource
+
+	// set only by the server (the timetable, Run now): never read from a request body
+	internal      bool
+	scriptVersion int
 }
 
 // sourceKeys are the facts a script may report about where it runs; anything else is dropped.
@@ -273,7 +293,7 @@ func (s *Service) startRun(ctx context.Context, p *Pipeline, in startIn) (*run, 
 	if in.Trigger == "" {
 		in.Trigger = "script"
 	}
-	if in.Trigger != "script" && in.Trigger != "push" {
+	if in.Trigger != "script" && in.Trigger != "push" && !(in.internal && (in.Trigger == "schedule" || in.Trigger == "manual")) {
 		return nil, nil, api.Errf(http.StatusBadRequest, "bad_trigger", "trigger must be script or push")
 	}
 	names, err := cleanNames(in.Steps)
@@ -296,8 +316,9 @@ func (s *Service) startRun(ctx context.Context, p *Pipeline, in startIn) (*run, 
 		return nil, nil, fmt.Errorf("trim old runs: %w", err)
 	}
 	var id int64
-	err = tx.QueryRow(ctx, `INSERT INTO pipeline_run (pipeline_id, trigger, dry_run, started_at, active_at, source) VALUES ($1, $2, $3, $4, $4, $5::jsonb) RETURNING id`,
-		p.ID, in.Trigger, in.DryRun, now, string(src)).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO pipeline_run (pipeline_id, trigger, dry_run, started_at, active_at, source, queued, script_version)
+		VALUES ($1, $2, $3, $4, $4, $5::jsonb, $6, NULLIF($7, 0)) RETURNING id`,
+		p.ID, in.Trigger, in.DryRun, now, string(src), in.internal, in.scriptVersion).Scan(&id)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" {
 		return nil, nil, s.holder(ctx, p.ID)
@@ -1065,19 +1086,21 @@ func (s *Service) tickSafe(ctx context.Context, now time.Time) {
 // silent for idleLimit or running for scriptCap, and a run whose files make no
 // indexing progress for idleLimit. It settles runs whose script is done.
 func (s *Service) tick(ctx context.Context, now time.Time) {
-	rows, err := s.db.Query(ctx, `SELECT id, client_done, started_at, active_at FROM pipeline_run WHERE finished_at IS NULL ORDER BY id`)
+	s.fireDue(ctx, now)
+	s.alertTick(ctx, now)
+	rows, err := s.db.Query(ctx, `SELECT id, client_done, started_at, active_at, queued FROM pipeline_run WHERE finished_at IS NULL ORDER BY id`)
 	if err != nil {
 		slog.Error("pipeline: list open runs", "err", err)
 		return
 	}
 	type open struct {
 		id              int64
-		done            bool
+		done, queued    bool
 		started, active time.Time
 	}
 	runs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (open, error) {
 		var o open
-		return o, r.Scan(&o.id, &o.done, &o.started, &o.active)
+		return o, r.Scan(&o.id, &o.done, &o.started, &o.active, &o.queued)
 	})
 	if err != nil {
 		slog.Error("pipeline: read open runs", "err", err)
@@ -1086,6 +1109,10 @@ func (s *Service) tick(ctx context.Context, now time.Time) {
 	for _, o := range runs {
 		var reason string
 		switch {
+		case o.queued && now.Sub(o.started) > queueLimit:
+			reason = s.noRunnerText(ctx)
+		case o.queued:
+			continue // waiting for a runner: not the script's idle clock
 		case !o.done && now.Sub(o.active) > idleLimit:
 			reason = "The script stopped reporting at " + utcClock(o.active) + "."
 		case !o.done && now.Sub(o.started) > scriptCap:

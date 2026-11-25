@@ -138,7 +138,9 @@ var Defaults = map[string]json.RawMessage{
 		"java": {"label": "Java (single-file source)", "ext": ".java", "command": ["java", "{file}"]},
 		"r": {"label": "R", "ext": ".R", "command": ["Rscript", "{file}"], "aliases": ["rscript"]}
 	}`),
-	"spend.source.kind": raw(`""`),
+	// Alertmanager /api/v2/alerts URL: pipelines that failed or are late are posted there every minute (pipeline/alert.go).
+	"pipelines.alert_url": raw(`""`),
+	"spend.source.kind":   raw(`""`),
 	// Cap on one tool result passed to the model (characters; a tool server's max_result_chars wins; 0 = no cap).
 	"tools.max_result_chars": raw(`100000`),
 }

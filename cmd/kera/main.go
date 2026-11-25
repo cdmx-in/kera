@@ -42,7 +42,7 @@ Usage:
   kera export [-o FILE]   print the managed config as YAML (secrets as ${...})
   kera version            print the version
   kera health             exit 0 when the local server is ready (container healthcheck)
-` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + pipeline.CLIUsage + identity.CLIUsage + `
+` + connectors.CLIUsage + knowledge.CLIUsage + skills.CLIUsage + pipeline.CLIUsage + pipeline.RunnerUsage + identity.CLIUsage + `
 Environment: KERA_DATABASE_URL, KERA_SECRET_KEY, KERA_URL, KERA_DATA_DIR, KERA_LISTEN, OLLAMA_BASE_URL,
 KERA_CONFIG (default file for kera apply), KERA_CALLBACK_URL (base URL tool servers call back on; default KERA_URL),
 KERA_ADMIN_EMAIL and KERA_ADMIN_PASSWORD (create the first admin when serve finds no users), KERA_TRUSTED_PROXIES
@@ -100,6 +100,8 @@ func run(args []string) error {
 		return skills.Command(ctx, args[1:], os.Stdout)
 	case "pipeline":
 		return pipeline.Command(ctx, args[1:], os.Stdout, os.Stderr)
+	case "runner":
+		return pipeline.RunnerCommand(ctx, os.Stdout, os.Stderr)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

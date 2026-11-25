@@ -132,6 +132,13 @@ func next(after time.Time, freq string, atMinute, weekday int, loc *time.Locatio
 	return after.Add(24 * time.Hour) // not reached: some day in the next 9 matches
 }
 
+// Next and Location are the timetable maths, shared with Kera-run pipelines (internal/pipeline).
+func Next(after time.Time, freq string, atMinute, weekday int, loc *time.Location) time.Time {
+	return next(after, freq, atMinute, weekday, loc)
+}
+
+func Location(name string) *time.Location { return location(name) }
+
 func location(name string) *time.Location {
 	if loc, err := time.LoadLocation(name); err == nil && name != "" && name != "Local" {
 		return loc

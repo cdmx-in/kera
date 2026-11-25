@@ -2,7 +2,7 @@
 
 A pipeline keeps knowledge collections equal to a folder that lives somewhere else (a docs repository, a nightly export, a fetcher's output folder) and shows every run as a flow of steps with logs and errors.
 
-Kera never starts, stops or retries your script. Your cron, CI or scheduler starts it; the script (or the `kera pipeline` command) reports to Kera with the pipeline's token. Kera records the run, uploads and indexes the files, and shows the result in **Admin > Pipelines**.
+Kera never starts, stops or retries your script. Your cron, CI or scheduler starts it (or, if you would rather not run a scheduler, see [Kera-run pipelines](kera-run-pipelines.md), where Kera stores the script and timetable and a runner container executes it); the script (or the `kera pipeline` command) reports to Kera with the pipeline's token. Kera records the run, uploads and indexes the files, and shows the result in **Admin > Pipelines**.
 
 - [Concepts](#concepts)
 - [Quick start: push a folder](#quick-start-push-a-folder)

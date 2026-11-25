@@ -1,0 +1,20 @@
+# A runner next to Kera. Create the token under Admin > Pipelines > Runners and put it in .env as KERA_RUNNER_TOKEN.
+# Mount only the folders the scripts need: that is the whole of what a script can read or change.
+services:
+  kera-runner:
+    build:
+      context: .
+      dockerfile: sidecars/runner/Dockerfile
+      args: {KERA_IMAGE: "ghcr.io/cdmx-in/kera:latest"}
+    restart: unless-stopped
+    environment:
+      KERA_URL: http://kera:8080
+      KERA_RUNNER_TOKEN: ${KERA_RUNNER_TOKEN}
+      TZ: Asia/Kolkata
+    volumes:
+      - ./workspaces:/work            # one folder per pipeline: /work/<pipeline name>, kept between runs
+      # - /srv/docs-repo:/repos/docs:ro   # example: something a script reads
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp"]
+    networks: [default]               # the network Kera is on, plus whatever the scripts must reach
