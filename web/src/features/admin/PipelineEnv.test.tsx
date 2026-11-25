@@ -49,7 +49,7 @@ describe('AddEnv', () => {
   })
   it('labels its inputs and says what KERA_ is for', () => {
     for (const l of ['Name', 'Value']) expect(h).toContain(l)
-    expect(h).toContain('Names starting with KERA_ are reserved for the runner.')
+    expect(h).toContain('KERA_URL, KERA_PIPELINE, KERA_PIPELINE_TOKEN, KERA_RUN, KERA_MARK, KERA_SCRIPT_DIR and KERA_TEST are set by the runner.')
     expect(h).toContain('aria-label="Add variable"')
   })
 })

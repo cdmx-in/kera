@@ -182,6 +182,7 @@ func TestScriptVersionsEnvAndSecrets(t *testing.T) {
 	e.call(e.admin, "PUT", base+"/env", map[string]any{"name": "API_TOKEN", "value": "s3cr3t-value"}, http.StatusOK, nil)
 	e.call(e.admin, "PUT", base+"/env", map[string]any{"name": "REGION", "value": "eu", "secret": false}, http.StatusOK, nil)
 	e.call(e.admin, "PUT", base+"/env", map[string]any{"name": "KERA_RUN", "value": "1"}, http.StatusBadRequest, nil)
+	e.call(e.admin, "PUT", base+"/env", map[string]any{"name": "KERA_API_KEY", "value": "a-key-the-script-needs"}, http.StatusOK, nil) // only the names the runner sets are reserved
 	e.call(e.admin, "PUT", base+"/env", map[string]any{"name": "1BAD", "value": "1"}, http.StatusBadRequest, nil)
 	code, raw := e.do(e.admin, "GET", base+"/env", nil)
 	if code != http.StatusOK || strings.Contains(string(raw), "s3cr3t-value") || !strings.Contains(string(raw), `"eu"`) {

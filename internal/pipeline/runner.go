@@ -47,8 +47,10 @@ const (
 var (
 	envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 	fileRe    = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._/ -]{0,199}$`)
-	// the runner sets these itself, so a stored variable may not shadow them
-	reservedEnv = func(n string) bool { return strings.HasPrefix(n, "KERA_") }
+	// the runner sets these itself, so a stored variable may not shadow them; other KERA_ names (KERA_API_KEY, KERA_BASE) are ordinary
+	reservedNames = map[string]bool{"KERA_URL": true, "KERA_PIPELINE": true, "KERA_PIPELINE_TOKEN": true, "KERA_RUN": true, "KERA_MARK": true,
+		"KERA_SCRIPT_DIR": true, "KERA_TEST": true, "KERA_RUNNER_TOKEN": true, "KERA_RUNNER_TOKEN_FILE": true, "KERA_RUNNER_WORK": true}
+	reservedEnv = func(n string) bool { return reservedNames[n] }
 )
 
 // Timetable -----------------------------------------------------------------------------
@@ -529,7 +531,7 @@ func (s *Service) aEnvSet(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, api.FieldErr("name", "bad_name", "Letters, digits and underscores, not starting with a digit"))
 		return
 	case reservedEnv(in.Name):
-		api.Fail(w, r, api.FieldErr("name", "reserved", "Names starting with KERA_ are set by the runner"))
+		api.Fail(w, r, api.FieldErr("name", "reserved", "The runner sets this one itself (KERA_URL, KERA_PIPELINE, KERA_PIPELINE_TOKEN, KERA_RUN, KERA_MARK, KERA_SCRIPT_DIR, KERA_TEST)"))
 		return
 	case len(in.Value) > maxEnvValue || strings.ContainsRune(in.Value, 0):
 		api.Fail(w, r, api.FieldErr("value", "bad_value", "At most 16 KiB of text"))

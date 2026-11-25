@@ -108,7 +108,7 @@ export function AddEnv({ existing, onAdd }: { existing: string[]; onAdd: (v: { n
       setValue('')
       setErrors({})
     } catch (e) {
-      // the server names the field at fault ("Names starting with KERA_ are set by the runner")
+      // the server names the field at fault ("The runner sets this one itself")
       if (e instanceof ApiError && (e.field === 'name' || e.field === 'value')) setErrors({ [e.field]: e.message })
       else toast(errText(e), 'error')
     } finally {
@@ -143,7 +143,7 @@ export function AddEnv({ existing, onAdd }: { existing: string[]; onAdd: (v: { n
             {errors.name}
           </span>
         ) : (
-          <span className="block text-xs text-muted">{replaces ? 'This replaces the value it has now.' : 'Names starting with KERA_ are reserved for the runner.'}</span>
+          <span className="block text-xs text-muted">{replaces ? 'This replaces the value it has now.' : 'KERA_URL, KERA_PIPELINE, KERA_PIPELINE_TOKEN, KERA_RUN, KERA_MARK, KERA_SCRIPT_DIR and KERA_TEST are set by the runner.'}</span>
         )}
       </label>
       <label className="block space-y-1">

@@ -41,7 +41,7 @@ Kera itself never executes a script: its image has no shell and no Docker socket
 
 ## Environment and secrets
 
-Variables are stored encrypted (AES-256-GCM, from `KERA_SECRET_KEY`). A **secret** variable is write-only: the page shows that it is set, never its value, and the API never returns it. A plain variable can be read back. Names starting with `KERA_` are reserved.
+Variables are stored encrypted (AES-256-GCM, from `KERA_SECRET_KEY`). A **secret** variable is write-only: the page shows that it is set, never its value, and the API never returns it. A plain variable can be read back. The names the runner sets itself (`KERA_URL`, `KERA_PIPELINE`, `KERA_PIPELINE_TOKEN`, `KERA_RUN`, `KERA_MARK`, `KERA_SCRIPT_DIR`, `KERA_TEST`) are reserved; other names, such as `KERA_API_KEY`, are ordinary variables.
 
 The value reaches the runner when it claims a run. The runner masks every secret value it knows in the run log and in its own output, in addition to the server's filter for key shapes.
 
