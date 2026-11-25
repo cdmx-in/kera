@@ -5,6 +5,7 @@ import { AdminFrame, pillCls } from './Frame'
 import { AnalyticsPage } from './Analytics'
 import { AuditPage } from './Audit'
 import { GroupsPage } from './Groups'
+import { HelpPage } from './help/Help'
 import { PipelineDetail } from './PipelineRuns'
 import { RunnersPage } from './PipelineRunners'
 import { SecretsPage } from './Secrets'
@@ -50,6 +51,7 @@ function sections(): [string, string][] {
     ['pipelines', 'Pipelines'],
     ['traces', 'Traces'],
     ['settings', 'Settings'],
+    ['help', 'Help'],
   ]
 }
 
@@ -67,6 +69,7 @@ export default function AdminPage() {
   else if (section === 'audit') body = <AuditPage />
   else if (section === 'pipelines') body = sub ? item === 'edit' ? <PipelineEditPage name={sub} /> : <PipelineDetail name={sub} run={item} /> : search.has('new') ? <PipelineEditPage name={null} /> : search.has('runners') ? <RunnersPage /> : search.has('secrets') ? <SecretsPage /> : <PipelinesPage />
   else if (section === 'traces') body = <TracesPage message={sub} />
+  else if (section === 'help') body = <HelpPage />
   else if (section === 'settings') {
     const tab = settingsTabs.find(([k]) => k === sub)
     if (!tab) return <Navigate to="/admin/settings/connections" replace />
