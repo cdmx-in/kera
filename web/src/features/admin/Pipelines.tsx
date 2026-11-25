@@ -28,6 +28,7 @@ import {
   scheduleChanged,
   scheduleFormOf,
   scheduleSummary,
+  secretsUrl,
   stagesChanged,
   stateOf,
   useRun,
@@ -521,6 +522,9 @@ export function PipelinesPage() {
           </Btn>
           <Btn onClick={() => nav(runnersUrl)} data-testid="runners">
             <Server size={14} aria-hidden /> Runners
+          </Btn>
+          <Btn onClick={() => nav(secretsUrl)} data-testid="secrets">
+            <KeyRound size={14} aria-hidden /> Secrets
           </Btn>
           {add('new-pipeline')}
         </>

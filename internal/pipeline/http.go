@@ -74,6 +74,10 @@ func (s *Service) routes() {
 		"POST /api/v1/admin/pipeline-runners":                                      s.aRunnerCreate,
 		"POST /api/v1/admin/pipeline-runners/{id}/token":                           s.aRunnerRotate,
 		"DELETE /api/v1/admin/pipeline-runners/{id}":                               s.aRunnerDelete,
+		"GET /api/v1/admin/secrets":                                                s.aSecrets,
+		"POST /api/v1/admin/secrets":                                               s.aSecretCreate,
+		"PUT /api/v1/admin/secrets/{name}":                                         s.aSecretUpdate,
+		"DELETE /api/v1/admin/secrets/{name}":                                      s.aSecretDelete,
 	} {
 		s.a.Server.Handle(p, s.a.Auth.Admin(f))
 	}

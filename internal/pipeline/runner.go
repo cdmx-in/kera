@@ -473,7 +473,8 @@ func (s *Service) aScriptSave(w http.ResponseWriter, r *http.Request) {
 type envOut struct {
 	Name      string    `json:"name"`
 	Secret    bool      `json:"secret"`
-	Value     *string   `json:"value"` // only for a non-secret variable; a secret is never sent back
+	Value     *string   `json:"value"`                // only for a non-secret variable; a secret is never sent back
+	SecretRef *string   `json:"secret_ref,omitempty"` // the stored secret this variable points at (value stays null)
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -482,7 +483,8 @@ func (s *Service) aEnv(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT name, secret, value_enc, updated_at FROM pipeline_env WHERE pipeline_id = $1 ORDER BY name`, p.ID)
+	rows, err := s.db.Query(r.Context(), `SELECT e.name, e.secret, e.value_enc, e.updated_at, sc.name FROM pipeline_env e
+		LEFT JOIN secret sc ON sc.id = e.secret_id WHERE e.pipeline_id = $1 ORDER BY e.name`, p.ID)
 	if err != nil {
 		api.Fail(w, r, fmt.Errorf("list env: %w", err))
 		return
@@ -492,11 +494,11 @@ func (s *Service) aEnv(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var e envOut
 		var enc []byte
-		if err := rows.Scan(&e.Name, &e.Secret, &enc, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.Name, &e.Secret, &enc, &e.UpdatedAt, &e.SecretRef); err != nil {
 			api.Fail(w, r, err)
 			return
 		}
-		if !e.Secret {
+		if !e.Secret && e.SecretRef == nil {
 			v, err := s.a.Keys.DecryptString(enc)
 			if err != nil {
 				api.Fail(w, r, err)
@@ -511,9 +513,10 @@ func (s *Service) aEnv(w http.ResponseWriter, r *http.Request) {
 }
 
 type envIn struct {
-	Name   string `json:"name"`
-	Value  string `json:"value"`
-	Secret *bool  `json:"secret"`
+	Name      string  `json:"name"`
+	Value     *string `json:"value"`      // its own value, or ...
+	SecretRef *string `json:"secret_ref"` // ... the name of a stored secret (internal/pipeline/secrets.go); not both
+	Secret    *bool   `json:"secret"`
 }
 
 func (s *Service) aEnvSet(w http.ResponseWriter, r *http.Request) {
@@ -533,27 +536,51 @@ func (s *Service) aEnvSet(w http.ResponseWriter, r *http.Request) {
 	case reservedEnv(in.Name):
 		api.Fail(w, r, api.FieldErr("name", "reserved", "The runner sets this one itself (KERA_URL, KERA_PIPELINE, KERA_PIPELINE_TOKEN, KERA_RUN, KERA_MARK, KERA_SCRIPT_DIR, KERA_TEST)"))
 		return
-	case len(in.Value) > maxEnvValue || strings.ContainsRune(in.Value, 0):
+	case in.SecretRef != nil && in.Value != nil:
+		api.Fail(w, r, api.FieldErr("value", "value_and_ref", "Give a value or a stored secret, not both"))
+		return
+	}
+	value := ""
+	if in.Value != nil {
+		value = *in.Value
+	}
+	if len(value) > maxEnvValue || strings.ContainsRune(value, 0) {
 		api.Fail(w, r, api.FieldErr("value", "bad_value", "At most 16 KiB of text"))
 		return
 	}
 	secret := in.Secret == nil || *in.Secret
+	var secretID *string
+	if in.SecretRef != nil {
+		id, found, err := s.secretID(r.Context(), *in.SecretRef)
+		switch {
+		case err != nil:
+			api.Fail(w, r, err)
+			return
+		case !found:
+			api.Fail(w, r, api.FieldErr("secret_ref", "unknown_secret", "No stored secret has this name"))
+			return
+		}
+		secretID, secret = &id, true // a stored secret is always masked in logs
+	}
 	var n int
 	_ = s.db.QueryRow(r.Context(), `SELECT count(*) FROM pipeline_env WHERE pipeline_id = $1 AND name <> $2`, p.ID, in.Name).Scan(&n)
 	if n >= maxEnvVars {
 		api.Fail(w, r, api.FieldErr("name", "too_many", fmt.Sprintf("At most %d variables", maxEnvVars)))
 		return
 	}
-	enc, err := s.a.Keys.EncryptString(in.Value)
-	if err == nil && enc == nil {
-		enc, err = s.a.Keys.Encrypt([]byte{}) // an empty value is allowed; value_enc is NOT NULL
+	var enc []byte // NULL when the variable points at a stored secret
+	if secretID == nil {
+		var err error
+		if enc, err = s.a.Keys.EncryptString(value); err == nil && enc == nil {
+			enc, err = s.a.Keys.Encrypt([]byte{}) // an empty value is allowed; value_enc is only NULL for a reference
+		}
+		if err != nil {
+			api.Fail(w, r, err)
+			return
+		}
 	}
-	if err != nil {
-		api.Fail(w, r, err)
-		return
-	}
-	if _, err := s.db.Exec(r.Context(), `INSERT INTO pipeline_env (pipeline_id, name, value_enc, secret, updated_at) VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (pipeline_id, name) DO UPDATE SET value_enc = $3, secret = $4, updated_at = $5`, p.ID, in.Name, enc, secret, s.now()); err != nil {
+	if _, err := s.db.Exec(r.Context(), `INSERT INTO pipeline_env (pipeline_id, name, value_enc, secret_id, secret, updated_at) VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (pipeline_id, name) DO UPDATE SET value_enc = $3, secret_id = $4, secret = $5, updated_at = $6`, p.ID, in.Name, enc, secretID, secret, s.now()); err != nil {
 		api.Fail(w, r, fmt.Errorf("save env: %w", err))
 		return
 	}
@@ -561,7 +588,11 @@ func (s *Service) aEnvSet(w http.ResponseWriter, r *http.Request) {
 	if u := auth.FromContext(r.Context()); u != nil {
 		who = u.ID
 	}
-	slog.Info("pipeline env set", "pipeline", p.Name, "name", in.Name, "secret", secret, "by", who) // never the value
+	ref := ""
+	if in.SecretRef != nil {
+		ref = *in.SecretRef
+	}
+	slog.Info("pipeline env set", "pipeline", p.Name, "name", in.Name, "secret", secret, "secret_ref", ref, "by", who) // never the value
 	s.aEnv(w, r)
 }
 
@@ -804,28 +835,45 @@ func (s *Service) claim(ctx context.Context, rn *runnerID, in claimIn) (*job, er
 	return &job{Run: runID, Pipeline: p.Name, Version: ver, Entry: sc.Entry, Args: sc.Args, Files: sc.Files, Env: env, Secrets: secrets, Token: s.jobToken(p.ID, runID)}, nil
 }
 
+// loadEnv is the decrypted environment of a pipeline for a job or a session. A variable that points at a stored
+// secret gets the secret's current value and is always in secrets (masked in logs); the secret's last_used_at moves.
 func (s *Service) loadEnv(ctx context.Context, pipelineID string) (env map[string]string, secrets []string, err error) {
-	rows, err := s.db.Query(ctx, `SELECT name, value_enc, secret FROM pipeline_env WHERE pipeline_id = $1 ORDER BY name`, pipelineID)
+	rows, err := s.db.Query(ctx, `SELECT e.name, coalesce(e.value_enc, sc.value_enc), e.secret, e.secret_id FROM pipeline_env e
+		LEFT JOIN secret sc ON sc.id = e.secret_id WHERE e.pipeline_id = $1 ORDER BY e.name`, pipelineID)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer rows.Close()
 	env, secrets = map[string]string{}, []string{}
+	var used []string
 	for rows.Next() {
 		var n string
 		var enc []byte
 		var secret bool
-		if err := rows.Scan(&n, &enc, &secret); err != nil {
+		var sid *string
+		if err := rows.Scan(&n, &enc, &secret, &sid); err != nil {
 			return nil, nil, err
 		}
 		if env[n], err = s.a.Keys.DecryptString(enc); err != nil {
 			return nil, nil, err
 		}
-		if secret {
+		if secret || sid != nil {
 			secrets = append(secrets, n)
 		}
+		if sid != nil {
+			used = append(used, *sid)
+		}
 	}
-	return env, secrets, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	rows.Close()
+	if len(used) > 0 { // a failure here must not stop the job
+		if _, err := s.db.Exec(ctx, `UPDATE secret SET last_used_at = $2 WHERE id = ANY($1)`, used, s.now()); err != nil {
+			slog.Warn("pipeline: secret last_used_at", "pipeline", pipelineID, "err", err)
+		}
+	}
+	return env, secrets, nil
 }
 
 // Job token -------------------------------------------------------------------------------------------

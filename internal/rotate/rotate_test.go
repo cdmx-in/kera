@@ -63,6 +63,7 @@ type world struct {
 	file             *apply.File
 	tokenPlain       string // the oauth_token row
 	envPlain         string // the pipeline_env row named TOKEN
+	secretPlain      string // the secret row s1
 }
 
 // newWorld fills every location with a throwaway old key: most through kera apply (the real write paths of
@@ -107,6 +108,14 @@ func newWorld(t *testing.T) *world {
 		}
 		mustExec(t, w.db, `INSERT INTO pipeline_env (pipeline_id, name, value_enc, secret) VALUES ('p1', $1, $2, true)`, name, sealed)
 	}
+	// a stored secret and a variable that points at it (value_enc is NULL there)
+	w.secretPlain = randHex(t, 8)
+	sealed, err = w.oldKeys.Encrypt([]byte(w.secretPlain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustExec(t, w.db, `INSERT INTO secret (id, name, value_enc) VALUES ('s1', 'shared-token', $1)`, sealed)
+	mustExec(t, w.db, `INSERT INTO pipeline_env (pipeline_id, name, secret_id, secret) VALUES ('p1', 'REF', 's1', true)`)
 	return w
 }
 
@@ -181,6 +190,9 @@ func TestRotateEndToEnd(t *testing.T) {
 			t.Errorf("the fixture stores nothing in %s", l.Name())
 		}
 	}
+	if slices.ContainsFunc(items, func(it item) bool { return it.loc.Table == "pipeline_env" && it.key[1] == "REF" }) {
+		t.Error("a pipeline_env row that points at a stored secret was read as a ciphertext")
+	}
 	if !slices.ContainsFunc(items, func(it item) bool { return it.loc.Table == "pipeline_env" && len(it.plain) == 0 }) {
 		t.Error("the fixture has no pipeline_env row with an empty value")
 	}
@@ -240,7 +252,7 @@ func TestRotateEndToEnd(t *testing.T) {
 			t.Errorf("%s changed its value", k)
 		}
 	}
-	if after["oauth_token.token_enc t1"] != w.tokenPlain || after["pipeline_env.value_enc p1/TOKEN"] != w.envPlain || after["pipeline_env.value_enc p1/EMPTY"] != "" {
+	if after["oauth_token.token_enc t1"] != w.tokenPlain || after["pipeline_env.value_enc p1/TOKEN"] != w.envPlain || after["pipeline_env.value_enc p1/EMPTY"] != "" || after["secret.value_enc s1"] != w.secretPlain {
 		t.Error("the hand-written rows lost their values")
 	}
 

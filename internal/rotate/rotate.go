@@ -44,7 +44,8 @@ var locations = []Location{
 	{Table: "oauth_provider", Column: "client_secret_enc", Key: []string{"id"}},
 	{Table: "oauth_token", Column: "token_enc", Key: []string{"id"}},
 	{Table: "hook_server", Column: "key_enc", Key: []string{"id"}},
-	{Table: "pipeline_env", Column: "value_enc", Key: []string{"pipeline_id", "name"}}, // an empty value is a non-empty ciphertext
+	{Table: "pipeline_env", Column: "value_enc", Key: []string{"pipeline_id", "name"}}, // an empty value is a non-empty ciphertext; a variable that points at a stored secret has NULL here
+	{Table: "secret", Column: "value_enc", Key: []string{"id"}},                        // the central secret store (internal/pipeline/secrets.go)
 	{Table: "tool_server", Column: "auth", Field: "key_enc", Key: []string{"id"}},      // apply.SealToolKey
 	// secret settings, stored as {"enc": "<base64>"} (apply.SealSecret); other config rows are plain JSON
 	{Table: "config", Column: "value", Field: "enc", Key: []string{"key"}, Where: "key = ANY($1)", Args: []any{secretSettings()}},

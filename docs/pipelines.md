@@ -256,6 +256,15 @@ All routes need an admin. Times are RFC 3339 in UTC.
 | `GET /api/v1/admin/pipelines/{name}/runs/{run}/steps/{seq}` | One step with its log |
 | `POST /api/v1/admin/pipelines/{name}/runs/{run}/close` | Close a stuck run as failed |
 
+Stored secrets (names `a-z0-9._-`, 1 to 100 characters, at most 200; values up to 16 KiB, never returned by any route):
+
+| Route | Purpose |
+|---|---|
+| `GET /api/v1/admin/secrets` | List: name, description, `used_by` (`[{pipeline, variable}]`), `updated_by`, `updated_at`, `last_used_at` |
+| `POST /api/v1/admin/secrets` | Create: `{"name", "description", "value"}` |
+| `PUT /api/v1/admin/secrets/{name}` | Write-only change: a new `value` (rotation) and/or `description`; an empty value is refused |
+| `DELETE /api/v1/admin/secrets/{name}` | Delete; `409` with the `used_by` list while a pipeline variable references it |
+
 A pipeline:
 
 ```json
@@ -295,6 +304,10 @@ A pipeline:
 **Close**: for a run whose script died. The run fails with "Closed by an admin at HH:MM UTC.", a step that was still running fails with that reason, steps that never started are skipped, and nothing is removed from the collections.
 
 Collection step counts: `listed`, `unchanged`, `adopted`, `uploaded`, `waiting`, `indexed`, `failed`, `removed` (and `refused` when a removal was refused). Its log has `+ name` for a new file, `~ name` for a replaced one, `- name` for a removed one and `FAILED name: reason`.
+
+### Stored secrets
+
+A variable of a Kera-run pipeline can point at a named secret kept in one central, encrypted store (Admin > Pipelines > Secrets) instead of holding its own copy: `PUT /api/v1/admin/pipelines/{name}/env` with `{"name": "API_KEY", "secret_ref": "shared-token"}`. The variable then lists as `{"name": "API_KEY", "secret": true, "secret_ref": "shared-token", "value": null}`. Updating the secret updates every pipeline that references it from its next run. See [Kera-run pipelines](kera-run-pipelines.md#stored-secrets).
 
 ## How the sync works
 

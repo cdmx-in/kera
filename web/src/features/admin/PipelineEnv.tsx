@@ -1,12 +1,13 @@
 // Pipeline > Environment: the variables a Kera-run script gets. A secret is write-only: the server never
 // sends its value, so this page can only say that it is set and replace it.
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { Lock, Pencil, Plus, Trash2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import { toast } from '@/stores/toast'
 import { Badge, Btn, Card, Confirm, inputCls, Loading, tdCls, thCls } from './ui'
 import { relative, when } from './settings/Integrations'
-import { useEnv, usePipelineApi, type EnvVar } from './pipelines'
+import { envBody, secretsUrl, useEnv, usePipelineApi, useSecrets, type EnvBody, type EnvVar } from './pipelines'
 
 const errText = (e: unknown) => (e as Error).message
 
@@ -64,6 +65,12 @@ export function EnvRow({ v, onSave, onDelete }: { v: EnvVar; onSave: (value: str
               </p>
             )}
           </div>
+        ) : v.secret_ref ? (
+          <Link to={secretsUrl} title="Change the value on the Secrets page" data-testid="env-ref">
+            <Badge tone="accent">
+              <Lock size={11} aria-hidden /> stored: {v.secret_ref}
+            </Badge>
+          </Link>
         ) : v.secret ? (
           <span className="inline-flex items-center gap-1.5 text-muted">
             <Lock size={12} aria-hidden /> set
@@ -79,7 +86,7 @@ export function EnvRow({ v, onSave, onDelete }: { v: EnvVar; onSave: (value: str
         {relative(v.updated_at)}
       </td>
       <td className={tdCls + ' whitespace-nowrap text-right'}>
-        {!editing && (
+        {!editing && !v.secret_ref && (
           <Btn variant="ghost" className="px-2 py-1" aria-label={v.secret ? `Update ${v.name}` : `Edit ${v.name}`} title={v.secret ? 'Replace the value' : 'Edit'} onClick={open}>
             <Pencil size={14} aria-hidden />
             <span className="text-xs">{v.secret ? 'Update' : 'Edit'}</span>
@@ -94,22 +101,25 @@ export function EnvRow({ v, onSave, onDelete }: { v: EnvVar; onSave: (value: str
 }
 
 /** Name, value and a Secret box (on by default). Saving a name that exists replaces its value. */
-export function AddEnv({ existing, onAdd }: { existing: string[]; onAdd: (v: { name: string; value: string; secret: boolean }) => Promise<void> }) {
+export function AddEnv({ existing, secrets = [], initialKind = 'value', onAdd }: { existing: string[]; secrets?: string[]; initialKind?: 'value' | 'stored'; onAdd: (v: EnvBody) => Promise<void> }) {
   const [name, setName] = useState('')
   const [value, setValue] = useState('')
   const [secret, setSecret] = useState(true)
-  const [errors, setErrors] = useState<{ name?: string; value?: string }>({})
+  const [kind, setKind] = useState(initialKind)
+  const [ref, setRef] = useState('')
+  const [errors, setErrors] = useState<{ name?: string; value?: string; secret_ref?: string }>({})
   const [busy, setBusy] = useState(false)
   const submit = async () => {
     setBusy(true)
     try {
-      await onAdd({ name: name.trim(), value, secret })
+      await onAdd(envBody({ name, kind, value, secret, ref }))
       setName('')
       setValue('')
+      setRef('')
       setErrors({})
     } catch (e) {
       // the server names the field at fault ("The runner sets this one itself")
-      if (e instanceof ApiError && (e.field === 'name' || e.field === 'value')) setErrors({ [e.field]: e.message })
+      if (e instanceof ApiError && (e.field === 'name' || e.field === 'value' || e.field === 'secret_ref')) setErrors({ [e.field]: e.message })
       else toast(errText(e), 'error')
     } finally {
       setBusy(false)
@@ -146,30 +156,72 @@ export function AddEnv({ existing, onAdd }: { existing: string[]; onAdd: (v: { n
           <span className="block text-xs text-muted">{replaces ? 'This replaces the value it has now.' : 'KERA_URL, KERA_PIPELINE, KERA_PIPELINE_TOKEN, KERA_RUN, KERA_MARK, KERA_SCRIPT_DIR and KERA_TEST are set by the runner.'}</span>
         )}
       </label>
-      <label className="block space-y-1">
-        <span className="block text-xs font-medium text-muted">Value</span>
-        <input
-          name="value"
-          type={secret ? 'password' : 'text'}
-          value={value}
-          autoComplete={secret ? 'new-password' : 'off'}
-          spellCheck={false}
-          aria-invalid={!!errors.value}
-          onChange={(e) => (setValue(e.target.value), setErrors((x) => ({ ...x, value: undefined })))}
-          className={inputCls + (errors.value ? ' border-red-500! focus:border-red-500!' : '')}
-        />
-        {errors.value && (
-          <span role="alert" className="block text-xs text-red-600 dark:text-red-400">
-            {errors.value}
-          </span>
-        )}
-      </label>
-      <div className="flex flex-wrap items-end gap-3 sm:flex-col sm:items-stretch sm:justify-end">
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} className="size-4 accent-[var(--accent)]" />
-          Secret
+      {kind === 'value' ? (
+        <label className="block space-y-1">
+          <span className="block text-xs font-medium text-muted">Value</span>
+          <input
+            name="value"
+            type={secret ? 'password' : 'text'}
+            value={value}
+            autoComplete={secret ? 'new-password' : 'off'}
+            spellCheck={false}
+            aria-invalid={!!errors.value}
+            onChange={(e) => (setValue(e.target.value), setErrors((x) => ({ ...x, value: undefined })))}
+            className={inputCls + (errors.value ? ' border-red-500! focus:border-red-500!' : '')}
+          />
+          {errors.value && (
+            <span role="alert" className="block text-xs text-red-600 dark:text-red-400">
+              {errors.value}
+            </span>
+          )}
         </label>
-        <Btn type="submit" variant="primary" disabled={busy || !name.trim()}>
+      ) : (
+        <label className="block space-y-1">
+          <span className="block text-xs font-medium text-muted">Stored secret</span>
+          <select name="secret_ref" value={ref} aria-invalid={!!errors.secret_ref} onChange={(e) => (setRef(e.target.value), setErrors((x) => ({ ...x, secret_ref: undefined })))} className={inputCls}>
+            <option value="">Choose a secret…</option>
+            {secrets.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          {errors.secret_ref ? (
+            <span role="alert" className="block text-xs text-red-600 dark:text-red-400">
+              {errors.secret_ref}
+            </span>
+          ) : (
+            <span className="block text-xs text-muted">
+              {secrets.length === 0 ? 'No stored secrets yet. ' : ''}
+              <Link to={secretsUrl} className="underline">
+                Manage secrets
+              </Link>
+            </span>
+          )}
+        </label>
+      )}
+      <div className="flex flex-wrap items-end gap-3 sm:flex-col sm:items-stretch sm:justify-end">
+        <fieldset className="flex gap-3 text-sm">
+          <legend className="sr-only">Source of the value</legend>
+          {(
+            [
+              ['value', 'Value'],
+              ['stored', 'Stored secret'],
+            ] as const
+          ).map(([k, l]) => (
+            <label key={k} className="inline-flex items-center gap-1.5">
+              <input type="radio" name="kind" checked={kind === k} onChange={() => setKind(k)} className="size-4 accent-[var(--accent)]" />
+              {l}
+            </label>
+          ))}
+        </fieldset>
+        {kind === 'value' && (
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} className="size-4 accent-[var(--accent)]" />
+            Secret
+          </label>
+        )}
+        <Btn type="submit" variant="primary" disabled={busy || !name.trim() || (kind === 'stored' && !ref)}>
           <Plus size={14} aria-hidden /> Add variable
         </Btn>
       </div>
@@ -179,6 +231,7 @@ export function AddEnv({ existing, onAdd }: { existing: string[]; onAdd: (v: { n
 
 export function EnvTab({ name }: { name: string }) {
   const q = useEnv(name)
+  const sq = useSecrets()
   const pa = usePipelineApi()
   const [del, setDel] = useState<string | null>(null)
   const env = q.data?.env
@@ -213,7 +266,7 @@ export function EnvTab({ name }: { name: string }) {
                 </table>
               </div>
             )}
-            <AddEnv existing={env.map((v) => v.name)} onAdd={async (v) => void (await pa.setEnv(name, v))} />
+            <AddEnv existing={env.map((v) => v.name)} secrets={sq.data?.secrets.map((x) => x.name)} onAdd={async (v) => void (await pa.setEnv(name, v))} />
           </>
         )}
       </Card>

@@ -43,6 +43,14 @@ Kera itself never executes a script: its image has no shell and no Docker socket
 
 Variables are stored encrypted (AES-256-GCM, from `KERA_SECRET_KEY`). A **secret** variable is write-only: the page shows that it is set, never its value, and the API never returns it. A plain variable can be read back. The names the runner sets itself (`KERA_URL`, `KERA_PIPELINE`, `KERA_PIPELINE_TOKEN`, `KERA_RUN`, `KERA_MARK`, `KERA_SCRIPT_DIR`, `KERA_TEST`) are reserved; other names, such as `KERA_API_KEY`, are ordinary variables.
 
+### Stored secrets
+
+A secret that several pipelines need (an API token, a database password) can live once in **Admin > Pipelines > Secrets** and be referenced by name instead of copied into each pipeline. On a pipeline's Environment tab, choose **Stored secret** for a new variable and pick the name; the row then shows `stored: <name>` and links to the Secrets page. Over the API the variable is `PUT .../env` with `{"name": "API_KEY", "secret_ref": "<secret name>"}` in place of `value` (exactly one of the two).
+
+- A stored value is write-only, like a secret variable: no page or route returns it. **Update value** on the Secrets page (or `PUT /api/v1/admin/secrets/{name}`) rotates it, and every pipeline that references it gets the new value from its next run; a run that has started keeps what it was given.
+- A secret in use cannot be deleted: Kera answers `409` and lists the pipelines and variables that use it. Each secret also shows when it was last handed to a run.
+- A variable that references a stored secret is always masked in run logs, whatever its own Secret box would say.
+
 The value reaches the runner when it claims a run. The runner masks every secret value it knows in the run log and in its own output, in addition to the server's filter for key shapes.
 
 ## Notebook and checks

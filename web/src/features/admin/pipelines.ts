@@ -828,7 +828,38 @@ export interface EnvVar {
   name: string
   secret: boolean
   value: string | null
+  /** set when the variable points at a stored secret (Admin > Pipelines > Secrets); the value stays null */
+  secret_ref?: string
   updated_at: string
+}
+
+/** What a variable is saved with: its own value, or the name of a stored secret (never both). */
+export type EnvBody = { name: string; value: string; secret: boolean } | { name: string; secret_ref: string }
+
+/** The body a variable is saved with: a stored secret by name, or its own value. */
+export const envBody = (f: { name: string; kind: 'value' | 'stored'; value: string; secret: boolean; ref: string }): EnvBody =>
+  f.kind === 'stored' ? { name: f.name.trim(), secret_ref: f.ref } : { name: f.name.trim(), value: f.value, secret: f.secret }
+
+// Stored secrets ---------------------------------------------------------------------------
+
+/** A stored secret as the list shows it: never its value. */
+export interface Secret {
+  name: string
+  description: string
+  used_by: { pipeline: string; variable: string }[]
+  updated_by: string
+  updated_at: string
+  last_used_at: string | null
+}
+
+export const secretsUrl = '/admin/pipelines?secrets'
+
+/** Rules for a secret's name: lower-case letters, digits, dashes, dots and underscores; 1 to 100 characters. */
+export function validateSecret(f: { name: string; value?: string }): Errors {
+  const e: Errors = {}
+  if (!/^[a-z0-9_][a-z0-9._-]{0,99}$/.test(f.name.trim())) e.name = 'Use 1 to 100 lowercase letters, digits, dashes, dots and underscores'
+  if (f.value !== undefined && f.value === '') e.value = 'A secret needs a value'
+  return e
 }
 
 // Runners ------------------------------------------------------------------------------------
@@ -909,6 +940,10 @@ export const useScriptVersion = (name: string, version: number | undefined) =>
 export const useEnv = (name: string, enabled = true) => useQuery({ ...live, queryKey: key(name, 'env'), queryFn: () => api<{ env: EnvVar[] }>(`${base}/${enc(name)}/env`), enabled })
 
 const runnersKey = ['admin', 'pipeline-runners']
+const secretsKey = ['admin', 'secrets']
+
+/** The stored secrets, without values. */
+export const useSecrets = (enabled = true) => useQuery({ ...live, queryKey: secretsKey, queryFn: () => api<{ secrets: Secret[] }>('/api/v1/admin/secrets'), enabled })
 
 /** Every runner; polled, because "Online" is a matter of the last two minutes. */
 export const useRunners = (enabled = true) => useQuery({ ...live, queryKey: runnersKey, queryFn: () => api<{ runners: Runner[] }>('/api/v1/admin/pipeline-runners'), refetchInterval: 15_000, enabled })
@@ -918,7 +953,7 @@ export function usePipelineApi() {
   const qc = useQueryClient()
   const call = async <T>(path: string, method: string, json?: unknown) => {
     const r = await api<T>(path.startsWith('/api/') ? path : base + path, { method, json })
-    await Promise.all([qc.invalidateQueries({ queryKey: key() }), qc.invalidateQueries({ queryKey: runnersKey })])
+    await Promise.all([qc.invalidateQueries({ queryKey: key() }), qc.invalidateQueries({ queryKey: runnersKey }), qc.invalidateQueries({ queryKey: secretsKey })])
     return r
   }
   return {
@@ -938,8 +973,14 @@ export function usePipelineApi() {
     cancel: (name: string, run: number) => call<Run>(`/${enc(name)}/runs/${run}/cancel`, 'POST'),
     /** Stores a new version; answers it */
     saveScript: (name: string, body: { files: Record<string, string>; entry: string; args: string; note: string }) => call<Script>(`/${enc(name)}/script`, 'PUT', body),
-    setEnv: (name: string, body: { name: string; value: string; secret: boolean }) => call<{ env: EnvVar[] }>(`/${enc(name)}/env`, 'PUT', body),
+    setEnv: (name: string, body: EnvBody) => call<{ env: EnvVar[] }>(`/${enc(name)}/env`, 'PUT', body),
     deleteEnv: (name: string, variable: string) => call<{ env: EnvVar[] }>(`/${enc(name)}/env/${enc(variable)}`, 'DELETE'),
+    /** The value goes up and is never sent back */
+    createSecret: (body: { name: string; description: string; value: string }) => call<{ secrets: Secret[] }>('/api/v1/admin/secrets', 'POST', body),
+    /** A new value (rotation) and/or a description; the value is write-only */
+    updateSecret: (name: string, body: { value?: string; description?: string }) => call<{ secrets: Secret[] }>(`/api/v1/admin/secrets/${enc(name)}`, 'PUT', body),
+    /** 409 while a variable still uses it */
+    deleteSecret: (name: string) => call<undefined>(`/api/v1/admin/secrets/${enc(name)}`, 'DELETE'),
     /** The token is in the answer once; Kera keeps a hash */
     createRunner: (runnerName: string) => call<{ runner: Runner; token: string }>('/api/v1/admin/pipeline-runners', 'POST', { name: runnerName }),
     rotateRunner: (id: string) => call<{ token: string; token_prefix: string }>(`/api/v1/admin/pipeline-runners/${enc(id)}/token`, 'POST'),

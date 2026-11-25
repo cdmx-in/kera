@@ -6,6 +6,7 @@ import { AnalyticsPage } from './Analytics'
 import { GroupsPage } from './Groups'
 import { PipelineDetail } from './PipelineRuns'
 import { RunnersPage } from './PipelineRunners'
+import { SecretsPage } from './Secrets'
 import { PipelineEditPage, PipelinesPage } from './Pipelines'
 import { SkillsPage } from './Skills'
 import { SpendPage } from './Spend'
@@ -59,7 +60,7 @@ export default function AdminPage() {
   else if (section === 'skills') body = <SkillsPage />
   else if (section === 'analytics') body = <AnalyticsPage />
   else if (section === 'spend') body = <SpendPage />
-  else if (section === 'pipelines') body = sub ? item === 'edit' ? <PipelineEditPage name={sub} /> : <PipelineDetail name={sub} run={item} /> : search.has('new') ? <PipelineEditPage name={null} /> : search.has('runners') ? <RunnersPage /> : <PipelinesPage />
+  else if (section === 'pipelines') body = sub ? item === 'edit' ? <PipelineEditPage name={sub} /> : <PipelineDetail name={sub} run={item} /> : search.has('new') ? <PipelineEditPage name={null} /> : search.has('runners') ? <RunnersPage /> : search.has('secrets') ? <SecretsPage /> : <PipelinesPage />
   else if (section === 'settings') {
     const tab = settingsTabs.find(([k]) => k === sub)
     if (!tab) return <Navigate to="/admin/settings/connections" replace />
