@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/cdmx-in/kera/internal/api"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/schedule"
@@ -593,6 +594,7 @@ func (s *Service) aEnvSet(w http.ResponseWriter, r *http.Request) {
 		ref = *in.SecretRef
 	}
 	slog.Info("pipeline env set", "pipeline", p.Name, "name", in.Name, "secret", secret, "secret_ref", ref, "by", who) // never the value
+	audit.Record(r.Context(), audit.Event{TargetLabel: p.Name, Meta: map[string]any{"variable": in.Name, "write_only": secret, "secret_ref": ref}})
 	s.aEnv(w, r)
 }
 
@@ -687,6 +689,7 @@ func (s *Service) aRunnerCreate(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, fmt.Errorf("create runner: %w", err))
 		return
 	}
+	audit.Record(r.Context(), audit.Event{TargetID: id, TargetLabel: in.Name})
 	api.JSON(w, http.StatusCreated, map[string]any{"runner": s.runnerView(id, in.Name, prefix, "", nil, now), "token": tok})
 }
 

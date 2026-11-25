@@ -13,6 +13,7 @@ import (
 	"github.com/cdmx-in/kera/internal/access"
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/probe"
@@ -287,6 +288,7 @@ func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(ctx, audit.Event{Action: "model.create", TargetID: rw.ID, TargetLabel: rw.Name})
 	api.JSON(w, http.StatusOK, rowJSON(rw))
 }
 
@@ -306,6 +308,7 @@ func (h *handlers) update(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(ctx, audit.Event{Action: "model.update", TargetID: rw.ID, TargetLabel: rw.Name})
 	api.JSON(w, http.StatusOK, rowJSON(rw))
 }
 
@@ -346,6 +349,7 @@ func (h *handlers) toggle(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(ctx, audit.Event{Action: "model.toggle", TargetID: rw.ID, TargetLabel: rw.Name, Meta: map[string]any{"active": active}})
 	api.JSON(w, http.StatusOK, rowJSON(rw))
 }
 
@@ -378,6 +382,7 @@ func (h *handlers) delete(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(ctx, audit.Event{Action: "model.delete", TargetID: id, TargetLabel: rw.Name})
 	api.JSON(w, http.StatusOK, true)
 }
 
@@ -509,6 +514,14 @@ func (h *handlers) saveConnections(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	saved, keyed := []string{}, []string{}
+	for _, f := range body.Connections {
+		saved = append(saved, f.ID)
+		if f.APIKey != nil {
+			keyed = append(keyed, f.ID)
+		}
+	}
+	audit.Record(ctx, audit.Event{Meta: map[string]any{"connections": saved, "api_key_replaced": keyed}})
 	h.r.Invalidate()
 	h.connections(w, r)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/cdmx-in/kera/internal/api"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 )
 
@@ -155,10 +156,19 @@ func (h *handler) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	me := auth.FromContext(r.Context())
+	before, _ := h.loadUser(r.Context(), id) // for the audit event; a missing user fails below
 	if err := h.applyUserUpdate(r.Context(), me.ID, id, body.Name, body.Role); err != nil {
 		api.Fail(w, r, err)
 		return
 	}
+	e := audit.Event{TargetID: id, TargetLabel: before.Email, Meta: map[string]any{}}
+	if body.Name != nil && strings.TrimSpace(*body.Name) != before.Name {
+		e.Action, e.Meta["name_changed"] = "user.rename", true
+	}
+	if body.Role != nil && *body.Role != before.Role {
+		e.Action, e.Meta["from"], e.Meta["to"] = "user.role_change", before.Role, *body.Role
+	}
+	audit.Record(r.Context(), e)
 	h.getUser(w, r)
 }
 
@@ -228,6 +238,8 @@ func (h *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The caller is an admin and not the target, so an admin always remains.
+	before, _ := h.loadUser(r.Context(), id) // the email, for the audit event
+	audit.Record(r.Context(), audit.Event{TargetID: id, TargetLabel: before.Email})
 	found, err := DeleteUser(r.Context(), h.a.DB, id)
 	if err != nil {
 		api.Fail(w, r, err)

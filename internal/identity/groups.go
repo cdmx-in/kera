@@ -13,6 +13,7 @@ import (
 
 	"github.com/cdmx-in/kera/internal/access"
 	"github.com/cdmx-in/kera/internal/api"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/ids"
 )
 
@@ -153,6 +154,7 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, dupName(fmt.Errorf("create group: %w", err)))
 		return
 	}
+	audit.Record(r.Context(), audit.Event{TargetID: id, TargetLabel: *f.Name})
 	h.writeGroup(w, r, id)
 }
 
@@ -181,6 +183,18 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "Group not found"))
 		return
 	}
+	var changed []string // names of the fields sent, never their values
+	if f.Name != nil {
+		changed = append(changed, "name")
+	}
+	if f.Description != nil {
+		changed = append(changed, "description")
+	}
+	if f.Permissions != nil {
+		changed = append(changed, "permissions")
+	}
+	g, _ := h.group(r.Context(), id)
+	audit.Record(r.Context(), audit.Event{TargetLabel: g.Name, Meta: map[string]any{"changed": changed}})
 	h.writeGroup(w, r, id)
 }
 
@@ -203,10 +217,12 @@ func (h *handler) changeMembers(w http.ResponseWriter, r *http.Request, q string
 		return
 	}
 	id := r.PathValue("id")
-	if _, err := h.group(r.Context(), id); err != nil {
+	g, err := h.group(r.Context(), id)
+	if err != nil {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(r.Context(), audit.Event{TargetLabel: g.Name, Meta: map[string]any{"users": nonNil(body.UserIDs)}})
 	if _, err := h.a.DB.Exec(r.Context(), q, id, nonNil(body.UserIDs)); err != nil {
 		api.Fail(w, r, fmt.Errorf("change members: %w", err))
 		return
@@ -224,6 +240,9 @@ func (h *handler) deleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
+	if g, err := h.group(ctx, id); err == nil {
+		audit.Record(ctx, audit.Event{TargetLabel: g.Name})
+	}
 	tag, err := tx.Exec(ctx, `DELETE FROM "group" WHERE id = $1`, id)
 	if err == nil && tag.RowsAffected() > 0 {
 		// Grants point at groups by id without a foreign key; drop them too.
@@ -302,6 +321,11 @@ func (h *handler) putGrants(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	who := make([]string, 0, len(grants))
+	for _, g := range grants {
+		who = append(who, g.Principal+" "+string(g.Permission))
+	}
+	audit.Record(r.Context(), audit.Event{TargetType: typ, TargetID: id, Meta: map[string]any{"grants": who}})
 	if err := access.Replace(r.Context(), h.a.DB, typ, id, grants, false); err != nil {
 		api.Fail(w, r, fmt.Errorf("replace grants: %w", err))
 		return

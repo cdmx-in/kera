@@ -11,6 +11,7 @@ import (
 
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/apply"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/settings"
 )
 
@@ -129,7 +130,9 @@ func (h *handler) setSettings(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
-	h.a.Settings.Invalidate(slices.Collect(maps.Keys(writes))...)
+	names := slices.Sorted(maps.Keys(writes))
+	h.a.Settings.Invalidate(names...)
+	audit.Record(ctx, settingsEvent(names))
 	h.getSettings(w, r)
 }
 
@@ -202,4 +205,18 @@ func isInt(v json.RawMessage) bool {
 	}
 	_, err := n.Int64()
 	return err == nil && !strings.ContainsAny(string(n), ".eE")
+}
+
+// settingsEvent names the settings a save changed (names only, never values). A save of nothing but guardrail
+// settings is guardrails.update, so those changes stand out in the log.
+func settingsEvent(names []string) audit.Event {
+	e := audit.Event{Action: "settings.update", Meta: map[string]any{"settings": names}}
+	guard := len(names) > 0
+	for _, k := range names {
+		guard = guard && strings.HasPrefix(k, "guardrails.")
+	}
+	if guard {
+		e.Action = "guardrails.update"
+	}
+	return e
 }

@@ -5,11 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cdmx-in/kera/internal/apply"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/config"
 	"github.com/cdmx-in/kera/internal/db"
 	"github.com/cdmx-in/kera/internal/secret"
@@ -40,7 +43,29 @@ func applyCmd(ctx context.Context, args []string) error {
 	if res != nil {
 		res.Print(os.Stdout)
 	}
+	if !*dry {
+		recordApply(ctx, pool, res, *prune, err)
+	}
 	return err
+}
+
+// recordApply leaves one audit event per apply: how many rows of which kinds it changed (names of kinds only).
+func recordApply(ctx context.Context, pool *pgxpool.Pool, res *apply.Result, prune bool, applyErr error) {
+	e := audit.Event{Action: "config.apply", Meta: map[string]any{"prune": prune}}
+	if applyErr != nil {
+		e.Outcome = audit.Failed
+	}
+	if res != nil {
+		kinds := map[string]bool{}
+		for _, c := range res.Changes {
+			if c.Action != "unchanged" {
+				kinds[c.Kind] = true
+			}
+		}
+		e.Meta["created"], e.Meta["updated"], e.Meta["deleted"] = res.Count("create"), res.Count("update"), res.Count("delete")
+		e.Meta["kinds"] = slices.Sorted(maps.Keys(kinds))
+	}
+	audit.Record(audit.CLI(ctx, pool), e)
 }
 
 // exportCmd: kera export [-o file]
@@ -66,6 +91,7 @@ func exportCmd(ctx context.Context, args []string) error {
 	for _, p := range placeholders {
 		fmt.Fprintln(os.Stderr, "secret exported as", p)
 	}
+	audit.Record(audit.CLI(ctx, pool), audit.Event{Action: "config.export"})
 	if *out == "" {
 		_, err = os.Stdout.Write(b)
 		return err

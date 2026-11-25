@@ -28,6 +28,9 @@ type Authenticator struct {
 	Keys     *secret.Keys
 	Settings *settings.Store
 	Secure   bool // set Secure on cookies (public URL is https)
+	// AdminHook, when set, runs every admin route once the caller is authenticated, before the admin check,
+	// so it sees refusals too (the audit package records changes with it). Set it before serving.
+	AdminHook func(w http.ResponseWriter, r *http.Request, next http.Handler)
 
 	mu     sync.Mutex
 	seenAt map[string]time.Time // throttles last_active_at writes

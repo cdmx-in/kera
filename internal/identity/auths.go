@@ -10,9 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cdmx-in/kera/internal/api"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
 )
@@ -49,6 +51,9 @@ func (h *handler) meBody(ctx context.Context, u *auth.User) map[string]any {
 }
 
 func (h *handler) signout(w http.ResponseWriter, r *http.Request) {
+	if u, err := h.a.Auth.Resolve(r); err == nil && !u.ViaAPIKey { // nobody signed in: nothing worth a record
+		audit.Record(auth.WithUser(r.Context(), u), audit.Event{Action: "auth.sign_out"})
+	}
 	h.a.Auth.ClearSessionCookie(w)
 	api.JSON(w, http.StatusOK, map[string]any{"status": true})
 }
@@ -159,20 +164,23 @@ func (h *handler) createKey(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "API key"
 	}
+	audit.Record(r.Context(), audit.Event{Action: "apikey.create", TargetID: id, TargetLabel: name})
 	api.JSON(w, http.StatusOK, map[string]any{"id": id, "name": name, "key": key, "prefix": auth.KeyPrefix(key)})
 }
 
 func (h *handler) deleteKey(w http.ResponseWriter, r *http.Request) {
-	tag, err := h.a.DB.Exec(r.Context(), `DELETE FROM api_key WHERE id = $1 AND user_id = $2`,
-		r.PathValue("id"), auth.FromContext(r.Context()).ID)
+	var name string
+	err := h.a.DB.QueryRow(r.Context(), `DELETE FROM api_key WHERE id = $1 AND user_id = $2 RETURNING name`,
+		r.PathValue("id"), auth.FromContext(r.Context()).ID).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "API key not found"))
+		return
+	}
 	if err != nil {
 		api.Fail(w, r, fmt.Errorf("delete api key: %w", err))
 		return
 	}
-	if tag.RowsAffected() == 0 {
-		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "API key not found"))
-		return
-	}
+	audit.Record(r.Context(), audit.Event{Action: "apikey.revoke", TargetID: r.PathValue("id"), TargetLabel: name})
 	api.JSON(w, http.StatusOK, true)
 }
 
@@ -200,19 +208,22 @@ func (h *handler) compatNewKey(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, fmt.Errorf("rotate api key: %w", err))
 		return
 	}
-	_, key, err := CreateAPIKey(r.Context(), h.a.DB, uid, compatKeyName)
+	id, key, err := CreateAPIKey(r.Context(), h.a.DB, uid, compatKeyName)
 	if err != nil {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(r.Context(), audit.Event{Action: "apikey.create", TargetID: id, TargetLabel: compatKeyName})
 	api.JSON(w, http.StatusOK, map[string]any{"api_key": key})
 }
 
 func (h *handler) compatDeleteKeys(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.a.DB.Exec(r.Context(), `DELETE FROM api_key WHERE user_id = $1`, auth.FromContext(r.Context()).ID); err != nil {
+	tag, err := h.a.DB.Exec(r.Context(), `DELETE FROM api_key WHERE user_id = $1`, auth.FromContext(r.Context()).ID)
+	if err != nil {
 		api.Fail(w, r, fmt.Errorf("delete api keys: %w", err))
 		return
 	}
+	audit.Record(r.Context(), audit.Event{Action: "apikey.revoke", Meta: map[string]any{"count": tag.RowsAffected()}})
 	api.JSON(w, http.StatusOK, true)
 }
 

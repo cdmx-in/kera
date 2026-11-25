@@ -16,6 +16,7 @@ import (
 	"github.com/cdmx-in/kera/internal/access"
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/apply"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/settings"
 )
 
@@ -233,6 +234,7 @@ func (h *handler) saveToolServer(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(r.Context(), audit.Event{TargetID: f.ID, TargetLabel: f.Name, Meta: replaced(f.Auth.Key != nil, "key")})
 	rows, err := h.a.DB.Query(r.Context(), `SELECT `+toolCols+` FROM tool_server WHERE id = $1`, f.ID)
 	if err == nil {
 		var t toolServer
@@ -455,6 +457,7 @@ func (h *handler) saveHook(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, fmt.Errorf("save hook server: %w", err))
 		return
 	}
+	audit.Record(ctx, audit.Event{TargetID: f.ID, TargetLabel: f.Name, Meta: replaced(f.Key != nil, "key")})
 	rows, err := h.a.DB.Query(ctx, `SELECT `+hookCols+` FROM hook_server WHERE id = $1`, f.ID)
 	if err == nil {
 		var x hookServer
@@ -630,6 +633,7 @@ func (h *handler) saveProvider(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, fmt.Errorf("save oauth provider: %w", err))
 		return
 	}
+	audit.Record(ctx, audit.Event{TargetID: f.ID, TargetLabel: f.Name, Meta: replaced(f.ClientSecret != nil, "client_secret")})
 	rows, err := h.a.DB.Query(ctx, `SELECT `+providerCols+` FROM oauth_provider WHERE id = $1`, f.ID)
 	if err == nil {
 		var p provider
@@ -662,4 +666,12 @@ func (h *handler) deleteProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	api.JSON(w, http.StatusOK, true)
+}
+
+// replaced is the audit meta of a save that may replace a write-only field: its name, never its value.
+func replaced(did bool, field string) map[string]any {
+	if !did {
+		return nil
+	}
+	return map[string]any{"changed": []string{field}}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/oauth2"
 
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/ids"
 )
@@ -150,7 +151,7 @@ func (h *handler) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if code := h.checkEmail(ctx, info); code != "" {
-		h.fail(w, r, code, nil)
+		h.failAs(w, r, info.Email, code, nil)
 		return
 	}
 	userID, role, err := h.resolveUser(ctx, p.id, info)
@@ -162,30 +163,31 @@ func (h *handler) callback(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, errEmailTaken):
 			code, err = "email_taken", nil
 		}
-		h.fail(w, r, code, err)
+		h.failAs(w, r, info.Email, code, err)
 		return
 	}
 	if role == "pending" {
-		h.fail(w, r, "account_pending", nil)
+		h.failAs(w, r, info.Email, "account_pending", nil)
 		return
 	}
 	var disabled bool
 	var epoch int64
 	if err := h.a.DB.QueryRow(ctx, `SELECT disabled_at IS NOT NULL, session_epoch FROM "user" WHERE id = $1`, userID).Scan(&disabled, &epoch); err != nil {
-		h.fail(w, r, "server_error", err)
+		h.failAs(w, r, info.Email, "server_error", err)
 		return
 	}
 	if disabled {
-		h.fail(w, r, "account_disabled", nil)
+		h.failAs(w, r, info.Email, "account_disabled", nil)
 		return
 	}
 	ttl := h.a.Auth.SessionTTL(ctx)
 	session, err := auth.IssueSession(h.a.Keys, userID, epoch, ttl)
 	if err != nil {
-		h.fail(w, r, "server_error", err)
+		h.failAs(w, r, info.Email, "server_error", err)
 		return
 	}
 	clearFlow(w, h.a.Auth.Secure)
+	audit.Record(ctx, audit.Event{Action: "auth.sign_in", ActorID: userID, ActorLabel: strings.ToLower(info.Email), Meta: map[string]any{"method": p.id}})
 	h.a.Auth.SetSessionCookie(w, session, ttl)
 	http.Redirect(w, r, "/auth#token="+session+"&next="+url.QueryEscape(f.Next), http.StatusFound)
 }
@@ -213,9 +215,20 @@ func clearFlow(w http.ResponseWriter, secure bool) {
 
 // fail ends a browser flow on the sign-in page with an error code.
 func (h *handler) fail(w http.ResponseWriter, r *http.Request, code string, err error) {
+	h.failAs(w, r, "", code, err)
+}
+
+// failAs is fail once the provider has said who the user is (email).
+func (h *handler) failAs(w http.ResponseWriter, r *http.Request, email, code string, err error) {
 	if err != nil {
 		slog.Warn("oauth sign-in failed", "provider", r.PathValue("provider"), "code", code, "err", err)
 	}
+	outcome := audit.Denied
+	if code == "server_error" || code == "exchange_failed" || code == "userinfo_failed" {
+		outcome = audit.Failed
+	}
+	audit.Record(r.Context(), audit.Event{Action: "auth.sign_in_failed", Outcome: outcome, ActorKind: audit.KindAnonymous, ActorLabel: email,
+		TargetType: "user", TargetLabel: email, Meta: map[string]any{"method": r.PathValue("provider"), "reason": code}})
 	clearFlow(w, h.a.Auth.Secure)
 	http.Redirect(w, r, "/auth?error="+url.QueryEscape(code), http.StatusFound)
 }
@@ -308,7 +321,13 @@ func (h *handler) resolveUser(ctx context.Context, providerID string, u Userinfo
 			if err != nil {
 				return "", "", err
 			}
-			return id, role, tx.Commit(ctx)
+			if err := tx.Commit(ctx); err != nil {
+				return "", "", err
+			}
+			email := strings.ToLower(u.Email)
+			audit.Record(ctx, audit.Event{Action: "user.create", ActorID: id, ActorLabel: email, TargetID: id, TargetLabel: email,
+				Meta: map[string]any{"role": role, "method": providerID}})
+			return id, role, nil
 		}
 	}
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/tools"
@@ -166,6 +167,7 @@ func (h *handler) deleteAll(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	audit.Record(r.Context(), audit.Event{Action: "memory.clear"})
 	api.JSON(w, http.StatusOK, true)
 }
 

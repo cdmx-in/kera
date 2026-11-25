@@ -8,6 +8,7 @@
 | [run-trace.md](run-trace.md) | See what each model round and tool call of a run cost (Admin > Traces), and choose where retrieved passages go in the prompt |
 | [integrations.md](integrations.md) | Scheduled directory sync from Google Workspace, and how to write another integration |
 | [retrieval.md](retrieval.md) | Understand how knowledge search ranks and returns passages, which settings change it, and what an upgrade needs (`kera reindex --heads`, prefixes) |
+| [audit.md](audit.md) | See what the audit log records and leaves out, how long it keeps events, and how to export them |
 | [comparison.md](comparison.md) | See how Kera differs from Open WebUI, LibreChat, AnythingLLM and Onyx, with sources and a date |
 | [compat/openwebui-api.md](compat/openwebui-api.md) | Look up the HTTP routes Kera serves, including the Open WebUI-compatible subset |
 

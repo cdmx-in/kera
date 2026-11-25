@@ -23,7 +23,12 @@ type Server struct {
 	spa *spa
 
 	onShutdown []func()
+	wrap       []func(http.Handler) http.Handler
 }
+
+// Use wraps every route in mw, inside logging and panic recovery (the audit
+// package puts its request scope in the context with it). Call it before Handler.
+func (s *Server) Use(mw func(http.Handler) http.Handler) { s.wrap = append(s.wrap, mw) }
 
 // OnShutdown registers f to run when the server stops, before open
 // connections are drained, while the database is still open (features that
@@ -71,7 +76,13 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 
 // Handler returns the root handler with logging, panic recovery and the
 // default security headers.
-func (s *Server) Handler() http.Handler { return recoverer(logRequests(securityHeaders(s.mux))) }
+func (s *Server) Handler() http.Handler {
+	var h http.Handler = s.mux
+	for _, mw := range s.wrap {
+		h = mw(h)
+	}
+	return recoverer(logRequests(securityHeaders(h)))
+}
 
 // securityHeaders sets defaults before the route runs; a handler that needs a
 // stricter policy (file downloads: CSP sandbox) replaces it with Header().Set.

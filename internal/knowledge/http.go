@@ -14,6 +14,7 @@ import (
 	"github.com/cdmx-in/kera/internal/access"
 	"github.com/cdmx-in/kera/internal/api"
 	"github.com/cdmx-in/kera/internal/app"
+	"github.com/cdmx-in/kera/internal/audit"
 	"github.com/cdmx-in/kera/internal/auth"
 )
 
@@ -292,6 +293,7 @@ func (s *Service) hDelete(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, fmt.Errorf("delete knowledge: %w", err))
 		return
 	}
+	audit.Record(ctx, audit.Event{Action: "knowledge.delete", TargetID: c.ID, TargetLabel: c.Name})
 	api.JSON(w, http.StatusOK, true)
 }
 
@@ -398,6 +400,7 @@ func (s *Service) hFileRemove(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
+	audit.Record(ctx, audit.Event{Action: "knowledge.file_remove", TargetID: c.ID, TargetLabel: c.Name, Meta: map[string]any{"file": fid}})
 	if err := s.touch(ctx, s.db, c.ID); err != nil {
 		api.Fail(w, r, err)
 		return
