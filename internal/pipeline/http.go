@@ -27,42 +27,52 @@ func (s *Service) routes() {
 	// so they are mounted without the user middleware, like the run callbacks of
 	// the chat engine. No user or admin credential works on them.
 	for p, f := range map[string]http.HandlerFunc{
-		"POST /api/v1/pipelines/{name}/runs":              s.hStart,
-		"POST /api/v1/pipelines/{name}/runs/{run}/steps":  s.hSteps,
-		"POST /api/v1/pipelines/{name}/runs/{run}/sync":   s.hSync,
-		"PUT /api/v1/pipelines/{name}/runs/{run}/files":   s.hPut,
-		"POST /api/v1/pipelines/{name}/runs/{run}/finish": s.hFinish,
-		"GET /api/v1/pipelines/{name}/runs/{run}":         s.hRun,
-		"GET /api/v1/pipelines/{name}/health":             s.hHealth,
-		"POST /api/v1/runner/claim":                       s.hClaim, // runner token (kr-)
+		"POST /api/v1/pipelines/{name}/runs":                  s.hStart,
+		"POST /api/v1/pipelines/{name}/runs/{run}/steps":      s.hSteps,
+		"POST /api/v1/pipelines/{name}/runs/{run}/sync":       s.hSync,
+		"PUT /api/v1/pipelines/{name}/runs/{run}/files":       s.hPut,
+		"POST /api/v1/pipelines/{name}/runs/{run}/finish":     s.hFinish,
+		"GET /api/v1/pipelines/{name}/runs/{run}":             s.hRun,
+		"GET /api/v1/pipelines/{name}/health":                 s.hHealth,
+		"POST /api/v1/runner/claim":                           s.hClaim, // runner token (kr-)
+		"POST /api/v1/runner/work":                            s.hWork,
+		"POST /api/v1/runner/sessions/{session}/ready":        s.hSessionReady,
+		"POST /api/v1/runner/sessions/{session}/cells/{cell}": s.hCellReport,
+		"POST /api/v1/runner/checks/{check}":                  s.hCheckResult,
 	} {
 		s.a.Server.HandleFunc(p, f)
 	}
 	for p, f := range map[string]http.HandlerFunc{
-		"GET /api/v1/admin/pipelines":                               s.aList,
-		"POST /api/v1/admin/pipelines":                              s.aCreate,
-		"GET /api/v1/admin/pipelines/{name}":                        s.aGet,
-		"PUT /api/v1/admin/pipelines/{name}":                        s.aUpdate,
-		"DELETE /api/v1/admin/pipelines/{name}":                     s.aDelete,
-		"POST /api/v1/admin/pipelines/{name}/token":                 s.aRotate,
-		"POST /api/v1/admin/pipelines/{name}/once":                  s.aOnce,
-		"GET /api/v1/admin/pipelines/{name}/runs":                   s.aRuns,
-		"GET /api/v1/admin/pipelines/{name}/runs/{run}":             s.aRun,
-		"GET /api/v1/admin/pipelines/{name}/runs/{run}/steps/{seq}": s.aStep,
-		"POST /api/v1/admin/pipelines/{name}/runs/{run}/close":      s.aClose,
-		"PUT /api/v1/admin/pipelines/{name}/schedule":               s.aSchedule,
-		"POST /api/v1/admin/pipelines/{name}/run":                   s.aRunNow,
-		"POST /api/v1/admin/pipelines/{name}/runs/{run}/cancel":     s.aCancel,
-		"GET /api/v1/admin/pipelines/{name}/script":                 s.aScript,
-		"PUT /api/v1/admin/pipelines/{name}/script":                 s.aScriptSave,
-		"GET /api/v1/admin/pipelines/{name}/script/{version}":       s.aScriptVersion,
-		"GET /api/v1/admin/pipelines/{name}/env":                    s.aEnv,
-		"PUT /api/v1/admin/pipelines/{name}/env":                    s.aEnvSet,
-		"DELETE /api/v1/admin/pipelines/{name}/env/{var}":           s.aEnvDelete,
-		"GET /api/v1/admin/pipeline-runners":                        s.aRunners,
-		"POST /api/v1/admin/pipeline-runners":                       s.aRunnerCreate,
-		"POST /api/v1/admin/pipeline-runners/{id}/token":            s.aRunnerRotate,
-		"DELETE /api/v1/admin/pipeline-runners/{id}":                s.aRunnerDelete,
+		"GET /api/v1/admin/pipelines":                                              s.aList,
+		"POST /api/v1/admin/pipelines":                                             s.aCreate,
+		"GET /api/v1/admin/pipelines/{name}":                                       s.aGet,
+		"PUT /api/v1/admin/pipelines/{name}":                                       s.aUpdate,
+		"DELETE /api/v1/admin/pipelines/{name}":                                    s.aDelete,
+		"POST /api/v1/admin/pipelines/{name}/token":                                s.aRotate,
+		"POST /api/v1/admin/pipelines/{name}/once":                                 s.aOnce,
+		"GET /api/v1/admin/pipelines/{name}/runs":                                  s.aRuns,
+		"GET /api/v1/admin/pipelines/{name}/runs/{run}":                            s.aRun,
+		"GET /api/v1/admin/pipelines/{name}/runs/{run}/steps/{seq}":                s.aStep,
+		"POST /api/v1/admin/pipelines/{name}/runs/{run}/close":                     s.aClose,
+		"PUT /api/v1/admin/pipelines/{name}/schedule":                              s.aSchedule,
+		"POST /api/v1/admin/pipelines/{name}/run":                                  s.aRunNow,
+		"POST /api/v1/admin/pipelines/{name}/runs/{run}/cancel":                    s.aCancel,
+		"GET /api/v1/admin/pipelines/{name}/script":                                s.aScript,
+		"PUT /api/v1/admin/pipelines/{name}/script":                                s.aScriptSave,
+		"GET /api/v1/admin/pipelines/{name}/script/{version}":                      s.aScriptVersion,
+		"GET /api/v1/admin/pipelines/{name}/env":                                   s.aEnv,
+		"PUT /api/v1/admin/pipelines/{name}/env":                                   s.aEnvSet,
+		"DELETE /api/v1/admin/pipelines/{name}/env/{var}":                          s.aEnvDelete,
+		"POST /api/v1/admin/pipelines/{name}/check":                                s.aCheck,
+		"POST /api/v1/admin/pipelines/{name}/sessions":                             s.aSessionStart,
+		"GET /api/v1/admin/pipelines/{name}/sessions/{session}":                    s.aSessionGet,
+		"DELETE /api/v1/admin/pipelines/{name}/sessions/{session}":                 s.aSessionClose,
+		"POST /api/v1/admin/pipelines/{name}/sessions/{session}/cells":             s.aCellRun,
+		"POST /api/v1/admin/pipelines/{name}/sessions/{session}/cells/{cell}/stop": s.aCellStop,
+		"GET /api/v1/admin/pipeline-runners":                                       s.aRunners,
+		"POST /api/v1/admin/pipeline-runners":                                      s.aRunnerCreate,
+		"POST /api/v1/admin/pipeline-runners/{id}/token":                           s.aRunnerRotate,
+		"DELETE /api/v1/admin/pipeline-runners/{id}":                               s.aRunnerDelete,
 	} {
 		s.a.Server.Handle(p, s.a.Auth.Admin(f))
 	}
@@ -589,7 +599,7 @@ func (s *Service) pipelineView(ctx context.Context, p *Pipeline) (pipelineOut, e
 		}
 		o.Targets = append(o.Targets, t)
 	}
-	last, err := scanRun(s.db.QueryRow(ctx, `SELECT `+runCols+` FROM pipeline_run WHERE pipeline_id = $1 ORDER BY id DESC LIMIT 1`, p.ID))
+	last, err := scanRun(s.db.QueryRow(ctx, `SELECT `+runCols+` FROM pipeline_run WHERE pipeline_id = $1 AND trigger <> 'test' ORDER BY id DESC LIMIT 1`, p.ID))
 	if err != nil && !errors.Is(err, errNoRun) {
 		return o, err
 	}

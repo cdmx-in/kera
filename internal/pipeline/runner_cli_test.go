@@ -190,3 +190,39 @@ print("script dir has job.py:", os.path.exists(os.path.join(os.environ["KERA_SCR
 		t.Fatalf("workspace state lost between runs: %+v\n%s", st, out)
 	}
 }
+
+func TestNotebookScriptKeepsLineNumbersAndDeclaresSteps(t *testing.T) {
+	code := "echo setup\n#%% fetch data\necho 1\n#%%\necho 2\n#%%   build\n"
+	got := notebookScript(code, "bash", "::kera-x::")
+	lines := strings.Split(got, "\n")
+	if len(lines) != len(strings.Split(code, "\n")) {
+		t.Fatalf("line count changed: %q", got)
+	}
+	if !strings.Contains(lines[1], "::kera-x::steps fetch-data cell-2 build") || !strings.Contains(lines[1], "::kera-x::step fetch-data") ||
+		!strings.Contains(lines[3], "::kera-x::step cell-2") || !strings.Contains(lines[5], "::kera-x::step build") || strings.Contains(lines[3], "steps") {
+		t.Fatalf("headers: %q", got)
+	}
+	if lines[0] != "echo setup" || lines[2] != "echo 1" {
+		t.Fatalf("code lines must not change: %q", got)
+	}
+	py := notebookScript("x = 1\n#%% one\nprint(x)\n", "python", "::kera-x::")
+	if !strings.Contains(py, `print("::kera-x::steps one", flush=True); print("::kera-x::step one", flush=True)`) {
+		t.Fatalf("python header: %q", py)
+	}
+	if notebookScript("echo hi\n", "bash", "m") != "echo hi\n" || notebookScript(code, "", "m") != code {
+		t.Fatal("a script without headers, or a language we cannot mark, must be unchanged")
+	}
+	// end to end: a notebook script reports its cells as steps
+	e := newEnv(t, false)
+	_, base := e.kmode("docs")
+	e.saveScript(base, "run.sh", map[string]string{"run.sh": "#%% first\necho one\n#%% second\necho two\n"}, "")
+	rv := e.runNow(base)
+	rn, out := e.newRunnerFor(e.runner("r1"))
+	if _, err := rn.once(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	got2 := e.adminRunOut(base, rv.ID)
+	if got2.Status != "ok" || stepByName(got2, "first") == nil || stepByName(got2, "second") == nil || stepByName(got2, "second").Status != "ok" {
+		t.Fatalf("notebook steps: %+v\n%s", got2, out)
+	}
+}

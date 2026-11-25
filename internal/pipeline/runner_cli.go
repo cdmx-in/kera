@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -44,6 +45,9 @@ type runner struct {
 	cancelEvery            time.Duration
 	out, errw              io.Writer
 	hc                     *http.Client
+
+	smu      sync.Mutex       // guards sessions
+	sessions map[string]*sess // live notebook sessions (runner_session.go)
 }
 
 // RunnerCommand is `kera runner`: it claims and runs jobs until ctx ends.
@@ -58,6 +62,7 @@ func RunnerCommand(ctx context.Context, stdout, stderr io.Writer) error {
 		return errors.New("kera runner: KERA_URL and KERA_RUNNER_TOKEN must be set (create the token under Admin > Pipelines > Runners)")
 	}
 	fmt.Fprintf(stdout, "kera runner %s: waiting for work from %s (workspace %s)\n", version.Version, rn.url, rn.work)
+	go rn.interactive(ctx) // notebook sessions and checks, beside the loop below that runs scheduled runs
 	wait := time.Second
 	for ctx.Err() == nil {
 		_, err := rn.once(ctx)
@@ -172,7 +177,15 @@ func (rn *runner) exec(ctx context.Context, j *job) {
 		failStart("cannot clear the script folder: " + err.Error())
 		return
 	}
+	mark, err := newMark()
+	if err != nil {
+		failStart(err.Error())
+		return
+	}
 	for name, body := range j.Files {
+		if name == j.Entry {
+			body = notebookScript(body, langOf(name), mark) // "#%% name" cell headers become step markers, line for line
+		}
 		p, err := safeJoin(sdir, name)
 		if err == nil {
 			err = os.MkdirAll(filepath.Dir(p), 0o755)
@@ -211,11 +224,6 @@ func (rn *runner) exec(ctx context.Context, j *job) {
 	}
 	argv = append(argv, strings.Fields(j.Args)...)
 
-	mark, err := newMark()
-	if err != nil {
-		failStart(err.Error())
-		return
-	}
 	// the environment is built from nothing: the runner's own token and variables are not the script's business
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "KERA_SCRIPT_DIR=" + sdir, "LANG=C.UTF-8", "TZ=" + os.Getenv("TZ"),
 		"KERA_URL=" + rn.url, "KERA_PIPELINE=" + j.Pipeline, "KERA_PIPELINE_TOKEN=" + j.Token, fmt.Sprintf("KERA_RUN=%d", j.Run), "KERA_MARK=" + mark}
@@ -346,4 +354,50 @@ func tail(s string, n int) string {
 		return "…" + s[len(s)-n:]
 	}
 	return strings.TrimRight(s, "\n")
+}
+
+var cellHeader = regexp.MustCompile(`^#%%\s*(.*?)\s*$`)
+
+// notebookScript turns the "#%% name" cell headers of a notebook-style script into step markers, one line for one
+// line (so error line numbers still match the editor). The first header also declares every step. A script without
+// headers is returned unchanged; the headers are plain comments, so the same file still runs without the runner.
+func notebookScript(code, lang, mark string) string {
+	lines := strings.Split(code, "\n")
+	var at []int
+	var names []string
+	for i, l := range lines {
+		if m := cellHeader.FindStringSubmatch(l); m != nil {
+			at, names = append(at, i), append(names, cellName(m[1], len(names)+1))
+		}
+	}
+	if len(at) == 0 || lang == "" {
+		return code
+	}
+	emit := func(text string) string {
+		if lang == "python" {
+			return `print("` + text + `", flush=True)`
+		}
+		return `printf '%s\n' '` + text + `'`
+	}
+	for k, i := range at {
+		lines[i] = emit(mark + "step " + names[k])
+		if k == 0 {
+			lines[i] = emit(mark+"steps "+strings.Join(names, " ")) + "; " + lines[i]
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+var cellSlugRe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+// cellName is the step name of a cell: one word (the step protocol splits on spaces).
+func cellName(title string, n int) string {
+	s := strings.Trim(cellSlugRe.ReplaceAllString(strings.TrimSpace(title), "-"), "-")
+	if s == "" {
+		s = fmt.Sprintf("cell-%d", n)
+	}
+	if len(s) > 60 {
+		s = s[:60]
+	}
+	return s
 }

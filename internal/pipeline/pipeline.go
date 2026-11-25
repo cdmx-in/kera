@@ -261,6 +261,7 @@ type startIn struct {
 
 	// set only by the server (the timetable, Run now): never read from a request body
 	internal      bool
+	noQueue       bool // internal run that is not waiting for a runner (a notebook session's dry run)
 	scriptVersion int
 }
 
@@ -293,7 +294,7 @@ func (s *Service) startRun(ctx context.Context, p *Pipeline, in startIn) (*run, 
 	if in.Trigger == "" {
 		in.Trigger = "script"
 	}
-	if in.Trigger != "script" && in.Trigger != "push" && !(in.internal && (in.Trigger == "schedule" || in.Trigger == "manual")) {
+	if in.Trigger != "script" && in.Trigger != "push" && !(in.internal && (in.Trigger == "schedule" || in.Trigger == "manual" || in.Trigger == "test")) {
 		return nil, nil, api.Errf(http.StatusBadRequest, "bad_trigger", "trigger must be script or push")
 	}
 	names, err := cleanNames(in.Steps)
@@ -311,6 +312,10 @@ func (s *Service) startRun(ctx context.Context, p *Pipeline, in startIn) (*run, 
 		return nil, nil, err
 	}
 	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM pipeline_run WHERE pipeline_id = $1 AND trigger = 'test' AND finished_at IS NOT NULL
+		AND id NOT IN (SELECT id FROM pipeline_run WHERE pipeline_id = $1 AND trigger = 'test' ORDER BY id DESC LIMIT 5)`, p.ID); err != nil {
+		return nil, nil, fmt.Errorf("trim test runs: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM pipeline_run WHERE pipeline_id = $1 AND finished_at IS NOT NULL
 		AND id NOT IN (SELECT id FROM pipeline_run WHERE pipeline_id = $1 ORDER BY id DESC LIMIT $2)`, p.ID, maxRuns-1); err != nil {
 		return nil, nil, fmt.Errorf("trim old runs: %w", err)
@@ -318,7 +323,7 @@ func (s *Service) startRun(ctx context.Context, p *Pipeline, in startIn) (*run, 
 	var id int64
 	err = tx.QueryRow(ctx, `INSERT INTO pipeline_run (pipeline_id, trigger, dry_run, started_at, active_at, source, queued, script_version)
 		VALUES ($1, $2, $3, $4, $4, $5::jsonb, $6, NULLIF($7, 0)) RETURNING id`,
-		p.ID, in.Trigger, in.DryRun, now, string(src), in.internal, in.scriptVersion).Scan(&id)
+		p.ID, in.Trigger, in.DryRun, now, string(src), in.internal && !in.noQueue, in.scriptVersion).Scan(&id)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" {
 		return nil, nil, s.holder(ctx, p.ID)
@@ -346,7 +351,7 @@ func (s *Service) startRun(ctx context.Context, p *Pipeline, in startIn) (*run, 
 // holder describes the run that blocks a start.
 func (s *Service) holder(ctx context.Context, pipelineID string) error {
 	e := &activeError{}
-	err := s.db.QueryRow(ctx, `SELECT id, trigger, started_at, active_at FROM pipeline_run WHERE pipeline_id = $1 AND finished_at IS NULL`, pipelineID).
+	err := s.db.QueryRow(ctx, `SELECT id, trigger, started_at, active_at FROM pipeline_run WHERE pipeline_id = $1 AND finished_at IS NULL AND NOT dry_run`, pipelineID).
 		Scan(&e.Run, &e.Trigger, &e.StartedAt, &e.ActiveAt)
 	if err != nil {
 		return fmt.Errorf("find the open run: %w", err)
@@ -1088,6 +1093,7 @@ func (s *Service) tickSafe(ctx context.Context, now time.Time) {
 func (s *Service) tick(ctx context.Context, now time.Time) {
 	s.fireDue(ctx, now)
 	s.alertTick(ctx, now)
+	s.sessionTick(ctx, now)
 	rows, err := s.db.Query(ctx, `SELECT id, client_done, started_at, active_at, queued FROM pipeline_run WHERE finished_at IS NULL ORDER BY id`)
 	if err != nil {
 		slog.Error("pipeline: list open runs", "err", err)

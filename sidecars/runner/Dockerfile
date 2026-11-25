@@ -8,7 +8,7 @@ FROM python:3.12-slim
 LABEL org.opencontainers.image.source="https://github.com/cdmx-in/kera" org.opencontainers.image.description="Script runner for Kera pipelines"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 TZ=UTC
 # what the existing knowledge-base scripts use: bash, git (archive/log/rev-parse), tar, diff, find, curl, sqlite3, ssh for private repos
-RUN apt-get update && apt-get install -y --no-install-recommends bash git tar gzip diffutils findutils curl ca-certificates sqlite3 openssh-client tini \
+RUN apt-get update && apt-get install -y --no-install-recommends bash shellcheck git tar gzip diffutils findutils curl ca-certificates sqlite3 openssh-client tini \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=kera /usr/local/bin/kera /usr/local/bin/kera
 # /work holds one folder per pipeline (the workspace a script keeps its state in) and .venvs (packages, cached by requirements.txt)
