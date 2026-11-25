@@ -25,6 +25,9 @@ jobs:
       - uses: actions/setup-node@v7
         with: {node-version: 24, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml}
       - run: make build
+      # gofmt, go vet and the web typecheck (issue #32); after the build, so the
+      # web dependencies are installed.
+      - run: make lint
       - run: make test
       # the profile comes from `make test`, which has the Postgres service, so the database tests are in it
       - name: Go coverage in the job summary
