@@ -21,28 +21,32 @@ import (
 
 // searchConfig is the rag.* settings a query uses.
 type searchConfig struct {
-	TopK        int     // candidates after fusion (rag.top_k)
-	TopKRerank  int     // results returned (rag.top_k_rerank)
-	MinResults  int     // results kept even below Threshold (rag.min_results)
-	BM25Weight  float64 // weight of the full-text rank in the fusion
-	HeadWeight  float64 // weight of the heading and file-name ranking in the fusion; 0 skips it
-	Threshold   float64 // minimum reranker score (only applied with a reranker)
-	RerankURL   string
-	RerankModel string
-	RerankKey   string // rag.reranker.api_key, sent as a bearer token
-	LocalRuns   string // rag.reranker.local_runs: skip | allow
-	LocalURL    string // rag.reranker.local_url: reranker for local runs
-	FuseQueries bool   // rag.fuse_queries: several queries share one fusion
+	TopK            int     // candidates after fusion (rag.top_k)
+	TopKRerank      int     // results returned (rag.top_k_rerank)
+	MinResults      int     // results kept even below Threshold (rag.min_results)
+	BM25Weight      float64 // weight of the full-text rank in the fusion
+	HeadWeight      float64 // weight of the heading and file-name ranking in the fusion; 0 skips it
+	Threshold       float64 // minimum reranker score (only applied with a reranker)
+	RerankURL       string
+	RerankModel     string
+	RerankKey       string // rag.reranker.api_key, sent as a bearer token
+	LocalRuns       string // rag.reranker.local_runs: skip | allow
+	LocalURL        string // rag.reranker.local_url: reranker for local runs
+	FuseQueries     bool   // rag.fuse_queries: several queries share one fusion
+	Neighbors       int    // chunks joined before and after each hit (rag.neighbors)
+	PassageMaxChars int    // longest joined passage (rag.passage_max_chars)
 }
 
 func (s *Service) searchConfig(ctx context.Context) searchConfig {
-	c := searchConfig{TopK: 30, TopKRerank: 8, MinResults: 3, BM25Weight: 0.5, HeadWeight: 0.25, LocalRuns: "skip", FuseQueries: true}
+	c := searchConfig{TopK: 30, TopKRerank: 8, MinResults: 3, BM25Weight: 0.5, HeadWeight: 0.25, LocalRuns: "skip", FuseQueries: true, Neighbors: 1, PassageMaxChars: 3000}
 	_ = s.settings.Get(ctx, "rag.top_k", &c.TopK)
 	_ = s.settings.Get(ctx, "rag.top_k_rerank", &c.TopKRerank)
 	_ = s.settings.Get(ctx, "rag.hybrid.bm25_weight", &c.BM25Weight)
 	_ = s.settings.Get(ctx, "rag.hybrid.head_weight", &c.HeadWeight)
 	_ = s.settings.Get(ctx, "rag.min_results", &c.MinResults)
 	_ = s.settings.Get(ctx, "rag.fuse_queries", &c.FuseQueries)
+	_ = s.settings.Get(ctx, "rag.neighbors", &c.Neighbors)
+	_ = s.settings.Get(ctx, "rag.passage_max_chars", &c.PassageMaxChars)
 	_ = s.settings.Get(ctx, "rag.relevance_threshold", &c.Threshold)
 	_ = s.settings.Get(ctx, "rag.reranker.url", &c.RerankURL)
 	_ = s.settings.Get(ctx, "rag.reranker.model", &c.RerankModel)
@@ -59,6 +63,8 @@ func (s *Service) searchConfig(ctx context.Context) searchConfig {
 	c.TopKRerank = max(c.TopKRerank, 1)
 	c.BM25Weight = min(max(c.BM25Weight, 0), 1)
 	c.HeadWeight = min(max(c.HeadWeight, 0), 1)
+	c.Neighbors = min(max(c.Neighbors, 0), 5)
+	c.PassageMaxChars = max(c.PassageMaxChars, 500)
 	return c
 }
 
@@ -221,7 +227,7 @@ func (s *Service) search(ctx context.Context, cs []*Collection, queries []string
 	if url, key := cfg.reranker(ctx); url != "" && len(hits) > 0 {
 		rr, err := s.rerank(ctx, cfg, url, key, queries[0], hits)
 		if err == nil {
-			return rr, nil
+			return s.expand(ctx, rr, cfg.Neighbors, cfg.PassageMaxChars)
 		}
 		if ctx.Err() == nil { // a stopped run is not a reranker outage
 			s.rerankFailed.Store(time.Now().UnixNano())
@@ -231,7 +237,7 @@ func (s *Service) search(ctx context.Context, cs []*Collection, queries []string
 	if len(hits) > cfg.TopKRerank {
 		hits = hits[:cfg.TopKRerank]
 	}
-	return hits, nil
+	return s.expand(ctx, hits, cfg.Neighbors, cfg.PassageMaxChars)
 }
 
 func idsOf(rs []ranked) []int64 {
@@ -366,7 +372,7 @@ func (s *Service) loadHits(ctx context.Context, fused []fusedHit) ([]retrieval.H
 	for i, f := range fused {
 		idList[i] = f.id
 	}
-	rows, err := s.db.Query(ctx, `SELECT c.id, c.knowledge_id, c.file_id, f.filename, c.text, c.meta
+	rows, err := s.db.Query(ctx, `SELECT c.id, c.knowledge_id, c.file_id, f.filename, c.text, c.meta, c.idx
 		FROM chunk c JOIN file f ON f.id = c.file_id WHERE c.id = ANY($1)`, idList)
 	if err != nil {
 		return nil, fmt.Errorf("load chunks: %w", err)
@@ -380,10 +386,10 @@ func (s *Service) loadHits(ctx context.Context, fused []fusedHit) ([]retrieval.H
 			Page    int      `json:"page"`
 			Headers []string `json:"headers"`
 		}
-		if err := rows.Scan(&id, &h.KnowledgeID, &h.FileID, &h.FileName, &h.Text, &meta); err != nil {
+		if err := rows.Scan(&id, &h.KnowledgeID, &h.FileID, &h.FileName, &h.Text, &meta, &h.Chunk); err != nil {
 			return nil, err
 		}
-		h.Page, h.Headers = meta.Page, meta.Headers
+		h.Page, h.Headers, h.ChunkEnd, h.ChunkID = meta.Page, meta.Headers, h.Chunk, id
 		byID[id] = h
 	}
 	if err := rows.Err(); err != nil {

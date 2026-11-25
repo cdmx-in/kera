@@ -3,10 +3,14 @@ package knowledge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/cdmx-in/kera/internal/retrieval"
 )
 
 // docs is a throwaway corpus: file name -> markdown text.
@@ -206,5 +210,103 @@ func TestSearchFusesQueries(t *testing.T) {
 	got = search()
 	if len(got) != 3 || got[0] != "alpha alpha" {
 		t.Fatalf("concatenated: %q", got)
+	}
+}
+
+func TestJoinChunksWritesTheOverlapOnce(t *testing.T) {
+	prev := "The first chunk talks about payouts. The bank confirms the payout on day two."
+	next := "The bank confirms the payout on day two. Then the beneficiary is credited."
+	want := "The first chunk talks about payouts. The bank confirms the payout on day two. Then the beneficiary is credited."
+	if got := joinChunks(prev, next); got != want {
+		t.Fatalf("overlap with a trailing space: %q", got)
+	}
+	if got := joinChunks("alpha one.", "beta two."); got != "alpha one.\n\nbeta two." {
+		t.Fatalf("no overlap: %q", got)
+	}
+	// a multi-byte character at the cut is never split
+	if got := joinChunks("ééééééééééé", "éééééééééééx"); !strings.HasSuffix(got, "x") {
+		t.Fatalf("multi-byte: %q", got)
+	}
+}
+
+// Hits come best first; the passages of one file are in document order, hits
+// that sit next to each other share one passage, and a run longer than the
+// cap is cut, the piece without a hit dropped.
+func TestPassagesMergeOrderAndCap(t *testing.T) {
+	text := map[int]string{}
+	for i := range 8 {
+		text[i] = strings.Repeat(string(rune('a'+i)), 100)
+	}
+	hit := func(i int, score float64) retrieval.Hit {
+		return retrieval.Hit{KnowledgeID: "k", FileID: "f", FileName: "f.md", Text: text[i], Chunk: i, ChunkEnd: i, Score: score}
+	}
+	// chunk 6 scored best, then 1 and 2 (neighbours of each other)
+	got := passages([]retrieval.Hit{hit(6, 0.9), hit(1, 0.5), hit(2, 0.4)}, maps.Clone(text), 1, 10000)
+	if len(got) != 2 || got[0].Chunk != 0 || got[0].ChunkEnd != 3 || got[1].Chunk != 5 || got[1].ChunkEnd != 7 {
+		t.Fatalf("ranges %+v", got)
+	}
+	if got[0].Score != 0.5 || got[1].Score != 0.9 || strings.Count(got[0].Text, "b") != 100 {
+		t.Fatalf("best score of the piece, each chunk once: %+v", got)
+	}
+	// 4 chunks of 100 characters under a 250-character cap: pieces of two; the piece holding only neighbours goes
+	got = passages([]retrieval.Hit{hit(1, 0.5)}, maps.Clone(text), 3, 250)
+	if len(got) != 1 || got[0].Chunk != 0 || got[0].ChunkEnd != 1 {
+		t.Fatalf("cap: %+v", got)
+	}
+}
+
+// With rag.neighbors a hit comes with the chunks around it as one passage,
+// two hits next to each other share it, and the chunk index says what the
+// passage covers. 0 returns the lone chunk.
+func TestSearchReturnsNeighbouringChunksOnce(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	pad := strings.Repeat("xx ", 55)
+	var doc strings.Builder
+	for i, w := range []string{"ant", "bee", "cat", "dog", "eel", "fox", "gnu"} {
+		fmt.Fprintf(&doc, "# S%d\n%s %s\n", i+1, w, pad)
+	}
+	kid := e.collection("K", docs{"d.md": doc.String()})
+	_ = e.st.Set(ctx, "rag.hybrid.bm25_weight", 1, false)
+	search := func(q string, k int) []retrieval.Hit {
+		t.Helper()
+		hits, err := e.s.Search(ctx, e.users2["root"], []string{kid}, []string{q}, k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hits
+	}
+	has := func(h retrieval.Hit, words ...string) bool {
+		for _, w := range words {
+			if !strings.Contains(h.Text, w+" xx") {
+				return false
+			}
+		}
+		return true
+	}
+	if h := search("dog", 1); len(h) != 1 || h[0].Chunk != 3 || h[0].ChunkEnd != 3 || has(h[0], "cat") {
+		t.Fatalf("neighbors 0: %+v", h)
+	}
+	_ = e.st.Set(ctx, "rag.neighbors", 1, false)
+	h := search("dog", 1)
+	if len(h) != 1 || h[0].Chunk != 2 || h[0].ChunkEnd != 4 || !has(h[0], "cat", "dog", "eel") || has(h[0], "bee") {
+		t.Fatalf("neighbors 1: %+v", h)
+	}
+	if !strings.HasPrefix(h[0].Headers[0], "S4") { // the passage is described by its hit
+		t.Fatalf("headers %v", h[0].Headers)
+	}
+	h = search("dog eel", 2) // adjacent hits: one passage, no chunk twice
+	if len(h) != 1 || h[0].Chunk != 2 || h[0].ChunkEnd != 5 || strings.Count(h[0].Text, "dog xx") != 1 || strings.Count(h[0].Text, "eel xx") != 1 {
+		t.Fatalf("adjacent hits: %+v", h)
+	}
+	_ = e.st.Set(ctx, "rag.passage_max_chars", 500, false) // two chunks of about 170 characters fit, three do not
+	h = search("dog", 1)
+	if len(h) != 1 || h[0].Chunk != 2 || h[0].ChunkEnd != 3 {
+		t.Fatalf("cap 500: %+v", h)
+	}
+	_ = e.st.Set(ctx, "rag.passage_max_chars", 400, false)
+	_ = e.st.Set(ctx, "rag.neighbors", 3, false)
+	if h = search("dog", 1); len(h) != 1 || h[0].Chunk > 3 || h[0].ChunkEnd < 3 || h[0].ChunkEnd-h[0].Chunk > 1 {
+		t.Fatalf("cap 400 (floor 500): %+v", h)
 	}
 }

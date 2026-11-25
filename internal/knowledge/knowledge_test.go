@@ -103,6 +103,7 @@ func setup(t *testing.T) *env {
 	a := &app.App{Env: cfg, DB: pool, Keys: keys, Settings: st, Server: srv, Auth: auth.New(pool, keys, st, false)}
 	for k, v := range map[string]any{
 		"rag.embedding.connection": "ollama", "rag.embedding.model": "stub", "rag.chunk_size": 200, "rag.chunk_overlap": 20,
+		"rag.neighbors":    0, // lone chunks; the tests of neighbour expansion turn it on
 		"user.permissions": map[string]any{"chat": map[string]any{"file_upload": true}, "workspace": map[string]any{"knowledge": true}},
 	} {
 		if err := st.Set(ctx, k, v, false); err != nil {

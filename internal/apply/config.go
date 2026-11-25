@@ -227,6 +227,8 @@ type RAG struct {
 	TopKRerank          *int       `yaml:"top_k_rerank,omitempty"`
 	MinResults          *int       `yaml:"min_results,omitempty"`
 	FuseQueries         *bool      `yaml:"fuse_queries,omitempty"`
+	Neighbors           *int       `yaml:"neighbors,omitempty"`
+	PassageMaxChars     *int       `yaml:"passage_max_chars,omitempty"`
 	RelevanceThreshold  *float64   `yaml:"relevance_threshold,omitempty"`
 	Reranker            *Reranker  `yaml:"reranker,omitempty"`
 	Extractor           *Endpoint  `yaml:"extractor,omitempty"`

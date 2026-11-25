@@ -85,6 +85,8 @@ var Defaults = map[string]json.RawMessage{
 	"rag.top_k":                  raw(`30`),
 	"rag.top_k_rerank":           raw(`8`),
 	"rag.fuse_queries":           raw(`true`), // several search queries are ranked together; false searches each alone and concatenates
+	"rag.neighbors":              raw(`1`),    // chunks joined before and after each hit into one passage; 0 returns the lone chunk
+	"rag.passage_max_chars":      raw(`3000`), // longest passage after joining neighbours
 	"rag.min_results":            raw(`3`),    // a relevance threshold never leaves fewer passages than this
 	"rag.relevance_threshold":    raw(`0`),
 	"rag.hybrid.head_weight":     raw(`0.25`), // weight of headings and file names in keyword search; 0 turns it off

@@ -80,6 +80,8 @@ rag:
   top_k_rerank: 8
   min_results: 3
   fuse_queries: true
+  neighbors: 1
+  passage_max_chars: 3000
   reranker: {url: http://rerank:8000, model: reranker-small}
   extractor: {url: http://extract:8000}
   template_file: rag-template.md

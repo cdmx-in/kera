@@ -155,6 +155,8 @@ export function RetrievalTab() {
             f('rag.hybrid.bm25_weight', 'float', 'Weight of keyword search against vector search (0-1).', 'BM25 weight'),
             f('rag.hybrid.head_weight', 'float', 'Weight of file names and section headings in keyword search (0-1, 0 = off). Chunks indexed before this existed need: kera reindex --heads.', 'Heading weight'),
             f('rag.fuse_queries', 'bool', 'When a follow-up is rewritten into several search queries, rank their results together. Off: each query keeps its own top passages.', 'Fuse queries'),
+            f('rag.neighbors', 'int', 'Chunks joined before and after each hit into one passage (0 = the hit alone).', 'Neighbouring chunks'),
+            f('rag.passage_max_chars', 'int', 'Longest passage after joining neighbours.', 'Passage max chars'),
             f('rag.full_context_max_chars', 'int', 'Largest collection sent whole in full-context mode.', 'Full context max chars'),
             f('rag.template', 'textarea', 'Template wrapping retrieved context (empty = built-in).', 'Template'),
           ],

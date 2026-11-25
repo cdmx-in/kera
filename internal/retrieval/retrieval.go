@@ -18,6 +18,12 @@ type Hit struct {
 	Headers     []string `json:"headers,omitempty"` // markdown breadcrumb of the chunk
 	Text        string   `json:"text"`
 	Score       float64  `json:"score"`
+	// Chunk and ChunkEnd are the first and last chunk index (0-based, per file
+	// and collection) the text covers: equal for a lone chunk, a range once
+	// neighbouring chunks were joined into the passage (rag.neighbors).
+	Chunk    int   `json:"chunk"`
+	ChunkEnd int   `json:"chunk_end"`
+	ChunkID  int64 `json:"-"` // the best chunk's row id, for the implementation's own use
 }
 
 // Doc is one whole extracted document of a collection (full-context mode).
