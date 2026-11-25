@@ -13,7 +13,7 @@ One Go binary and Postgres. Ollama or any OpenAI-compatible model, knowledge sea
 [![Postgres](docs/images/badge-postgres.svg)](https://github.com/pgvector/pgvector)
 [![Docker image](docs/images/badge-docker.svg)](https://github.com/cdmx-in/kera/pkgs/container/kera)
 
-[🚀 Quick start](#quick-start) · [💡 Why Kera](#why-kera) · [⚖️ Comparison](docs/comparison.md) · [✨ Features](#features) · [📸 Screenshots](#screenshots) · [🧩 Architecture](#architecture) · [📚 Docs](docs/README.md) · [💬 Discussions](https://github.com/cdmx-in/kera/discussions)
+[🚀 Quick start](#quick-start) · [💡 Why Kera](#why-kera) · [⚖️ Comparison](docs/comparison.md) · [✨ Features](#features) · [📸 Screenshots](#screenshots) · [🧩 Architecture](#architecture) · [🔎 How it answers](#how-it-answers) · [📚 Docs](docs/README.md) · [💬 Discussions](https://github.com/cdmx-in/kera/discussions)
 
 </div>
 
@@ -226,6 +226,51 @@ The screenshots follow your light or dark theme. They show a demo workspace for 
 
 Only Postgres is required. The sidecars (document extraction, reranking, code sandbox, Cowork desktop) are HTTP services: the Compose stack starts the document extraction one for you, and you start the others when you need them; the table in [Quick start](#quick-start) says which feature needs which.
 
+<a id="how-it-answers"></a>
+## 🔎 How it answers
+
+From your message to the saved reply. The shaded boxes are the guardrails and the model call; the guard also runs again in every round of the tool loop.
+
+```mermaid
+flowchart TD
+    ask["User message"] --> context["Build context"]
+    context --> mode{"Knowledge mode"}
+    mode -->|"retrieve"| retrieve["Search the collections"]
+    mode -->|"full: whole documents"| place["Place passages"]
+    mode -->|"tools: nothing added"| guardIn["Guardrails in"]
+    retrieve --> place
+    place --> guardIn
+    guardIn --> model["Call the model"]
+    model --> calls{"Tool calls?"}
+    calls -->|"yes"| tools["Run tool calls"]
+    tools --> window["Keep within window"]
+    window -->|"next round"| guardIn
+    calls -->|"no, or the round cap"| answer["Answer with citations"]
+    answer --> guardOut["Guardrails out"]
+    guardOut --> save["Save and trace"]
+    classDef guard fill:#fdf0d2,stroke:#d9960f,color:#1a1a1a
+    classDef llm fill:#d7eef2,stroke:#1e7f8c,color:#1a1a1a
+    class guardIn,guardOut guard
+    class model llm
+```
+
+When the assistant has knowledge, the search runs three rankings (by meaning, by words, and by file name and heading), fuses them, optionally reranks, adds the neighbouring chunks of each hit, and numbers the passages so that a citation like [2] means the same passage everywhere in the run.
+
+```mermaid
+flowchart TD
+    q["Queries"] --> vec["Vector search"]
+    q --> kw["Keyword search"]
+    q --> head["Heading search"]
+    vec --> fuse["Fuse rankings"]
+    kw --> fuse
+    head --> fuse
+    fuse --> rerank["Rerank (optional)"]
+    rerank --> nb["Add neighbours"]
+    nb --> num["Number citations"]
+```
+
+Every box has settings, defaults and a place to look when it misbehaves. Admins find them in **Admin > Help**; [docs/how-it-answers.md](docs/how-it-answers.md) has the same diagrams, a worked example with numbers, the agent loop and a table of symptoms and the settings to try.
+
 <a id="configuration"></a>
 ## ⚙️ Configuration
 
@@ -276,7 +321,7 @@ Found a gap that is not listed here? [Open an issue](https://github.com/cdmx-in/
 <a id="documentation"></a>
 ## 📚 Documentation
 
-[docs/README.md](docs/README.md) is the index. The main pages: [deploy](docs/deploy.md) (Compose, HTTPS, backups, troubleshooting), [LiteLLM and spend](docs/litellm.md), [pipelines](docs/pipelines.md), [integrations](docs/integrations.md), [comparison with other projects](docs/comparison.md), and the [Open WebUI API compatibility notes](docs/compat/openwebui-api.md).
+[docs/README.md](docs/README.md) is the index. The main pages: [deploy](docs/deploy.md) (Compose, HTTPS, backups, troubleshooting), [how it answers](docs/how-it-answers.md) (the flow, retrieval and the tool loop as diagrams), [LiteLLM and spend](docs/litellm.md), [pipelines](docs/pipelines.md), [integrations](docs/integrations.md), [comparison with other projects](docs/comparison.md), and the [Open WebUI API compatibility notes](docs/compat/openwebui-api.md).
 
 <a id="layout"></a>
 ## 🗂️ Layout
