@@ -150,7 +150,8 @@ export function RetrievalTab() {
           fields: [
             f('rag.top_k', 'int', 'Chunks retrieved before reranking.', 'Top K'),
             f('rag.top_k_rerank', 'int', 'Chunks kept after reranking.', 'Top K after rerank'),
-            f('rag.relevance_threshold', 'float', 'Drop chunks scoring below this (0 keeps all).'),
+            f('rag.min_results', 'int', 'Passages kept even when they score below the threshold.', 'Minimum results'),
+            f('rag.relevance_threshold', 'float', 'Drop chunks scoring below this (0 keeps all). Only a reranker produces a score to compare.'),
             f('rag.hybrid.bm25_weight', 'float', 'Weight of keyword search against vector search (0-1).', 'BM25 weight'),
             f('rag.full_context_max_chars', 'int', 'Largest collection sent whole in full-context mode.', 'Full context max chars'),
             f('rag.template', 'textarea', 'Template wrapping retrieved context (empty = built-in).', 'Template'),
@@ -169,6 +170,7 @@ export function RetrievalTab() {
         },
         {
           title: 'Reranker',
+          hint: 'Ranks the candidates against the question. The CPU sidecar (sidecars/rerank) can serve chats on local models through the Local reranker URL; it adds a few seconds per search.',
           fields: [
             f('rag.reranker.url', 'text', 'Cohere-style /rerank endpoint: the sidecar or LiteLLM (empty = no reranking).', 'Reranker URL'),
             f('rag.reranker.model', 'text', 'e.g. a Cohere rerank model registered in LiteLLM.', 'Reranker model'),

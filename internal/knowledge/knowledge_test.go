@@ -508,6 +508,7 @@ func TestRerankerAndThreshold(t *testing.T) {
 	defer rr.Close()
 	_ = e.st.Set(ctx, "rag.reranker.url", rr.URL, false)
 	_ = e.st.Set(ctx, "rag.relevance_threshold", 0.5, false)
+	_ = e.st.Set(ctx, "rag.min_results", 0, false) // by default the best 3 stay (see TestRerankKeepsMinResults)
 	hits, err := e.s.Search(ctx, e.users2["root"], []string{c.ID}, "apples", 3)
 	if err != nil || len(hits) != 1 || !strings.Contains(hits[0].Text, "cherries") || hits[0].Score != 0.95 {
 		t.Fatalf("reranked %+v %v", hits, err)

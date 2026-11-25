@@ -305,7 +305,7 @@ func (e *Engine) search(ctx context.Context, x *exec, r retrieval.Retriever, ids
 			queries = q
 		}
 	}
-	k := 6
+	k := 8
 	e.setting(ctx, "rag.top_k_rerank", &k)
 	var out []source
 	seen := map[string]bool{}

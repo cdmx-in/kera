@@ -225,6 +225,7 @@ type RAG struct {
 	Hybrid              *Hybrid    `yaml:"hybrid,omitempty"`
 	TopK                *int       `yaml:"top_k,omitempty"`
 	TopKRerank          *int       `yaml:"top_k_rerank,omitempty"`
+	MinResults          *int       `yaml:"min_results,omitempty"`
 	RelevanceThreshold  *float64   `yaml:"relevance_threshold,omitempty"`
 	Reranker            *Reranker  `yaml:"reranker,omitempty"`
 	Extractor           *Endpoint  `yaml:"extractor,omitempty"`

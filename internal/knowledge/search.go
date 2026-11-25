@@ -23,6 +23,7 @@ import (
 type searchConfig struct {
 	TopK        int     // candidates after fusion (rag.top_k)
 	TopKRerank  int     // results returned (rag.top_k_rerank)
+	MinResults  int     // results kept even below Threshold (rag.min_results)
 	BM25Weight  float64 // weight of the full-text rank in the fusion
 	Threshold   float64 // minimum reranker score (only applied with a reranker)
 	RerankURL   string
@@ -33,10 +34,11 @@ type searchConfig struct {
 }
 
 func (s *Service) searchConfig(ctx context.Context) searchConfig {
-	c := searchConfig{TopK: 30, TopKRerank: 6, BM25Weight: 0.5, LocalRuns: "skip"}
+	c := searchConfig{TopK: 30, TopKRerank: 8, MinResults: 3, BM25Weight: 0.5, LocalRuns: "skip"}
 	_ = s.settings.Get(ctx, "rag.top_k", &c.TopK)
 	_ = s.settings.Get(ctx, "rag.top_k_rerank", &c.TopKRerank)
 	_ = s.settings.Get(ctx, "rag.hybrid.bm25_weight", &c.BM25Weight)
+	_ = s.settings.Get(ctx, "rag.min_results", &c.MinResults)
 	_ = s.settings.Get(ctx, "rag.relevance_threshold", &c.Threshold)
 	_ = s.settings.Get(ctx, "rag.reranker.url", &c.RerankURL)
 	_ = s.settings.Get(ctx, "rag.reranker.model", &c.RerankModel)
@@ -327,7 +329,8 @@ func (s *Service) loadHits(ctx context.Context, fused []fusedHit) ([]retrieval.H
 }
 
 // rerank orders hits with a Cohere/Jina-style POST /rerank endpoint and keeps
-// the best cfg.TopKRerank at or above cfg.Threshold.
+// the best cfg.TopKRerank at or above cfg.Threshold, but never fewer than
+// cfg.MinResults: a threshold that is too high ranks, it does not empty the answer.
 func (s *Service) rerank(ctx context.Context, cfg searchConfig, url, key, query string, hits []retrieval.Hit) ([]retrieval.Hit, error) {
 	docs := make([]string, len(hits))
 	for i, h := range hits {
@@ -337,23 +340,22 @@ func (s *Service) rerank(ctx context.Context, cfg searchConfig, url, key, query 
 	if err != nil {
 		return nil, err
 	}
-	out := make([]retrieval.Hit, 0, len(res))
+	all := make([]retrieval.Hit, 0, len(res))
 	for _, r := range res {
 		if r.Index < 0 || r.Index >= len(hits) {
 			return nil, fmt.Errorf("rerank: index %d out of range", r.Index)
 		}
-		if r.Score < cfg.Threshold {
-			continue
-		}
 		h := hits[r.Index]
 		h.Score = r.Score
-		out = append(out, h)
+		all = append(all, h)
 	}
-	slices.SortStableFunc(out, func(a, b retrieval.Hit) int { return cmpFloat(b.Score, a.Score) })
-	if len(out) > cfg.TopKRerank {
-		out = out[:cfg.TopKRerank]
+	slices.SortStableFunc(all, func(a, b retrieval.Hit) int { return cmpFloat(b.Score, a.Score) })
+	keep := 0
+	for keep < len(all) && all[keep].Score >= cfg.Threshold {
+		keep++
 	}
-	return out, nil
+	keep = max(keep, min(cfg.MinResults, len(all)))
+	return all[:min(keep, cfg.TopKRerank)], nil
 }
 
 type rerankResult struct {
