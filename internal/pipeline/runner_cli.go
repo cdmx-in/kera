@@ -205,17 +205,25 @@ func (rn *runner) exec(ctx context.Context, j *job) {
 	}
 	_ = os.Chmod(entry, 0o755)
 
+	// packages: a requirements.txt among the files gets a virtual environment (cached by its content) whatever the entry is;
+	// its bin folder goes first on PATH, so `python3` and `pip` in a shell script resolve to it too
+	venvBin := ""
+	if req, ok := j.Files["requirements.txt"]; ok {
+		py, err := rn.venv(ctx, sdir, req, rep, mask)
+		if err != nil {
+			failStart("python packages: " + err.Error())
+			return
+		}
+		venvBin = filepath.Dir(py)
+	}
 	var argv []string
 	switch ext := strings.ToLower(filepath.Ext(j.Entry)); ext {
 	case ".sh", ".bash":
 		argv = []string{"bash", entry}
 	case ".py":
 		py := "python3"
-		if _, ok := j.Files["requirements.txt"]; ok {
-			if py, err = rn.venv(ctx, sdir, j.Files["requirements.txt"], rep, mask); err != nil {
-				failStart("python packages: " + err.Error())
-				return
-			}
+		if venvBin != "" {
+			py = filepath.Join(venvBin, "python")
 		}
 		argv = []string{py, entry}
 	default:
@@ -225,7 +233,7 @@ func (rn *runner) exec(ctx context.Context, j *job) {
 	argv = append(argv, strings.Fields(j.Args)...)
 
 	// the environment is built from nothing: the runner's own token and variables are not the script's business
-	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "KERA_SCRIPT_DIR=" + sdir, "LANG=C.UTF-8", "TZ=" + os.Getenv("TZ"),
+	env := []string{"PATH=" + pathWith(venvBin), "HOME=" + dir, "KERA_SCRIPT_DIR=" + sdir, "LANG=C.UTF-8", "TZ=" + os.Getenv("TZ"),
 		"KERA_URL=" + rn.url, "KERA_PIPELINE=" + j.Pipeline, "KERA_PIPELINE_TOKEN=" + j.Token, fmt.Sprintf("KERA_RUN=%d", j.Run), "KERA_MARK=" + mark}
 	names := make([]string, 0, len(j.Env))
 	for n := range j.Env {
@@ -400,4 +408,12 @@ func cellName(title string, n int) string {
 		s = s[:60]
 	}
 	return s
+}
+
+// pathWith is the PATH a script gets: the runner's own, with a virtual environment's bin folder first when there is one.
+func pathWith(venvBin string) string {
+	if venvBin == "" {
+		return os.Getenv("PATH")
+	}
+	return venvBin + string(os.PathListSeparator) + os.Getenv("PATH")
 }

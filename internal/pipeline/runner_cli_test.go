@@ -226,3 +226,24 @@ func TestNotebookScriptKeepsLineNumbersAndDeclaresSteps(t *testing.T) {
 		t.Fatalf("notebook steps: %+v\n%s", got2, out)
 	}
 }
+
+func TestRequirementsGiveAShellScriptThePythonEnvironment(t *testing.T) {
+	e := newEnv(t, false)
+	_, base := e.kmode("docs")
+	// a comment-only requirements.txt: the environment is made without needing the network
+	e.saveScript(base, "run.sh", map[string]string{"run.sh": "echo \"venv=$(dirname \"$(command -v python3)\")\"\n", "requirements.txt": "# nothing to install\n"}, "")
+	rv := e.runNow(base)
+	rn, out := e.newRunnerFor(e.runner("r1"))
+	if _, err := rn.once(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	got := e.adminRunOut(base, rv.ID)
+	st := stepByName(got, "start")
+	var log struct{ Log string }
+	if st != nil {
+		e.call(e.admin, "GET", base+"/runs/"+itoa(rv.ID)+"/steps/"+itoa(int64(st.Seq)), nil, http.StatusOK, &log)
+	}
+	if got.Status != "ok" || !strings.Contains(log.Log, ".venvs/") {
+		t.Fatalf("python3 in a shell script must come from the cached environment: %+v\n%q\n%s", got, log.Log, out)
+	}
+}

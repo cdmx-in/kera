@@ -129,6 +129,7 @@ type sess struct {
 	closed  bool
 	done    chan struct{}
 	py      string
+	venvBin string
 }
 
 func (rn *runner) startSession(ctx context.Context, sw *sessionWork) {
@@ -177,15 +178,13 @@ func (rn *runner) startSession(ctx context.Context, sw *sessionWork) {
 	}
 	s.vals = append(s.vals, sw.Token)
 	s.py = "python3"
-	if sw.Lang == "python" {
-		if req, ok := sw.Files["requirements.txt"]; ok {
-			py, err := rn.venv(ctx, sdir, req, newReporter(&client{}, 0, rn.tm, io.Discard), func(x string) string { return x })
-			if err != nil {
-				fail("python packages: " + err.Error())
-				return
-			}
-			s.py = py
+	if req, ok := sw.Files["requirements.txt"]; ok { // same as a run: the environment is on PATH for shell cells too
+		py, err := rn.venv(ctx, sdir, req, newReporter(&client{}, 0, rn.tm, io.Discard), func(x string) string { return x })
+		if err != nil {
+			fail("python packages: " + err.Error())
+			return
 		}
+		s.py, s.venvBin = py, filepath.Dir(py)
 	}
 	if err := s.spawn(); err != nil {
 		fail(err.Error())
@@ -229,7 +228,7 @@ for line in sys.stdin:
 // spawn starts the shell or Python process of the session.
 func (s *sess) spawn() error {
 	sdir := filepath.Join(s.dir, "script")
-	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + s.cwd, "KERA_SCRIPT_DIR=" + sdir, "LANG=C.UTF-8", "TZ=" + os.Getenv("TZ"), "KERA_URL=" + s.rn.url,
+	env := []string{"PATH=" + pathWith(s.venvBin), "HOME=" + s.cwd, "KERA_SCRIPT_DIR=" + sdir, "LANG=C.UTF-8", "TZ=" + os.Getenv("TZ"), "KERA_URL=" + s.rn.url,
 		"KERA_PIPELINE=" + s.sw.Pipeline, "KERA_PIPELINE_TOKEN=" + s.sw.Token, fmt.Sprintf("KERA_RUN=%d", s.sw.Run), "KERA_MARK=" + s.mark, "KERA_TEST=1"}
 	for n, v := range s.sw.Env {
 		env = append(env, n+"="+v)
