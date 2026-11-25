@@ -272,6 +272,53 @@ func TestListFilters(t *testing.T) {
 	}
 }
 
+// The actor filter (and the Users page's Activity link, which passes the user id) also returns the failed
+// sign-ins against that user, which are stored with an anonymous actor; nothing else leaks in.
+func TestActorFilterIncludesFailedSignIns(t *testing.T) {
+	e := setup(t)
+	at := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	n := 0
+	add := func(actorID, label, action, targetID, targetLabel string) {
+		n++
+		var actor *string
+		if actorID != "" {
+			actor = &actorID
+		}
+		kind := "anonymous"
+		if actor != nil {
+			kind = "user"
+		}
+		e.exec(`INSERT INTO audit_event (id, at, actor_id, actor_label, actor_kind, action, target_type, target_id, target_label, outcome)
+			VALUES ($1, $2, $3, $4, $5, $6, 'user', $7, $8, 'denied')`, ids.New(), at.Add(time.Duration(n)*time.Minute), actor, label, kind, action, targetID, targetLabel)
+	}
+	add("", e.usrMail, "auth.sign_in_failed", e.userID, e.usrMail)           // password: the account is the target (id)
+	add("", "PAT@EXAMPLE.COM", "auth.sign_in_failed", "", "PAT@EXAMPLE.COM") // OAuth: only the attempted email is known
+	add("", e.adminMail, "auth.sign_in_failed", e.adminID, e.adminMail)      // another account
+	add("", "email#1a2b3c4d", "auth.sign_in_failed", "", "email#1a2b3c4d")   // no such account
+	add(e.adminID, e.adminMail, "user.role_change", e.userID, e.usrMail)     // an admin acts on the user: not the user's activity
+	add(e.userID, e.usrMail, "chat.share", "c-1", "")
+	add("", "", "auth.sign_in_failed", "", "") // nothing known
+	for _, c := range []struct{ query, want string }{
+		{"actor=" + e.userID, "chat.share,auth.sign_in_failed,auth.sign_in_failed"},
+		{"actor=" + e.userID + "&action=auth.", "auth.sign_in_failed,auth.sign_in_failed"},
+		{"actor=" + e.usrMail, "chat.share,auth.sign_in_failed,auth.sign_in_failed"},
+		{"actor=" + e.adminID, "user.role_change,auth.sign_in_failed"},
+		{"actor=no-such-id", ""},
+	} {
+		got, _ := e.list(c.query)
+		if a := actionsOf(got); a != c.want {
+			t.Errorf("%s: got %s, want %s", c.query, a, c.want)
+		}
+	}
+	// stored as before: the failed sign-ins still have no actor
+	got, _ := e.list("actor=" + e.userID + "&action=auth.")
+	for _, r := range got {
+		if r.ActorID != "" || r.ActorKind != "anonymous" {
+			t.Errorf("stored actor changed: %+v", r)
+		}
+	}
+}
+
 func TestListPages(t *testing.T) {
 	e := setup(t)
 	e.seed()
