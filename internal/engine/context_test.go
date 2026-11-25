@@ -37,6 +37,21 @@ func (r ctxReq) text(i int) string {
 
 func (r ctxReq) last() string { return r.text(len(r.Messages) - 1) }
 
+// real is what a server counts for the request at the given characters per token (4 per message of framing).
+func (r ctxReq) real(charsPerToken float64) int {
+	chars := r.toolsLen
+	for i, m := range r.Messages {
+		chars += len(r.text(i))
+		if calls, ok := m["tool_calls"].([]any); ok {
+			for _, tc := range calls {
+				f := tc.(map[string]any)["function"].(map[string]any)
+				chars += len(fmt.Sprint(f["name"])) + len(fmt.Sprint(f["arguments"]))
+			}
+		}
+	}
+	return int(float64(chars)/charsPerToken) + 4*len(r.Messages)
+}
+
 // tokens estimates the request the way the engine does (characters / 4, 4 per message), plus the tool definitions.
 func (r ctxReq) tokens() int {
 	n := r.toolsLen / 4
@@ -109,6 +124,15 @@ type ctxModel struct {
 	failSummary bool     // answer the summary prompt with a 500
 	handle      func(n int, r ctxReq, s *sse)
 	report      func(n int, r ctxReq) int // prompt tokens to report (default: the estimate)
+
+	// window, when set, makes the server behave like Ollama with a fixed window: a request whose real size (window
+	// is in tokens, ratio characters per token) is over it is answered with HTTP 500 "no user query found in messages",
+	// and every other request reports its real size.
+	window    int
+	ratio     float64
+	overflows int    // requests refused for their size
+	sizes     []int  // real sizes of the chat and summary requests that were accepted
+	summary   string // what the summary prompt answers (default "SUMMARY NOTES")
 }
 
 func (h *harness) ctxModel(t *testing.T, handle func(n int, r ctxReq, s *sse)) *ctxModel {
@@ -129,6 +153,19 @@ func (h *harness) ctxModel(t *testing.T, handle func(n int, r ctxReq, s *sse)) *
 		w.Header().Set("Content-Type", "text/event-stream")
 		out := &sse{w: w, fl: w.(http.Flusher), prompt: req.tokens()}
 		sys := req.text(0)
+		if m.window > 0 && !strings.Contains(sys, "Reply with JSON") {
+			real := req.real(m.ratio)
+			m.mu.Lock()
+			if real > m.window {
+				m.overflows++
+				m.mu.Unlock()
+				http.Error(w, `{"error":"no user query found in messages"}`, http.StatusInternalServerError)
+				return
+			}
+			m.sizes = append(m.sizes, real)
+			m.mu.Unlock()
+			out.prompt = real
+		}
 		switch {
 		case strings.Contains(sys, "Reply with JSON"):
 			out.text(`{"title":"T","tags":["t"],"follow_ups":["more?"],"queries":["q"]}`)
@@ -141,7 +178,7 @@ func (h *harness) ctxModel(t *testing.T, handle func(n int, r ctxReq, s *sse)) *
 				http.Error(w, "summary backend down", http.StatusInternalServerError)
 				return
 			}
-			out.text("SUMMARY NOTES")
+			out.text(coalesce(m.summary, "SUMMARY NOTES"))
 		default:
 			m.mu.Lock()
 			m.reqs = append(m.reqs, req)
@@ -569,14 +606,16 @@ func TestModelCallNotRetriedAfterFirstEvent(t *testing.T) {
 
 func TestRetryable(t *testing.T) {
 	for err, want := range map[error]bool{
-		&provider.HTTPError{Status: 502}:                              true,
-		&provider.HTTPError{Status: 429}:                              true,
-		&provider.HTTPError{Status: 400}:                              false,
-		&provider.HTTPError{Status: 401}:                              false,
-		fmt.Errorf("wrapped: %w", provider.ErrIdleTimeout):            true,
-		fmt.Errorf("dial: %w", &netErr{}):                             true,
-		context.DeadlineExceeded:                                      false,
-		fmt.Errorf("openai stream: %w", fmt.Errorf("blocked by pii")): false,
+		&provider.HTTPError{Status: 502}:                                                      true,
+		&provider.HTTPError{Status: 429}:                                                      true,
+		&provider.HTTPError{Status: 400}:                                                      false,
+		&provider.HTTPError{Status: 401}:                                                      false,
+		&provider.HTTPError{Status: 500, Body: "oops"}:                                        true,
+		&provider.HTTPError{Status: 500, Body: `{"error":"no user query found in messages"}`}: false, // a prompt over the window: same prompt, same error
+		fmt.Errorf("wrapped: %w", provider.ErrIdleTimeout):                                    true,
+		fmt.Errorf("dial: %w", &netErr{}):                                                     true,
+		context.DeadlineExceeded:                                                              false,
+		fmt.Errorf("openai stream: %w", fmt.Errorf("blocked by pii")):                         false,
 	} {
 		if got := retryable(err); got != want {
 			t.Errorf("retryable(%v) = %v, want %v", err, got, want)
@@ -833,12 +872,13 @@ func TestWindowResolutionOrder(t *testing.T) {
 func TestBudgetSizeUsesReportedPromptPlusNewMessages(t *testing.T) {
 	msgs := []provider.Message{{Role: "system", Content: strings.Repeat("s", 400)}, {Role: "user", Content: strings.Repeat("u", 400)}}
 	b := &runBudget{toolChars: 800}
-	if got, want := b.size(msgs), (400/4+4)*2+200; got != want {
+	tok := func(chars int) int { return int(float64(chars) / charsPerToken) }
+	if got, want := b.size(msgs), (tok(400)+4)*2+tok(800); got != want {
 		t.Fatalf("estimate before any report: %d, want %d", got, want)
 	}
 	b.lastPrompt, b.lastLen = 1000, 2
 	msgs = append(msgs, provider.Message{Role: "tool", Content: strings.Repeat("t", 4000)})
-	if got, want := b.size(msgs), 1000+4000/4+4; got != want {
+	if got, want := b.size(msgs), 1000+tok(4000)+4; got != want {
 		t.Fatalf("reported + added: %d, want %d", got, want)
 	}
 	b.lastPrompt = 10 // a server that reports far too little is not trusted

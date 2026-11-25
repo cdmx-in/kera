@@ -359,6 +359,9 @@ func classify(err error) (string, string) {
 	switch {
 	case errors.As(err, &ae):
 		return ae.Code, ae.Message
+	case provider.IsContextOverflow(err):
+		return "context_length_exceeded", "The conversation does not fit the model's context window and nothing more could be shortened. " +
+			"Start a new chat, attach less, or use a model with a larger window."
 	case errors.As(err, &he):
 		msg := fmt.Sprintf("The model server returned %d %s", he.Status, http.StatusText(he.Status))
 		if he.Body != "" {

@@ -431,3 +431,33 @@ func TestLineLimit(t *testing.T) {
 		t.Fatal("over-long line accepted")
 	}
 }
+
+func TestIsContextOverflow(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"ollama template after the server cut the prompt", &HTTPError{Status: 500, Body: `{"error":"no user query found in messages"}`}, true},
+		{"ollama exceeded", &HTTPError{Status: 500, Body: `{"error":"prompt too long; exceeded max context length by 1234 tokens"}`}, true},
+		{"openai", &HTTPError{Status: 400, Body: `{"error":{"message":"This model's maximum context length is 8192 tokens. However, your messages resulted in 9000 tokens.","code":"context_length_exceeded"}}`}, true},
+		{"vllm", &HTTPError{Status: 400, Body: `{"message":"This model's Maximum Context Length is 4096 tokens"}`}, true},
+		{"litellm", &HTTPError{Status: 400, Body: `litellm.ContextWindowExceededError: ...`}, true},
+		{"anthropic style", &HTTPError{Status: 400, Body: `{"message":"prompt is too long: 250000 tokens > 200000 maximum"}`}, true},
+		{"too large for the proxy", &HTTPError{Status: 413, Body: "<html>"}, true},
+		{"wrapped", fmt.Errorf("call: %w", &HTTPError{Status: 500, Body: `{"error":"no user query found in messages"}`}), true},
+		{"ollama stream error", errors.New("ollama: prompt too long; exceeded max context length"), true},
+		{"plain 500", &HTTPError{Status: 500, Body: "internal error"}, false},
+		{"bad gateway", &HTTPError{Status: 502, Body: "bad gateway"}, false},
+		{"rate limit", &HTTPError{Status: 429, Body: "slow down"}, false},
+		{"token rate limit", &HTTPError{Status: 429, Body: `{"error":"Too many tokens per minute, retry later"}`}, false},
+		{"auth", &HTTPError{Status: 401, Body: "bad key"}, false},
+		{"the url names a context path", &HTTPError{Method: "POST", URL: "http://x/context-window/chat", Status: 500, Body: "oops"}, false},
+		{"idle timeout", ErrIdleTimeout, false},
+	} {
+		if got := IsContextOverflow(c.err); got != c.want {
+			t.Errorf("%s: IsContextOverflow = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

@@ -157,10 +157,15 @@ func TestTraceRetrievalAndCompaction(t *testing.T) {
 	for _, s := range got {
 		kinds += s.Kind + " "
 	}
-	if kinds != "retrieval compaction model " { // compaction runs once the prompt and tools exist, so their size counts
+	// compaction runs once the prompt and tools exist, so their size counts; the 100-token window is also far under the
+	// prompt, which the guard notes (nothing it can shorten, the window is only assumed, so the call is sent)
+	if kinds != "retrieval compaction compaction model " {
 		t.Fatalf("kinds %q", kinds)
 	}
 	r, c := got[0], got[1]
+	if g := got[2]; g.Name != "too_large" || g.Detail["sent"] != true || g.Error != "" {
+		t.Fatalf("guard step %+v", g)
+	}
 	if c.Name != "summarise" || c.Error != "" || c.Detail["turns_summarised"].(float64) < 2 || c.Detail["tokens_after"].(float64) >= c.Detail["tokens_before"].(float64) {
 		t.Fatalf("compaction step %+v", c)
 	}

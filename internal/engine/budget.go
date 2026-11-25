@@ -25,21 +25,49 @@ const compactKeepRounds = 2
 // server probably cut the prompt": Ollama drops the oldest messages and still answers.
 const overflowAt = 0.97
 
+// The size of a prompt is estimated, not counted. charsPerToken is the estimate until a server's report calibrates
+// it: markdown and JSON run near 3.3 characters per token (52,135 characters measured 15,583 tokens), English prose
+// near 4, so the estimate errs towards "bigger". A calibrated value stays between the two limits.
+const (
+	charsPerToken    = 3.3
+	minCharsPerToken = 1.5
+	maxCharsPerToken = 4.0
+)
+
+// Before each model call the prompt is brought under ceilingShare of the window: the rest is room for the reply and for
+// the error of the estimate. A prompt that still estimates over failShare of the window after everything that can be
+// shortened was shortened is not sent when the window is known.
+// ponytail: constants; make them settings if a model needs a longer reply than 15% of its window.
+const (
+	ceilingShare = 0.85
+	failShare    = 0.95
+)
+
+// What one tool result may add: the share of the room left in the window, never less than minCallChars; a result
+// that is only capSlack characters over its share is left alone (a tool's own header and footer).
+const (
+	minCallChars = 1000
+	capSlack     = 400
+	callOverhead = 150 // a page's header and footer, the call's message framing
+)
+
 // runBudget is what the loop knows about the model's window during one run.
 type runBudget struct {
 	manage     bool    // size tracking, clearing and mid-run compaction are on
 	window     int     // tokens
-	source     string  // where the window came from: context_window, num_ctx or setting
+	source     string  // where the window came from: context_window, num_ctx, setting, or server (taken from a refusal)
 	clearAt    float64 // share of the window above which old tool results are cleared
 	clearTo    float64 // share the clearing stops at
-	keepRounds int     // newest rounds whose results are never cleared
+	keepRounds int     // newest rounds whose results the clear_at rule leaves alone (the pre-call guard may still clear them)
 	compact    bool    // summarise when clearing is not enough
 	spillAt    int     // characters above which a tool result becomes a file (0 = never)
 	toolChars  int     // size of the tool definitions
 	base       int     // index in the message list where this run's own messages start
 
-	lastPrompt int // prompt tokens the server reported for the last call (or the estimate after a rewrite)
-	lastLen    int // number of messages that call carried
+	lastPrompt int     // prompt tokens the server reported for the last call (or the estimate after a rewrite)
+	lastLen    int     // number of messages that call carried
+	cpt        float64 // characters per token, calibrated from the server's report (0 = charsPerToken)
+	callChars  int     // the most one tool result of the current round may add, in characters (0 = no limit)
 
 	mu      sync.Mutex
 	spilled map[string]string // tool call id -> "file name (id ...)" of the spilled full text
@@ -108,12 +136,24 @@ func msgChars(m provider.Message) int {
 	return n
 }
 
-// charsTokens is the chars/4 estimate with a few tokens per message for the framing.
-// ponytail: no tokenizer; JSON and non-English text run closer to 3 characters per token, so the thresholds leave headroom.
-func charsTokens(msgs []provider.Message) int {
+// perToken is the characters per token the estimate uses.
+func (b *runBudget) perToken() float64 {
+	if b.cpt > 0 {
+		return b.cpt
+	}
+	return charsPerToken
+}
+
+// tokens converts characters to estimated tokens; chars is the other way.
+func (b *runBudget) tokens(chars int) int { return int(float64(chars) / b.perToken()) }
+func (b *runBudget) chars(tokens int) int { return int(float64(tokens) * b.perToken()) }
+
+// estimate is the token estimate of msgs: their characters at perToken, and a few tokens per message for the framing.
+// ponytail: no tokenizer; the ratio follows the server's reports and the thresholds leave headroom.
+func (b *runBudget) estimate(msgs []provider.Message) int {
 	n := 0
 	for _, m := range msgs {
-		n += msgChars(m)/4 + 4
+		n += b.tokens(msgChars(m)) + 4
 	}
 	return n
 }
@@ -123,23 +163,89 @@ func charsTokens(msgs []provider.Message) int {
 // and after a rewrite. A reported size under half the estimate is not trusted (a server that
 // counts only the uncached part of the prompt).
 func (b *runBudget) size(msgs []provider.Message) int {
-	all := charsTokens(msgs) + b.toolChars/4
+	all := b.estimate(msgs) + b.tokens(b.toolChars)
 	if b.lastPrompt == 0 || b.lastLen > len(msgs) {
 		return all
 	}
-	n := b.lastPrompt + charsTokens(msgs[b.lastLen:])
+	n := b.lastPrompt + b.estimate(msgs[b.lastLen:])
 	if n*2 < all {
 		return all
 	}
 	return n
 }
 
+// calibrate sets the characters per token from what the server reported for msgs (and the tool definitions), so the
+// estimate for the messages added after that call follows this tokenizer and this content. A report under half the
+// estimate (a server that counts only the uncached part) and a small prompt say nothing.
+func (b *runBudget) calibrate(msgs []provider.Message, prompt int) {
+	chars := b.toolChars
+	for _, m := range msgs {
+		chars += msgChars(m)
+	}
+	body := prompt - 4*len(msgs)
+	if prompt < 1000 || body <= 0 || prompt*2 < b.estimate(msgs)+b.tokens(b.toolChars) {
+		return
+	}
+	b.cpt = min(max(float64(chars)/float64(body), minCharsPerToken), maxCharsPerToken)
+}
+
+// ceiling is the prompt size, in tokens, a model call may reach.
+func (b *runBudget) ceiling() int { return int(ceilingShare * float64(b.window)) }
+
+// callShare is the most characters one of n parallel tool results may add: the room under the ceiling, shared equally,
+// less what a tool adds around its text. The results of earlier rounds count as room: the model has read them, and the
+// guard clears them again when the new ones need the space. 0 when the run is not managed.
+func (b *runBudget) callShare(msgs []provider.Message, n int) int {
+	if !b.manage {
+		return 0
+	}
+	old := 0
+	for _, m := range msgs[min(b.base, len(msgs)):] {
+		if m.Role == "tool" {
+			old += len(m.Content)
+		}
+	}
+	room := b.ceiling() - b.size(msgs) + b.tokens(old)
+	return max(b.chars(room)/max(n, 1)-callOverhead, minCallChars)
+}
+
+// A cut result ends with cutNote; cutHead starts it, so a result cut again keeps the size of the original.
+const (
+	cutHead = "[Cut to fit the context window: "
+	cutNote = cutHead + "%d of %d characters shown. Ask for the rest in smaller parts or with a narrower query.]"
+)
+
+// cutResult shortens s to at most limit characters, the note included. Sizes are bytes, which is what the estimate counts.
+// ponytail: keeps the start only; for a log or a list the end can matter, keep a tail as spill does if that shows up.
+func cutResult(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	total := len(s)
+	if i := strings.LastIndex(s, "\n"+cutHead); i >= 0 { // cut before: the first note has the real size
+		if _, err := fmt.Sscanf(s[i+1:], cutHead+"%d of %d", new(int), &total); err == nil {
+			s = s[:i]
+		} else {
+			total = len(s)
+		}
+	}
+	keep := max(limit-len(fmt.Sprintf("\n"+cutNote, limit, total)), 0)
+	if len(s) > keep {
+		for keep > 0 && s[keep]&0xC0 == 0x80 { // not in the middle of a character
+			keep--
+		}
+		s = s[:keep]
+	}
+	return s + fmt.Sprintf("\n"+cutNote, len(s), total)
+}
+
 // rebase records an estimate as the new baseline after the messages were rewritten.
 func (b *runBudget) rebase(tokens, msgs int) { b.lastPrompt, b.lastLen = tokens, msgs }
 
 // observe takes the prompt size a call reported and notes a suspected overflow in the trace.
-func (b *runBudget) observe(x *exec, round, msgs, prompt int) {
-	b.lastPrompt, b.lastLen = prompt, msgs
+func (b *runBudget) observe(x *exec, round int, msgs []provider.Message, prompt int) {
+	b.calibrate(msgs, prompt)
+	b.lastPrompt, b.lastLen = prompt, len(msgs)
 	if b.window <= 0 || float64(prompt) < overflowAt*float64(b.window) {
 		return
 	}
@@ -202,57 +308,37 @@ func citedNumbers(text string) string {
 }
 
 // fit keeps the next request under the window: when the estimate passes clear_at it clears old tool
-// results down to clear_to; when that is not enough it summarises the run so far. The first
-// messages (system, earlier turns, the user's request) are never touched.
-func (e *Engine) fit(ctx context.Context, x *exec, b *runBudget, msgs []provider.Message, round int) []provider.Message {
+// results down to clear_to; when that is not enough it summarises the run so far. Then the guard makes
+// sure the call will fit (see guard). The first messages (system, earlier turns, the user's request)
+// are never touched. The error is a call that cannot be made to fit.
+func (e *Engine) fit(ctx context.Context, x *exec, b *runBudget, msgs []provider.Message, round int) ([]provider.Message, error) {
 	if !b.manage {
-		return msgs
+		return msgs, nil
 	}
-	limit := int(b.clearAt * float64(b.window))
-	if b.size(msgs) <= limit {
-		return msgs
+	summarised := false
+	if limit := int(b.clearAt * float64(b.window)); b.size(msgs) > limit {
+		msgs = e.clearOld(x, b, msgs, round, b.keepRounds, int(b.clearTo*float64(b.window)))
+		if b.size(msgs) > limit && b.compact {
+			msgs, summarised = e.compactRun(ctx, x, b, msgs, round), true
+		}
 	}
-	msgs = e.clearOld(x, b, msgs, round, b.keepRounds)
-	if b.size(msgs) <= limit || !b.compact {
-		return msgs
-	}
-	return e.compactRun(ctx, x, b, msgs, round)
+	return e.guard(ctx, x, b, msgs, round, summarised)
 }
 
 // clearOld replaces the content of tool messages older than the newest keep rounds, oldest first,
-// until the estimate is down to clear_to of the window. Every tool call keeps its result message.
-func (e *Engine) clearOld(x *exec, b *runBudget, msgs []provider.Message, round, keep int) []provider.Message {
+// until the estimate is down to target. Every tool call keeps its result message.
+func (e *Engine) clearOld(x *exec, b *runBudget, msgs []provider.Message, round, keep, target int) []provider.Message {
 	rs := rounds(msgs, b.base)
 	if len(rs) <= keep {
 		return msgs
 	}
-	started := time.Now()
-	before := b.size(msgs)
-	size, target := before, int(b.clearTo*float64(b.window))
-	out := append([]provider.Message(nil), msgs...)
-	cleared := 0
+	var idx []int
 	for _, r := range rs[:len(rs)-keep] {
-		for i := r.from; i < r.to && size > target; i++ {
-			m := out[i]
-			if m.Role != "tool" || strings.HasPrefix(m.Content, clearedPrefix) {
-				continue
-			}
-			note := b.clearedNote(m, utf8.RuneCountInString(m.Content))
-			if len(note) >= len(m.Content) {
-				continue
-			}
-			size -= (len(m.Content) - len(note)) / 4
-			out[i].Content = note
-			cleared++
+		for i := r.from; i < r.to; i++ {
+			idx = append(idx, i)
 		}
 	}
-	if cleared == 0 {
-		return msgs
-	}
-	b.rebase(size, len(out))
-	x.run.trace.add(traceStep{Kind: stepCompaction, Name: "clear", Round: round, Started: started, Duration: time.Since(started),
-		Detail: map[string]any{"results_cleared": cleared, "tokens_before": before, "tokens_after": size, "window": b.window, "window_source": b.source}})
-	return out
+	return e.clearIdx(x, b, msgs, round, idx, target, "old")
 }
 
 // runSummaryPrompt is the existing summary prompt with what a run in progress needs kept.
@@ -278,7 +364,7 @@ func (e *Engine) compactRun(ctx context.Context, x *exec, b *runBudget, msgs []p
 		slog.Warn("mid-run compaction failed, clearing instead", "run", x.run.ID, "err", err)
 		step.Err, step.Duration = "compaction_failed", time.Since(started)
 		x.run.compaction("done", "", 0, 0)
-		out := e.clearOld(x, b, msgs, round, compactKeepRounds)
+		out := e.clearOld(x, b, msgs, round, compactKeepRounds, int(b.clearTo*float64(b.window)))
 		step.Detail["tokens_after"] = b.size(out)
 		x.run.trace.add(step)
 		return out
@@ -286,29 +372,35 @@ func (e *Engine) compactRun(ctx context.Context, x *exec, b *runBudget, msgs []p
 	files := b.filesIn(msgs[b.base:cut])
 	out := append(append([]provider.Message(nil), msgs[:b.base]...), provider.Message{Role: "user", Data: true, Content: runSummaryBlock(summary, files)})
 	out = append(out, msgs[cut:]...)
-	after := charsTokens(out) + b.toolChars/4
+	after := b.estimate(out) + b.tokens(b.toolChars)
 	b.rebase(after, len(out))
 	step.Duration = time.Since(started)
 	step.Detail["tokens_after"] = after
+	step.Detail["summary_chars"] = utf8.RuneCountInString(summary)
 	x.run.trace.add(step)
 	x.run.compaction("done", summary, before, after)
 	return out
 }
 
-// summariseRun asks the task model for notes on the run's messages.
+// summaryShare is the share of the window the notes of a mid-run summary may take. They are asked to stay under it and
+// cut to it when they do not: a local model's notes can be as long as what they replace.
+const summaryShare = 1.0 / 8
+
+// summariseRun asks the task model for notes on the run's messages, at most summaryShare of the window.
 func (e *Engine) summariseRun(ctx context.Context, x *exec, b *runBudget, msgs []provider.Message) (string, error) {
 	tm, err := e.taskModel(ctx, x)
 	if err != nil {
 		return "", err
 	}
-	summary, _, err := e.complete(ctx, tm, runSummaryPrompt, runTranscript(msgs, b.window*2))
+	limit := b.chars(int(summaryShare * float64(b.window)))
+	summary, _, err := e.complete(ctx, tm, fmt.Sprintf("%s Keep the notes under %d words.", runSummaryPrompt, limit/6), runTranscript(msgs, b.window*2))
 	if err != nil {
 		return "", fmt.Errorf("summarise run: %w", err)
 	}
 	if strings.TrimSpace(summary) == "" {
 		return "", fmt.Errorf("summarise run: empty summary")
 	}
-	return strings.TrimSpace(summary), nil
+	return clip(strings.TrimSpace(summary), limit), nil
 }
 
 // runTranscript renders messages for the summary call, each one clipped, at most limit characters (the newest kept).

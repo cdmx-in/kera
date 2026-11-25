@@ -147,13 +147,20 @@ func (t *filesTools) Execute(ctx context.Context, c tools.Call) (tools.Result, e
 			return textResult("%s has %d lines; start_line %d is past the end.", f.Filename, len(lines), start), nil
 		}
 		end := min(start+n-1, len(lines))
+		// a page of very long lines must not fill the prompt: it stops at maxViewChars, or at the share of the window
+		// the engine leaves this call (then never more than that, but at least one line)
+		limit, strict := maxViewChars, false
+		if c.MaxChars > 0 && c.MaxChars < limit {
+			limit, strict = c.MaxChars, true
+		}
 		var body strings.Builder
 		for i := start; i <= end; i++ {
-			if body.Len() >= maxViewChars { // a page of very long lines must not fill the prompt
+			line := fmt.Sprintf("%d: %s\n", i, clip(lines[i-1], min(2000, limit)))
+			if body.Len() >= limit || strict && i > start && body.Len()+len(line) > limit {
 				end = i - 1
 				break
 			}
-			fmt.Fprintf(&body, "%d: %s\n", i, clip(lines[i-1], 2000))
+			body.WriteString(line)
 		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "%s, lines %d-%d of %d\n", f.Filename, start, end, len(lines))
@@ -163,12 +170,13 @@ func (t *filesTools) Execute(ctx context.Context, c tools.Call) (tools.Result, e
 		}
 		return textResult("%s", b.String()), nil
 	case "grep_chat_files":
-		return t.grep(ctx, c, a.Pattern, a.File, a.Context, a.MaxResults), nil
+		return t.grep(ctx, c, a.Pattern, a.File, a.Context, a.MaxResults, c.MaxChars), nil
 	}
 	return errResult("unknown tool %s", c.Name), nil
 }
 
-func (t *filesTools) grep(ctx context.Context, c tools.Call, pattern, file string, around, limit int) tools.Result {
+// grep lists matching lines; maxChars (0 = no limit) is where it stops adding matches, with a line saying so.
+func (t *filesTools) grep(ctx context.Context, c tools.Call, pattern, file string, around, limit, maxChars int) tools.Result {
 	if strings.TrimSpace(pattern) == "" {
 		return errResult("pattern is required")
 	}
@@ -199,12 +207,18 @@ func (t *filesTools) grep(ctx context.Context, c tools.Call, pattern, file strin
 				fmt.Fprintf(&b, "[stopped after %d matches; narrow the pattern]\n", limit)
 				return textResult("%s", b.String())
 			}
+			var hit strings.Builder
 			for j := max(i-around, 0); j <= min(i+around, len(lines)-1); j++ {
-				fmt.Fprintf(&b, "%s:%d: %s\n", f.Filename, j+1, clip(lines[j], 500))
+				fmt.Fprintf(&hit, "%s:%d: %s\n", f.Filename, j+1, clip(lines[j], 500))
 			}
 			if around > 0 {
-				b.WriteString("--\n")
+				hit.WriteString("--\n")
 			}
+			if maxChars > 0 && b.Len() > 0 && b.Len()+hit.Len() > maxChars {
+				fmt.Fprintf(&b, "[stopped after %d matches, the most that fits the context window now; narrow the pattern or search one file]\n", found-1)
+				return textResult("%s", b.String())
+			}
+			b.WriteString(hit.String())
 		}
 	}
 	if found == 0 {

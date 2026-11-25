@@ -53,6 +53,10 @@ type Call struct {
 	RunID     string
 	Task      bool     // the run is a task (Cowork), not a chat reply
 	FileIDs   []string // files attached to the conversation branch
+	// MaxChars is the most the model's context can take of this call's result, in characters (0 = no limit). A tool that
+	// pages or lists (view_file, grep_chat_files) stops there and says where to go on; the engine cuts any other result
+	// that is longer, with a note.
+	MaxChars int
 	// CallbackURL and CallbackToken let a remote tool server post events or
 	// ask the user (POST {CallbackURL}/events, POST {CallbackURL}/ask with
 	// Authorization: Bearer {CallbackToken}) or upload a file (POST {CallbackURL}/files).
