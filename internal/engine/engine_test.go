@@ -172,9 +172,14 @@ func newHarness(t *testing.T) *harness {
 	}
 	st := settings.New(pool)
 	e := New(pool, keys, st, models.New(pool, keys, st, ""), files.New(pool, st, t.TempDir()), &chats.Store{DB: pool}, "http://kera.test")
+	return &harness{e: e, pool: pool, u: &auth.User{ID: "u1", Name: "Ada", Email: "ada@example.com", Role: "admin"}, srv: srv}
+}
+
+// The engine's waits are shortened for the whole package, before any test: setting them per test would race with a
+// run that an earlier, failed test left going.
+func init() {
 	pingEvery = 50 * time.Millisecond
 	retryDelay = func(int) time.Duration { return time.Millisecond }
-	return &harness{e: e, pool: pool, u: &auth.User{ID: "u1", Name: "Ada", Email: "ada@example.com", Role: "admin"}, srv: srv}
 }
 
 func (h *harness) chat(t *testing.T) string {
@@ -188,7 +193,9 @@ func (h *harness) chat(t *testing.T) string {
 // wait blocks until the run is done and returns its events.
 func wait(t *testing.T, run *Run) []event {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	// Only a guard against a hang: this returns as soon as the run is done. The long tool loops take seconds with the
+	// race detector, and several times that on a busy machine.
+	deadline := time.Now().Add(60 * time.Second)
 	for !run.Finished() {
 		if time.Now().After(deadline) {
 			t.Fatal("run did not finish")
