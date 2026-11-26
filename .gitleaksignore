@@ -5,3 +5,10 @@ b09e6d64421b1b0114852a494073c662be0becd0:internal/desktop/desktop_test.go:generi
 
 # False positive: a made-up runner token used as a UI test fixture (it is now built at run time).
 2f3f4453b0133542bbce0e1d6a7f23f7efbd430c:web/src/features/admin/PipelineRunners.test.tsx:generic-api-key:9
+
+# False positives from redaction tests: made-up values planted so the tests can check that the audit export and the
+# conversation digest never carry them. Not credentials.
+286458572cb2c0c40dab86812bd4536305458cd9:internal/audit/http_test.go:generic-api-key:322
+a2e4d56fc9646aa16fb470cad658226ac2b7a216:internal/engine/context_test.go:generic-api-key:836
+# False positive: the name of a retrieval setting (rag.hybrid.bm25_weight) in a field called "key" in the help page data.
+33488545946e90bcfd71689f1c0724776c1a077d:web/src/features/admin/help/data.ts:generic-api-key:39
