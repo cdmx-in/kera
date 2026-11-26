@@ -13,7 +13,7 @@ import { Notice } from './Notice'
 import { EnvTab } from './PipelineEnv'
 import { nextRunText } from './PipelineSchedule'
 import { NoRunnerHint } from './PipelineRunners'
-import { PipelineMasthead, tabs, type Tab } from './PipelineMasthead'
+import { PipelineMasthead, tabsFor, type Tab } from './PipelineMasthead'
 import { ScriptTab } from './PipelineScript'
 import { HealthStrip } from './HealthStrip'
 import { History } from './RunList'
@@ -142,7 +142,7 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
   const [ask, setAsk] = useState<Ask>(null)
   const [starting, setStarting] = useState(false)
   const kera = p.run_mode === 'kera'
-  const tab: Tab = kera ? (tabs.find(([k]) => k === params.get('tab'))?.[0] ?? 'runs') : 'runs'
+  const tab: Tab = tabsFor(kera).find(([k]) => k === params.get('tab'))?.[0] ?? 'runs'
   const runners = useRunners(kera)
   const online = runners.data ? runners.data.runners.some((r) => r.online) : undefined
   const runnerName = (id: string | undefined) => (id ? runners.data?.runners.find((r) => r.id === id)?.name : undefined)
@@ -223,7 +223,7 @@ function Loaded({ p, runParam }: { p: Pipeline; runParam?: string }) {
       )}
 
       {tab === 'script' && <ScriptTab name={p.name} />}
-      {tab === 'env' && <EnvTab name={p.name} />}
+      {tab === 'env' && <EnvTab name={p.name} kera={kera} shared={p.env_by_token} />}
 
       {tab === 'runs' && !kera && !showHistory && <LetKeraRun onSetUp={() => nav(`${editUrl(p.name)}#how-it-runs`)} />}
       {/* a queued run says it itself, with the link to the runners */}

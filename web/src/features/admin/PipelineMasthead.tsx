@@ -17,6 +17,8 @@ export const tabs: [Tab, string][] = [
   ['script', 'Script'],
   ['env', 'Environment'],
 ]
+/** A script that runs outside Kera has no script tab; its variables matter when its token may read them. */
+export const tabsFor = (kera: boolean) => (kera ? tabs : tabs.filter(([k]) => k !== 'script'))
 
 const stateTone: Record<State, StatusTone> = { failed: 'bad', late: 'warn', warning: 'warn', running: 'accent', queued: 'idle', ok: 'ok', never: 'idle', off: 'idle' }
 const lampText: Record<StatusTone, string> = { idle: 'text-muted', accent: 'text-accent', ok: 'text-ok', warn: 'text-warn', bad: 'text-bad' }
@@ -151,23 +153,21 @@ export function PipelineMasthead({
         )}
       </div>
 
-      {kera && (
-        <nav aria-label="Pipeline sections" className="flex gap-1 border-t border-line px-3 sm:px-4" data-testid="pipeline-tabs">
-          {tabs.map(([k, l]) => (
-            <Link
-              key={k}
-              to={tabHref(k)}
-              aria-current={tab === k ? 'page' : undefined}
-              className={cx(
-                'relative px-3 py-2.5 text-sm font-medium outline-none transition-colors focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
-                tab === k ? 'text-fg after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-accent' : 'text-muted hover:text-fg',
-              )}
-            >
-              {l}
-            </Link>
-          ))}
-        </nav>
-      )}
+      <nav aria-label="Pipeline sections" className="flex gap-1 border-t border-line px-3 sm:px-4" data-testid="pipeline-tabs">
+        {tabsFor(kera).map(([k, l]) => (
+          <Link
+            key={k}
+            to={tabHref(k)}
+            aria-current={tab === k ? 'page' : undefined}
+            className={cx(
+              'relative px-3 py-2.5 text-sm font-medium outline-none transition-colors focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+              tab === k ? 'text-fg after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-accent' : 'text-muted hover:text-fg',
+            )}
+          >
+            {l}
+          </Link>
+        ))}
+      </nav>
     </header>
   )
 }

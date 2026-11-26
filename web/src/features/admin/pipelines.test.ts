@@ -84,6 +84,7 @@ const pipe = (o: Partial<Pipeline> = {}): Pipeline => ({
   allow_mass_delete: false,
   enabled: true,
   managed: false,
+  env_by_token: false,
   created_at: '2026-03-01T00:00:00Z',
   updated_at: '2026-03-01T00:00:00Z',
   late: false,

@@ -2,7 +2,9 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
-import { AddEnv, EnvRow } from './PipelineEnv'
+import { AddEnv, EnvRow, TokenAccess } from './PipelineEnv'
+import { tabsFor } from './PipelineMasthead'
+import { past } from './audit'
 import { envBody, type EnvVar } from './pipelines'
 
 const var_ = (o: Partial<EnvVar>): EnvVar => ({ name: 'API_TOKEN', secret: true, value: null, updated_at: '2026-03-10T06:00:00Z', ...o })
@@ -99,5 +101,27 @@ describe('AddEnv with a stored secret', () => {
   it('posts secret_ref for a stored secret and value + secret for a value', () => {
     expect(envBody({ name: ' API_KEY ', kind: 'stored', value: 'ignored', secret: true, ref: 'alpha-token' })).toEqual({ name: 'API_KEY', secret_ref: 'alpha-token' })
     expect(envBody({ name: 'REGION', kind: 'value', value: 'eu', secret: false, ref: '' })).toEqual({ name: 'REGION', value: 'eu', secret: false })
+  })
+})
+
+describe('letting the pipeline token read the variables', () => {
+  it('is an unticked box that says who can then read them', () => {
+    const h = renderToStaticMarkup(<TokenAccess on={false} onChange={() => {}} />)
+    expect(h).toContain('type="checkbox"')
+    expect(h).not.toContain('checked=""')
+    expect(h).toContain('secrets included')
+  })
+  it('is ticked when the pipeline shares them', () => {
+    expect(renderToStaticMarkup(<TokenAccess on onChange={() => {}} />)).toContain('checked=""')
+  })
+  it('is reachable on a script that runs outside Kera, which has no Script tab', () => {
+    expect(tabsFor(false).map(([k]) => k)).toEqual(['runs', 'env'])
+    expect(tabsFor(true).map(([k]) => k)).toEqual(['runs', 'script', 'env'])
+  })
+})
+
+describe('the audit line for a token reading the variables', () => {
+  it('uses the past tense of read', () => {
+    expect(past('read the variables')).toBe('read the variables')
   })
 })

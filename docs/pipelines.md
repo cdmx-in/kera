@@ -222,6 +222,7 @@ Errors are `{"detail": "...", "code": "..."}`. Times are RFC 3339 in UTC. The se
 | `POST /api/v1/pipelines/{name}/runs/{run}/finish` | The script is done |
 | `GET /api/v1/pipelines/{name}/runs/{run}` | The run and its steps |
 | `GET /api/v1/pipelines/{name}/health` | `200` or `503`, for monitoring |
+| `GET /api/v1/pipelines/{name}/env` | The pipeline's variables, if an admin [shared them](#read-the-variables) with the token |
 
 ### Open a run
 
@@ -324,6 +325,17 @@ Reading a run also moves it on: counts are refreshed, and a run whose script is 
 
 `status` is `ok`, `warning` (the last run finished with a warning), `never_run`, or, with `503`, `failed` (the last closed run failed; `detail` has its error) or `late`. Dry runs are ignored. See [Schedules](#schedules-lateness-and-the-health-url).
 
+### Read the variables
+
+A script that runs outside Kera can keep its credentials in Kera: set them as the pipeline's variables (or point them at [stored secrets](#stored-secrets)), then switch on **This pipeline's token may read these variables** on the pipeline's Environment tab (`PUT /api/v1/admin/pipelines/{name}` with `{"env_by_token": true}`). It is off by default.
+
+```sh
+curl -sS "$KERA_URL/api/v1/pipelines/docs-sync/env" -H "Authorization: Bearer $KERA_PIPELINE_TOKEN"
+# {"env": {"API_KEY": "..."}}
+```
+
+With the switch off the route answers `403 env_not_shared`. While it is on, whoever holds the pipeline token can read every value, secrets included, so treat the token as you treat those values; rotating the token cuts off the old one at once. Each read is in the audit log with the variable names, never the values. A secret changed in Kera reaches the script the next time it asks. A script that must keep working while Kera is down has to hold what it already read in memory, or keep that credential somewhere else.
+
 ## The admin API
 
 All routes need an admin. Times are RFC 3339 in UTC.
@@ -358,7 +370,7 @@ A pipeline:
  "owner": {"id": "...", "name": "Ada", "email": "ada@example.com"},
  "targets": [{"id": "0192...", "name": "Product docs", "missing": false}],
  "every_minutes": 1440, "token_prefix": "kp-abcdefg",
- "adopt": false, "allow_mass_delete": false, "enabled": true, "managed": false,
+ "adopt": false, "allow_mass_delete": false, "enabled": true, "managed": false, "env_by_token": false,
  "created_at": "...", "updated_at": "...",
  "late": false, "running": false, "last_ok_at": "...",
  "last_run": {"id": 12, "pipeline": "docs-sync", "trigger": "script", "dry_run": false, "status": "ok",
@@ -379,7 +391,7 @@ A pipeline:
 
 `name` is 1 to 40 lowercase letters, digits and dashes. `targets` are existing collections (id, or an exact name when only one collection has it); `new_collections` are created, owned by the admin who sent the request. Two targets may not share a name (`400 duplicate_target_name`) because a script names its collection. The owner is the admin who sent the request. Reply `201 {"pipeline": {...}, "token": "kp-..."}`. Form errors are `400` with `field`.
 
-**Update**: `PUT` takes any of `title`, `owner_id`, `targets`, `new_collections`, `every_minutes`, `enabled`. The name never changes. Changing `owner_id` moves the files the pipeline uploaded and the target collections the old owner held to the new owner, in one transaction. A collection removed from `targets` keeps its files as they are (still marked as this pipeline's); a run that is already open keeps the targets it started with.
+**Update**: `PUT` takes any of `title`, `owner_id`, `targets`, `new_collections`, `every_minutes`, `enabled`, `env_by_token` ([Read the variables](#read-the-variables)). The name never changes. Changing `owner_id` moves the files the pipeline uploaded and the target collections the old owner held to the new owner, in one transaction. A collection removed from `targets` keeps its files as they are (still marked as this pipeline's); a run that is already open keeps the targets it started with.
 
 **Once**: `POST` body `{"adopt": true, "mass_delete": true}` (either may be left out, `false` clears). `adopt` lets the next run take over same-named files that no pipeline owns. `mass_delete` lets the next run remove files that would otherwise be [refused](#how-the-sync-works). Both are cleared by the next run that ends `ok` or `warning`; failed runs and dry runs leave them.
 

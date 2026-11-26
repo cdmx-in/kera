@@ -140,7 +140,10 @@ export const catalogue: Record<string, Entry> = {
   'runner.token_rotate': { say: 'rotate the token of the runner {t}' },
   'runner.delete': { say: 'remove the runner {t}' },
   'pipeline.create': { say: 'create the pipeline {t}' },
-  'pipeline.update': { say: 'update the pipeline {t}' },
+  'pipeline.update': {
+    say: 'update the pipeline {t}',
+    extra: (m) => (m.env_shared === true ? ' (its token may now read its variables)' : m.env_shared === false ? ' (its token may no longer read its variables)' : ''),
+  },
   'pipeline.delete': { say: 'delete the pipeline {t}' },
   'pipeline.token_rotate': { say: 'rotate the token of the pipeline {t}' },
   'pipeline.override': { say: 'change the one-time overrides of the pipeline {t}', extra: (m) => (m.mass_delete ? ' (mass delete allowed)' : '') },
@@ -151,6 +154,7 @@ export const catalogue: Record<string, Entry> = {
     say: (m) => (m.variable ? `set the variable ${str(m.variable)} of the pipeline {t}` : 'set a variable of the pipeline {t}'),
     extra: (m) => (m.secret_ref ? ` to the stored secret ${str(m.secret_ref)}` : ''),
   },
+  'pipeline.env_read': { say: 'read the variables of the pipeline {t}' },
   'pipeline.env_delete': { say: (m) => (m.var ? `delete the variable ${str(m.var)} of the pipeline {t}` : 'delete a variable of the pipeline {t}') },
   'pipeline.check': { say: 'check the pipeline {t}' },
   'pipeline.run': { say: 'run the pipeline {t}' },
@@ -172,7 +176,7 @@ export const catalogue: Record<string, Entry> = {
   'admin.request': { say: 'make an admin change', extra: (m) => (m.route ? ` (${str(m.method)} ${str(m.route)})` : '') },
 }
 
-const irregular: Record<string, string> = { do: 'did', run: 'ran', set: 'set', stop: 'stopped', make: 'made', cancel: 'cancelled', open: 'opened' }
+const irregular: Record<string, string> = { do: 'did', read: 'read', run: 'ran', set: 'set', stop: 'stopped', make: 'made', cancel: 'cancelled', open: 'opened' }
 
 /** The past tense of a base-form phrase: its first word changes. */
 export function past(phrase: string): string {

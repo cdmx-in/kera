@@ -100,6 +100,8 @@ export interface Pipeline {
   allow_mass_delete: boolean
   enabled: boolean
   managed: boolean
+  /** the pipeline token may read the variables, for a script that runs outside Kera */
+  env_by_token: boolean
   created_at: string
   updated_at: string
   late: boolean

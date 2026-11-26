@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +37,7 @@ func (s *Service) routes() {
 		"POST /api/v1/pipelines/{name}/runs/{run}/finish":     s.hFinish,
 		"GET /api/v1/pipelines/{name}/runs/{run}":             s.hRun,
 		"GET /api/v1/pipelines/{name}/health":                 s.hHealth,
+		"GET /api/v1/pipelines/{name}/env":                    s.hEnv,
 		"POST /api/v1/runner/claim":                           s.hClaim, // runner token (kr-)
 		"POST /api/v1/runner/work":                            s.hWork,
 		"POST /api/v1/runner/sessions/{session}/ready":        s.hSessionReady,
@@ -447,6 +450,28 @@ func (s *Service) hHealth(w http.ResponseWriter, r *http.Request) {
 	api.JSON(w, code, h)
 }
 
+// hEnv gives a pipeline's token the variables of that pipeline, for a script that runs outside Kera. Only when an
+// admin switched it on: by default a token that reports runs reads no secrets.
+func (s *Service) hEnv(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.tokenPipeline(w, r)
+	if !ok {
+		return
+	}
+	if !p.EnvByToken {
+		api.Fail(w, r, api.Errf(http.StatusForbidden, "env_not_shared", "This pipeline's token may not read its variables; an admin can allow it on the Environment tab"))
+		return
+	}
+	env, _, err := s.loadEnv(r.Context(), p.ID)
+	if err != nil {
+		api.Fail(w, r, err)
+		return
+	}
+	audit.Record(r.Context(), audit.Event{Action: "pipeline.env_read", TargetType: "pipeline", TargetID: p.Name, TargetLabel: p.Name,
+		ActorKind: audit.KindAPIKey, ActorLabel: "pipeline token", Meta: map[string]any{"variables": slices.Sorted(maps.Keys(env))}}) // names, never values
+	w.Header().Set("Cache-Control", "no-store")
+	api.JSON(w, http.StatusOK, map[string]any{"env": env})
+}
+
 // JSON shapes ---------------------------------------------------------------------
 
 type stepOut struct {
@@ -575,6 +600,7 @@ type pipelineOut struct {
 	AllowMassDelete bool        `json:"allow_mass_delete"`
 	Enabled         bool        `json:"enabled"`
 	Managed         bool        `json:"managed"`
+	EnvByToken      bool        `json:"env_by_token"` // the pipeline token may read the variables
 	CreatedAt       time.Time   `json:"created_at"`
 	UpdatedAt       time.Time   `json:"updated_at"`
 	Late            bool        `json:"late"`
@@ -588,7 +614,7 @@ type pipelineOut struct {
 
 func (s *Service) pipelineView(ctx context.Context, p *Pipeline) (pipelineOut, error) {
 	o := pipelineOut{ID: p.ID, Name: p.Name, Title: p.Title, EveryMinutes: p.EveryMinutes, TokenPrefix: p.TokenPrefix, Adopt: p.Adopt,
-		AllowMassDelete: p.AllowMassDelete, Enabled: p.Enabled, Managed: p.Managed, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Targets: []targetOut{}}
+		AllowMassDelete: p.AllowMassDelete, Enabled: p.Enabled, Managed: p.Managed, EnvByToken: p.EnvByToken, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Targets: []targetOut{}}
 	o.Owner.ID = p.UserID
 	err := s.db.QueryRow(ctx, `SELECT name, email FROM "user" WHERE id = $1`, p.UserID).Scan(&o.Owner.Name, &o.Owner.Email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -687,6 +713,7 @@ type pipelineIn struct {
 	NewCollections []string  `json:"new_collections"`
 	EveryMinutes   *int      `json:"every_minutes"`
 	Enabled        *bool     `json:"enabled"`
+	EnvByToken     *bool     `json:"env_by_token"` // update only; a new pipeline never shares its variables
 }
 
 // resolveTargets turns the form's collection references into ids. A reference is
@@ -929,8 +956,8 @@ func (s *Service) aUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	// ponytail: a collection dropped from the targets keeps its rows owned by the
 	// pipeline (nothing syncs them); adding it back resumes, deleting the pipeline hands them back.
-	np, err := scanPipeline(tx.QueryRow(ctx, `UPDATE pipeline SET title = $2, user_id = $3, targets = $4, every_minutes = $5, enabled = $6, updated_at = $7
-		WHERE id = $1 RETURNING `+pipelineCols, p.ID, deref(in.Title, p.Title), owner, targets, derefIntOr(in.EveryMinutes, p.EveryMinutes), derefBool(in.Enabled, p.Enabled), s.now()))
+	np, err := scanPipeline(tx.QueryRow(ctx, `UPDATE pipeline SET title = $2, user_id = $3, targets = $4, every_minutes = $5, enabled = $6, updated_at = $7, env_by_token = $8
+		WHERE id = $1 RETURNING `+pipelineCols, p.ID, deref(in.Title, p.Title), owner, targets, derefIntOr(in.EveryMinutes, p.EveryMinutes), derefBool(in.Enabled, p.Enabled), s.now(), derefBool(in.EnvByToken, p.EnvByToken)))
 	if err != nil {
 		api.Fail(w, r, err)
 		return
@@ -943,6 +970,9 @@ func (s *Service) aUpdate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		api.Fail(w, r, err)
 		return
+	}
+	if np.EnvByToken != p.EnvByToken { // who may read secrets changed: the audit line says so
+		audit.Record(ctx, audit.Event{TargetLabel: np.Name, Meta: map[string]any{"env_shared": np.EnvByToken}})
 	}
 	api.JSON(w, http.StatusOK, o)
 }

@@ -120,6 +120,7 @@ type Pipeline struct {
 	TokenHash, TokenPrefix  string
 	Adopt, AllowMassDelete  bool
 	Enabled, Managed        bool
+	EnvByToken              bool // the pipeline token may read the variables (hEnv)
 	CreatedAt, UpdatedAt    time.Time
 	// Kera-run pipelines (runner.go): the script and timetable live in Kera.
 	RunMode, Frequency, Timezone string
@@ -130,13 +131,13 @@ type Pipeline struct {
 
 const pipelineCols = `id, name, title, user_id, targets, every_minutes, coalesce(token_hash, ''), token_prefix,
 	adopt, allow_mass_delete, enabled, managed, created_at, updated_at,
-	run_mode, scheduled, frequency, at_minute, weekday, timezone, next_run_at`
+	run_mode, scheduled, frequency, at_minute, weekday, timezone, next_run_at, env_by_token`
 
 func scanPipeline(row pgx.Row) (*Pipeline, error) {
 	p := &Pipeline{}
 	err := row.Scan(&p.ID, &p.Name, &p.Title, &p.UserID, &p.Targets, &p.EveryMinutes, &p.TokenHash, &p.TokenPrefix,
 		&p.Adopt, &p.AllowMassDelete, &p.Enabled, &p.Managed, &p.CreatedAt, &p.UpdatedAt,
-		&p.RunMode, &p.Scheduled, &p.Frequency, &p.AtMinute, &p.Weekday, &p.Timezone, &p.NextRunAt)
+		&p.RunMode, &p.Scheduled, &p.Frequency, &p.AtMinute, &p.Weekday, &p.Timezone, &p.NextRunAt, &p.EnvByToken)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errNoPipeline
 	}

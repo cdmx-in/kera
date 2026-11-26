@@ -229,7 +229,20 @@ export function AddEnv({ existing, secrets = [], initialKind = 'value', onAdd }:
   )
 }
 
-export function EnvTab({ name }: { name: string }) {
+/** The opt-in that lets the pipeline's own token read these variables. Off by default: a token that reports runs reads no secrets. */
+export function TokenAccess({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className="flex items-start gap-2.5 border-b border-line px-5 py-3.5 text-sm" data-testid="env-by-token">
+      <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 accent-[var(--accent)]" />
+      <span>
+        This pipeline's token may read these variables
+        <span className="block text-xs text-muted">For a script that runs outside Kera. Whoever holds the token can then read every value here, secrets included.</span>
+      </span>
+    </label>
+  )
+}
+
+export function EnvTab({ name, kera, shared }: { name: string; kera: boolean; shared: boolean }) {
   const q = useEnv(name)
   const sq = useSecrets()
   const pa = usePipelineApi()
@@ -237,7 +250,18 @@ export function EnvTab({ name }: { name: string }) {
   const env = q.data?.env
   return (
     <>
-      <Card title="Environment" hint="The script gets these as environment variables. A secret is stored encrypted and never shown again; the runner hides secret values in the logs.">
+      <Card
+        title="Environment"
+        hint={
+          kera
+            ? 'The script gets these as environment variables. A secret is stored encrypted and never shown again; the runner hides secret values in the logs.'
+            : 'This script runs outside Kera. It gets these only if you allow its token to read them below, from GET /api/v1/pipelines/<name>/env. A secret is stored encrypted.'
+        }
+      >
+        <TokenAccess
+          on={shared}
+          onChange={(on) => void pa.update(name, { env_by_token: on }).catch((e) => toast(errText(e), 'error'))}
+        />
         {!env ? (
           <Loading q={q} />
         ) : (
