@@ -256,13 +256,13 @@ Starting a run trims the pipeline to its newest 50 runs.
 
 ```json
 {"steps": [
-  {"name": "fetch", "status": "running"},
+  {"name": "fetch", "status": "running", "code_at": "sync.py:42 main()"},
   {"name": "fetch", "log": "downloaded 25 files\n", "counts": {"files": 25}},
   {"name": "fetch", "status": "ok"}
 ]}
 ```
 
-Each item is `{name, status?, error?, counts?, log?}`, applied in order. `status` is `pending`, `running`, `ok`, `warning`, `failed` or `skipped`. A new step without a status starts running; a pending step that gets a log starts running. A closed step (`ok`, `warning`, `failed`, `skipped`) only moves up to a worse verdict. `error` is the text shown for a warning or failure. `log` is text; each line is stored with the server's time (`06:14:09 downloaded 25 files`). Reply: `{"ok": true, "ignored": 0}`; `ignored` counts items the server dropped (a name that is empty or over 100 bytes, an unknown status, a 101st step). `409 run_closed` once the run is finished or closed.
+Each item is `{name, status?, error?, counts?, log?, code_at?}`, applied in order. `code_at` is where your code starts the step (free text up to 200 characters; the first one sent for a step stays). Take it from the call site so it cannot go stale: in Python, `f = sys._getframe(1)` inside your report helper gives `f.f_code.co_filename`, `f.f_lineno` and `f.f_code.co_name`. It is shown on the [Stages](#stages) screen. `status` is `pending`, `running`, `ok`, `warning`, `failed` or `skipped`. A new step without a status starts running; a pending step that gets a log starts running. A closed step (`ok`, `warning`, `failed`, `skipped`) only moves up to a worse verdict. `error` is the text shown for a warning or failure. `log` is text; each line is stored with the server's time (`06:14:09 downloaded 25 files`). Reply: `{"ok": true, "ignored": 0}`; `ignored` counts items the server dropped (a name that is empty or over 100 bytes, an unknown status, a 101st step). `409 run_closed` once the run is finished or closed.
 
 The script cannot write a collection step: a step is a script step, keyed by the name you send, even when the name is a collection's.
 
@@ -353,6 +353,12 @@ All routes need an admin. Times are RFC 3339 in UTC.
 | `GET /api/v1/admin/pipelines/{name}/runs/{run}` | One run with its steps (no logs) |
 | `GET /api/v1/admin/pipelines/{name}/runs/{run}/steps/{seq}` | One step with its log |
 | `POST /api/v1/admin/pipelines/{name}/runs/{run}/close` | Close a stuck run as failed |
+| `PUT /api/v1/admin/pipelines/{name}/stages` | Replace the step titles and descriptions: `{"stages": [{"name", "title", "about"}]}` |
+| `GET /api/v1/admin/pipelines/{name}/reported-steps` | The script steps the saved runs reported, in run order, each with its newest run, status, counts and `code_at` |
+
+### Stages
+
+A script decides which steps a run has. **Stages**, on the pipeline's edit page, only gives them a title and a description that the run page shows instead of the raw step name. The page lists the steps the saved runs (the newest 50) really reported, in the order they ran, with where each starts in the code (`code_at`, when the script sends it), how it last went and a link to that run's log. A step is added from that list; a label whose step no saved run reports is flagged, because nothing shows it. Test runs from the script notebook are not counted. Kera shows the location the script reported; it does not read an outside script's code.
 
 Stored secrets (names `a-z0-9._-`, 1 to 100 characters, at most 200; values up to 16 KiB, never returned by any route):
 

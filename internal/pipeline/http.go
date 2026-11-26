@@ -60,6 +60,7 @@ func (s *Service) routes() {
 		"POST /api/v1/admin/pipelines/{name}/runs/{run}/close":                     s.aClose,
 		"PUT /api/v1/admin/pipelines/{name}/schedule":                              s.aSchedule,
 		"PUT /api/v1/admin/pipelines/{name}/stages":                                s.aStages,
+		"GET /api/v1/admin/pipelines/{name}/reported-steps":                        s.aReportedSteps,
 		"POST /api/v1/admin/pipelines/{name}/run":                                  s.aRunNow,
 		"POST /api/v1/admin/pipelines/{name}/runs/{run}/cancel":                    s.aCancel,
 		"GET /api/v1/admin/pipelines/{name}/script":                                s.aScript,
@@ -486,11 +487,12 @@ type stepOut struct {
 	Counts     map[string]int64 `json:"counts"`
 	LogDropped bool             `json:"log_dropped"`
 	Log        *string          `json:"log,omitempty"` // the step route only
+	CodeAt     string           `json:"code_at,omitempty"`
 }
 
 func stepView(st step, withLog bool) stepOut {
 	o := stepOut{Seq: st.Seq, Kera: st.Kera, Key: st.Key, Name: st.Name, Status: st.Status, StartedAt: st.StartedAt, FinishedAt: st.FinishedAt,
-		Error: st.Error, Counts: st.Counts, LogDropped: st.LogDropped}
+		Error: st.Error, Counts: st.Counts, LogDropped: st.LogDropped, CodeAt: st.CodeAt}
 	if withLog {
 		o.Log = &st.Log
 	}

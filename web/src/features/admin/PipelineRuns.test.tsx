@@ -202,23 +202,47 @@ describe('HealthStrip', () => {
 })
 
 describe('StagesEditor', () => {
-  const list = [{ name: 'fetch-itop', title: '', about: '' }, { name: 'convert', title: 'Convert it', about: 'Runs pandoc.' }]
-  it('lists each stage with its name and a title field whose placeholder is the sentence-case fallback', () => {
-    const h = renderToStaticMarkup(<StagesEditor value={list} onChange={() => {}} seen={['fetch-itop']} />)
-    expect(h.match(/data-testid="stage-row"/g)).toHaveLength(2)
-    expect(h).toContain('placeholder="Fetch iTop"')
-    expect(h).toContain('value="Convert it"')
-    expect(h).toContain('aria-label="Remove the stage convert"')
+  const list = [{ name: 'cleanup-old', title: '', about: '' }, { name: 'convert', title: 'Convert it', about: 'Runs pandoc.' }, { name: 'fetch-itop', title: '', about: '' }]
+  const rep = (name: string, more: object = {}) => ({ name, run: 75, seq: 1, status: 'ok' as const, started_at: '2026-03-10T06:00:00Z', finished_at: '2026-03-10T06:00:06Z', counts: {}, code_at: '', ...more })
+  const reported = [rep('fetch-itop', { code_at: 'sync.py:12 main()', counts: { tickets: 4 } }), rep('dedupe', { seq: 2 }), rep('convert', { seq: 3, status: 'failed' as const })]
+  const render = (p: Partial<Parameters<typeof StagesEditor>[0]> = {}) =>
+    inRouter(<StagesEditor value={list} onChange={() => {}} reported={reported} runs={20} urlOf={(run, seq) => `/p/${run}?step=${seq}`} {...p} />)
+  const rows = (h: string) => h.split('data-testid="stage-row"').slice(1)
+
+  it('lists real steps in run order with their place in the code, last run and log link', () => {
+    const [first, second] = rows(render())
+    expect(first).toContain('fetch-itop')
+    expect(first).toContain('sync.py:12 main()')
+    expect(first).toContain('Ran in run #75 · 6 s · 4 tickets')
+    expect(first).toContain('href="/p/75?step=1"')
+    expect(first).toContain('target="_blank"')
+    expect(first).toContain('placeholder="Fetch iTop"')
+    expect(second).toContain('Failed in run #75')
+    expect(second).toContain('value="Convert it"')
+    expect(second).toContain('The script does not send its place in the code.')
   })
-  it('offers to detect the step names of the latest run that are not listed yet', () => {
-    const h = renderToStaticMarkup(<StagesEditor value={list} onChange={() => {}} seen={['fetch-itop', 'dedupe', 'upload']} />)
-    expect(h).toContain('Detect from the latest run (2)')
-    const none = renderToStaticMarkup(<StagesEditor value={list} onChange={() => {}} seen={['convert']} />)
-    expect(none).toMatch(/<button[^>]*disabled=""[^>]*data-testid="detect-stages"|<button[^>]*data-testid="detect-stages"[^>]*disabled=""/)
+  it('says which label no saved run uses, and puts it last', () => {
+    const last = rows(render())[2]
+    expect(last).toContain('data-reported="no"')
+    expect(last).toContain('None of the 20 saved runs report this step')
+    expect(last).toContain('aria-label="Remove the label of cleanup-old"')
+  })
+  it('adds only steps that runs reported, from a list: there is no free text for a step name', () => {
+    const h = render()
+    expect(h).toContain('Add a step without a label (1)')
+    expect(h).toMatch(/<option value="=dedupe">/)
+    expect(h).not.toContain('placeholder="step-name"')
+  })
+  it('calls nothing unused while the runs are loading or could not be loaded', () => {
+    for (const h of [render({ reported: undefined, runs: 0 }), render({ reported: undefined, runs: 0, loadError: 'server away' })]) {
+      expect(h).not.toContain('data-testid="stage-unused"')
+      expect(h).toContain('data-reported="unknown"')
+    }
+    expect(render({ reported: undefined, loadError: 'server away' })).toContain('could not be loaded: server away')
   })
   it('says what an empty list means, and shows a server error', () => {
-    const h = renderToStaticMarkup(<StagesEditor value={[]} onChange={() => {}} seen={[]} error="At most 200 stages" />)
-    expect(h).toContain('sentence case')
+    const h = render({ value: [], reported: [], runs: 0, error: 'At most 200 stages' })
+    expect(h).toContain('after a run has reported them')
     expect(h).toContain('At most 200 stages')
   })
 })

@@ -31,8 +31,7 @@ import {
   secretsUrl,
   stagesChanged,
   stateOf,
-  useRun,
-  useRuns,
+  useReportedSteps,
   useScript,
   usePipelineApi,
   usePipelines,
@@ -238,11 +237,8 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
   const [owner, setOwner] = useState<AdminUser | null>(null)
   const [adopt, setAdopt] = useState(pipeline?.adopt ?? false)
   const [stages, setStages] = useState<Stage[]>(() => pipeline?.stages ?? [])
-  // the step names of the newest run, for "Detect from the latest run"
-  const newest = useRuns(pipeline?.name ?? '', 1, !!pipeline)
-  const newestId = newest.data?.runs[0]?.id
-  const newestRun = useRun(pipeline?.name ?? '', newestId)
-  const seen = !pipeline || (!newest.isLoading && newestId === undefined) ? [] : newestRun.data ? (newestRun.data.steps ?? []).filter((x) => !x.kera).map((x) => x.name) : newestRun.error ? [] : undefined
+  // what the saved runs really reported: the stage labels are attached to these
+  const reported = useReportedSteps(pipeline?.name ?? '', !!pipeline)
   const [ask, setAsk] = useState(false)
   const [sched, setSched] = useState<ScheduleForm>(() => scheduleFormOf(pipeline, browserZone()))
   const kera = sched.mode === 'kera'
@@ -472,8 +468,16 @@ export function PipelineForm({ pipeline, onClose, onSaved, page }: { pipeline: P
         </div>
 
         {pipeline && (
-          <Section id="stages" icon={ListChecks} tone="violet" title="Stages" hint="A title and a line of description for each step the script reports. The run view shows these instead of the raw step name; saved with the rest of the form." aside={stages.length > 0 ? <Badge tone="accent">{stages.length}</Badge> : undefined}>
-            <StagesEditor value={stages} onChange={(v) => (setStages(v), form.touch('stages'))} seen={seen} error={form.err('stages')} />
+          <Section id="stages" icon={ListChecks} tone="violet" title="Stages" hint="The script decides which steps run. These are the steps its saved runs reported, in order; give each a title and a description for the run page. Saved with the rest of the form." aside={stages.length > 0 ? <Badge tone="accent">{stages.length}</Badge> : undefined}>
+            <StagesEditor
+              value={stages}
+              onChange={(v) => (setStages(v), form.touch('stages'))}
+              reported={pipeline ? reported.data?.steps : []}
+              runs={reported.data?.runs ?? 0}
+              loadError={reported.error?.message}
+              urlOf={(run, seq) => runUrl(pipeline?.name ?? '', run, seq)}
+              error={form.err('stages')}
+            />
           </Section>
         )}
 

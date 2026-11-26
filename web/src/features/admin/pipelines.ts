@@ -313,12 +313,32 @@ export function validateStages(list: Stage[]): Errors {
   return e
 }
 
-/** The script step names of a run that the list does not name yet, in run order ("start" is left out: it is the output before the first marker). */
-export function newStageNames(steps: Pick<Step, 'name' | 'kera'>[] | undefined, stages: Stage[]): string[] {
-  const have = new Set(stages.map((s) => s.name))
-  const out: string[] = []
-  for (const s of steps ?? []) if (!s.kera && s.name !== 'start' && !have.has(s.name) && !out.includes(s.name)) out.push(s.name)
-  return out
+/** One script step as the newest run that got to it reported it; pending or skipped means declared, but no saved run reached it. */
+export interface ReportedStep {
+  name: string
+  run: number
+  /** its place in that run, for the link to its log */
+  seq: number
+  status: StepStatus
+  started_at: string | null
+  finished_at: string | null
+  counts: Counts
+  /** where the script says it starts the step, e.g. "worker.py:42 main()"; may be empty */
+  code_at: string
+}
+
+export const stepRan = (s: Pick<ReportedStep, 'status'>) => s.status !== 'pending' && s.status !== 'skipped'
+
+/**
+ * The labels as the editor lists them: those of reported steps first, in run order (`place` counts among all reported
+ * steps), then those no saved run knows, in saved order. With nothing loaded they stay as saved.
+ */
+export function stageRows(stages: Stage[], reported: ReportedStep[] | undefined): { stage: Stage; step?: ReportedStep; place?: number }[] {
+  const rows = stages.map((stage) => {
+    const i = reported?.findIndex((r) => r.name === stage.name) ?? -1
+    return i < 0 ? { stage } : { stage, step: reported![i], place: i + 1 }
+  })
+  return rows.sort((a, b) => (a.place ?? Number.MAX_SAFE_INTEGER) - (b.place ?? Number.MAX_SAFE_INTEGER))
 }
 
 /** Whether two stage lists differ (an untouched list is not sent again). */
@@ -912,6 +932,10 @@ export const useRuns = (name: string, limit: number, enabled = true) =>
     placeholderData: keepPreviousData,
     refetchInterval: (q) => (q.state.data?.runs.some((r) => r.status === 'running') ? 10_000 : 60_000),
   })
+
+/** The script steps the saved runs reported, in run order. */
+export const useReportedSteps = (name: string, enabled = true) =>
+  useQuery({ ...live, enabled, queryKey: key(name, 'reported-steps'), queryFn: () => api<{ runs: number; steps: ReportedStep[] }>(`${base}/${enc(name)}/reported-steps`) })
 
 /** One run with its steps; 3 s while it is open. */
 export const useRun = (name: string, id: number | undefined) =>

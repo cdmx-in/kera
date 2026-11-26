@@ -54,6 +54,7 @@ const (
 	maxRunLog    = 4 << 20   // bytes of log kept per run
 	maxRuns      = 50        // runs kept per pipeline, trimmed at run start
 	maxStepName  = 100       // bytes
+	maxCodeAt    = 200       // characters of a step's code location
 	maxCounts    = 20        // count keys per step
 	maxNodeLines = 200       // names a Kera step lists in its log per kind
 
@@ -405,13 +406,14 @@ type step struct {
 	Counts     map[string]int64
 	Log        string
 	LogDropped bool
+	CodeAt     string // where the script says it starts the step
 }
 
-const stepCols = `seq, kera, key, name, status, started_at, finished_at, error, counts, log_dropped`
+const stepCols = `seq, kera, key, name, status, started_at, finished_at, error, counts, log_dropped, code_at`
 
 func scanStep(row pgx.Row, withLog bool) (step, error) {
 	var st step
-	dst := []any{&st.Seq, &st.Kera, &st.Key, &st.Name, &st.Status, &st.StartedAt, &st.FinishedAt, &st.Error, &st.Counts, &st.LogDropped}
+	dst := []any{&st.Seq, &st.Kera, &st.Key, &st.Name, &st.Status, &st.StartedAt, &st.FinishedAt, &st.Error, &st.Counts, &st.LogDropped, &st.CodeAt}
 	if withLog {
 		dst = append(dst, &st.Log)
 	}
@@ -452,8 +454,8 @@ func saveStep(ctx context.Context, q dbq, runID int64, st step) error {
 	if st.Counts == nil {
 		st.Counts = map[string]int64{}
 	}
-	if _, err := q.Exec(ctx, `UPDATE pipeline_step SET status = $3, started_at = $4, finished_at = $5, error = $6, counts = $7, log = $8, log_dropped = $9
-		WHERE run_id = $1 AND seq = $2`, runID, st.Seq, st.Status, st.StartedAt, st.FinishedAt, st.Error, st.Counts, st.Log, st.LogDropped); err != nil {
+	if _, err := q.Exec(ctx, `UPDATE pipeline_step SET status = $3, started_at = $4, finished_at = $5, error = $6, counts = $7, log = $8, log_dropped = $9, code_at = $10
+		WHERE run_id = $1 AND seq = $2`, runID, st.Seq, st.Status, st.StartedAt, st.FinishedAt, st.Error, st.Counts, st.Log, st.LogDropped, st.CodeAt); err != nil {
 		return fmt.Errorf("save step: %w", err)
 	}
 	return nil
@@ -466,6 +468,7 @@ type stepIn struct {
 	Error  string           `json:"error"`
 	Counts map[string]int64 `json:"counts"`
 	Log    string           `json:"log"`
+	CodeAt string           `json:"code_at"` // where the script starts the step, e.g. "worker.py:42 main()"; the first one sent stays
 }
 
 // rank orders statuses; a closed step only moves up to warning or failed.
@@ -537,6 +540,9 @@ func (st *step) report(in stepIn, now time.Time, budget *int) {
 		if _, have := st.Counts[k]; countKeyRe.MatchString(k) && (have || len(st.Counts) < maxCounts) {
 			st.Counts[k] = v
 		}
+	}
+	if st.CodeAt == "" {
+		st.CodeAt = strings.TrimSpace(capText(in.CodeAt, maxCodeAt))
 	}
 	st.addLog(in.Log, now, budget)
 }

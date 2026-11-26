@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  newStageNames,
+  stageRows,
   sentenceCase,
   stageAbout,
   stageTitle,
@@ -774,17 +774,12 @@ describe('stages', () => {
     expect(stageAbout({ name: 'start', kera: false }, stages)).toBe('Everything the script printed before its first step')
     expect(stageAbout({ name: 'start', kera: false }, [{ name: 'start', title: '', about: 'Setup output.' }])).toBe('Setup output.')
   })
-  it('lists the step names a run has that the catalog has not, in order, without start or collections', () => {
-    const steps = [
-      { name: 'start', kera: false },
-      { name: 'fetch-docs', kera: false },
-      { name: 'dedupe', kera: false },
-      { name: 'dedupe', kera: false },
-      { name: 'Docs', kera: true },
-      { name: 'upload', kera: false },
-    ]
-    expect(newStageNames(steps, stages)).toEqual(['dedupe', 'upload'])
-    expect(newStageNames(undefined, stages)).toEqual([])
+  it('lists labels of reported steps in run order, with their place, then the ones no run knows', () => {
+    const rep = (name: string) => ({ name, run: 7, seq: 1, status: 'ok' as const, started_at: null, finished_at: null, counts: {}, code_at: '' })
+    const list = ['old', 'upload', 'fetch'].map((name) => ({ name, title: name, about: '' }))
+    const rows = stageRows(list, [rep('fetch'), rep('unlabelled'), rep('upload')])
+    expect(rows.map((r) => [r.stage.name, r.place])).toEqual([['fetch', 1], ['upload', 3], ['old', undefined]])
+    expect(stageRows(list, undefined).map((r) => r.stage.name)).toEqual(['old', 'upload', 'fetch']) // not loaded: as saved
   })
   it('keeps to the server limits', () => {
     expect(validateStages(stages)).toEqual({})
