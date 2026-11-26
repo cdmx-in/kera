@@ -774,11 +774,13 @@ describe('stages', () => {
     expect(stageAbout({ name: 'start', kera: false }, stages)).toBe('Everything the script printed before its first step')
     expect(stageAbout({ name: 'start', kera: false }, [{ name: 'start', title: '', about: 'Setup output.' }])).toBe('Setup output.')
   })
-  it('lists labels of reported steps in run order, with their place, then the ones no run knows', () => {
+  it('lists labels of reported steps in run order, numbered without gaps, then the ones no run knows', () => {
     const rep = (name: string) => ({ name, run: 7, seq: 1, status: 'ok' as const, started_at: null, finished_at: null, counts: {}, code_at: '' })
     const list = ['old', 'upload', 'fetch'].map((name) => ({ name, title: name, about: '' }))
     const rows = stageRows(list, [rep('fetch'), rep('unlabelled'), rep('upload')])
-    expect(rows.map((r) => [r.stage.name, r.place])).toEqual([['fetch', 1], ['upload', 3], ['old', undefined]])
+    expect(rows.map((r) => [r.stage.name, r.place])).toEqual([['fetch', 1], ['upload', 2], ['old', undefined]]) // the unlabelled step between takes no number
+    expect(rows[1].step?.name).toBe('upload')
+    expect(list.map((s) => s.name)).toEqual(['old', 'upload', 'fetch']) // the saved list is not reordered
     expect(stageRows(list, undefined).map((r) => r.stage.name)).toEqual(['old', 'upload', 'fetch']) // not loaded: as saved
   })
   it('keeps to the server limits', () => {

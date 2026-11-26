@@ -330,15 +330,21 @@ export interface ReportedStep {
 export const stepRan = (s: Pick<ReportedStep, 'status'>) => s.status !== 'pending' && s.status !== 'skipped'
 
 /**
- * The labels as the editor lists them: those of reported steps first, in run order (`place` counts among all reported
- * steps), then those no saved run knows, in saved order. With nothing loaded they stay as saved.
+ * The labels as the editor lists them: those of reported steps first, in run order, then those no saved run knows, in
+ * saved order. `place` numbers the listed reported ones 1, 2, 3: a reported step without a label (say the `start` of
+ * an old run) leaves no gap. With nothing loaded they stay as saved.
  */
 export function stageRows(stages: Stage[], reported: ReportedStep[] | undefined): { stage: Stage; step?: ReportedStep; place?: number }[] {
-  const rows = stages.map((stage) => {
-    const i = reported?.findIndex((r) => r.name === stage.name) ?? -1
-    return i < 0 ? { stage } : { stage, step: reported![i], place: i + 1 }
-  })
-  return rows.sort((a, b) => (a.place ?? Number.MAX_SAFE_INTEGER) - (b.place ?? Number.MAX_SAFE_INTEGER))
+  const at = (name: string) => {
+    const i = reported?.findIndex((r) => r.name === name) ?? -1
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i
+  }
+  return [...stages]
+    .sort((a, b) => at(a.name) - at(b.name))
+    .map((stage, i) => {
+      const step = reported?.[at(stage.name)]
+      return step ? { stage, step, place: i + 1 } : { stage }
+    })
 }
 
 /** Whether two stage lists differ (an untouched list is not sent again). */
