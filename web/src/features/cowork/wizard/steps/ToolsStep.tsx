@@ -142,7 +142,7 @@ export function ToolsStep({ schedulable }: { schedulable: boolean }) {
           {groups.length ? (
             groups.map((g) => (
               <Block key={g.id} title={g.title} hint={g.hint}>
-                <ul className="grid grid-cols-1 items-start gap-2.5 lg:grid-cols-2" data-testid={`apps-${g.id}`}>
+                <ul className="grid grid-cols-1 items-start gap-2.5 lg:grid-cols-2 2xl:grid-cols-3" data-testid={`apps-${g.id}`}>
                   {g.items.map((s) => (
                     <ToolCard key={s.id} server={s} assistantLocal={local} on={toolIds.map(toolKey).includes(s.id)} onToggle={(on) => toggle(s.id, on)} />
                   ))}

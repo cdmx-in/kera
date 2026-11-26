@@ -203,7 +203,7 @@ function WizardBody({ job, schedulable }: { job?: Schedule; schedulable: boolean
         </h1>
       </TopBar>
       <div ref={body} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl px-4 pb-10 pt-2 sm:px-6">
+        <div className="mx-auto w-full max-w-[100rem] px-4 pb-10 pt-2 sm:px-6 lg:px-8">
           {!ready ? (
             <div className="grid place-items-center py-20 text-muted">
               <Spinner size={20} />
@@ -226,7 +226,7 @@ function WizardBody({ job, schedulable }: { job?: Schedule; schedulable: boolean
         </div>
       </div>
       <footer className="shrink-0 border-t border-line bg-bg/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-4xl items-center gap-2 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex w-full max-w-[100rem] items-center gap-2 px-4 py-3 sm:px-6 lg:px-8">
           {at > 0 ? (
             <button type="button" data-testid="wizard-back" onClick={() => go(steps[at - 1])} className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium hover:bg-surface-2">
               <ArrowLeft size={15} aria-hidden /> Back

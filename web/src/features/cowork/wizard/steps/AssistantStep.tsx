@@ -39,7 +39,7 @@ export function AssistantStep({ draft, dispatch, errors, onPick }: { draft: Draf
             <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search assistants" aria-label="Search assistants" className={cx(input, 'pl-9')} data-testid="assistant-search" />
           </div>
         )}
-        <div role="radiogroup" aria-label="Assistant" aria-invalid={!!errors.model} className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="assistants">
+        <div role="radiogroup" aria-label="Assistant" aria-invalid={!!errors.model} className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" data-testid="assistants">
           {shown.map((m) => (
             <label key={m.id} data-testid="model-option" data-model-id={m.id} className={choiceCard}>
               <input type="radio" name="assistant" value={m.id} checked={m.id === model} onChange={() => onPick(m)} className="peer sr-only" />
