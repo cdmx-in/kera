@@ -18,8 +18,9 @@ CREATE TABLE run (
     recoveries       integer     NOT NULL DEFAULT 0,   -- claims of an expired lease
     cancel_requested boolean     NOT NULL DEFAULT false,
     wait_key         text,                             -- call id of the open question
-    wake_at          timestamptz,
+    wake_at          timestamptz,                      -- when the open question times out
     answer           jsonb,                            -- JSON null: the question timed out
+    not_before       timestamptz,                      -- a queued run that could not be resumed yet
     deadline         timestamptz,                      -- wall-clock limit of an unattended run
     checkpoint       bytea,                            -- JSON; bytea because jsonb refuses NUL, which tool output can hold
     created_at       timestamptz NOT NULL DEFAULT now()

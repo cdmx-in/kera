@@ -39,6 +39,9 @@ type Request struct {
 	// ReadOnly is a test run: only tools their server declares read-only (and the built-in sets
 	// that change nothing outside the run) are offered, so a trial cannot write to a connected app.
 	ReadOnly bool `json:"-"`
+	// Origin names what started a run that no person sent: "schedule:<task>" or "test:<user>". It is stored with
+	// the run, so a resumed run keeps it, and tools read it from their context (Origin).
+	Origin string `json:"-"`
 }
 
 // UserMessage is the new user turn the web app sends with a completion.

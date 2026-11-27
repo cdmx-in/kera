@@ -86,15 +86,23 @@ func (e *Engine) resume(w http.ResponseWriter, r *http.Request) {
 	if after == 0 {
 		after, _ = strconv.ParseInt(r.Header.Get("Last-Event-ID"), 10, 64)
 	}
-	if run := e.ownRun(r); run != nil {
+	run := e.ownRun(r)
+	if run != nil && run.Finished() {
+		// a run that ended here does not speak for a message that has a run again (taken over, or regenerated)
+		if live, err := e.busy(r.Context(), run.MessageID); err != nil || live {
+			run = nil
+		}
+	}
+	if run != nil {
 		streamNative(w, r, run, after, true)
 		return
 	}
 	e.resumeStored(w, r, after)
 }
 
-// resumeStored answers a resume for a run that is gone: the stored message
-// as one snapshot, then done.
+// resumeStored answers a resume for a run that is not in this process. While the message has a run row (waiting for
+// an answer, about to be resumed, or on another instance) the stream is held open; otherwise it is the stored
+// message as one snapshot, then done.
 func (e *Engine) resumeStored(w http.ResponseWriter, r *http.Request, after int64) {
 	u := auth.FromContext(r.Context())
 	if _, err := e.Chats.Get(r.Context(), u.ID, r.PathValue("id")); err != nil {
@@ -106,9 +114,24 @@ func (e *Engine) resumeStored(w http.ResponseWriter, r *http.Request, after int6
 		api.Fail(w, r, err)
 		return
 	}
-	entry := chats.EntryOf(m)
-	snap := map[string]any{"type": "snapshot", "seq": after + 1, "messageId": m.ID, "parts": chats.UIParts(entry.Parts),
-		"files": entry.Files, "sources": chats.UISources(entry.Sources), "pendingCalls": json.RawMessage("[]"), "status": m.Status}
+	if m.Status == "streaming" {
+		live, err := e.busy(r.Context(), m.ID)
+		if err != nil {
+			api.Fail(w, r, err)
+			return
+		}
+		if live {
+			e.holdStream(w, r, m, after)
+			return
+		}
+		// the run may have ended between the two reads
+		if m, err = e.Chats.Message(r.Context(), m.ChatID, m.ID); err != nil {
+			api.Fail(w, r, err)
+			return
+		}
+	}
+	snap := storedSnapshot(m, json.RawMessage("[]"))
+	snap["seq"] = after + 1
 	s := newSSE(w)
 	if s.event(after+1, "snapshot", mustMarshal(snap, "{}")) != nil {
 		return
@@ -119,6 +142,80 @@ func (e *Engine) resumeStored(w http.ResponseWriter, r *http.Request, after int6
 		after++
 	}
 	_ = s.event(after+2, "done", mustMarshal(map[string]any{"type": "done", "seq": after + 2, "messageId": m.ID}, "{}"))
+}
+
+// storedSnapshot is the stored message as a snapshot event.
+func storedSnapshot(m chats.Message, pending json.RawMessage) map[string]any {
+	entry := chats.EntryOf(m)
+	return map[string]any{"type": "snapshot", "messageId": m.ID, "parts": chats.UIParts(entry.Parts),
+		"files": entry.Files, "sources": chats.UISources(entry.Sources), "pendingCalls": pending, "status": m.Status}
+}
+
+// holdPoll is how often a held stream looks at the run's row and message.
+// ponytail: two small queries per second for each held stream, and no token stream across instances;
+// LISTEN/NOTIFY and a chunk table if either matters.
+var holdPoll = time.Second
+
+// holdStream keeps a browser attached to a reply whose run is elsewhere: it sends the stored message whenever it
+// changes, follows the run when this instance claims it, and ends with done when the run's row is gone. Its events
+// have no seq: the numbers belong to the attempts, and a browser skips what it thinks it has seen.
+func (e *Engine) holdStream(w http.ResponseWriter, r *http.Request, m chats.Message, after int64) {
+	s := newSSE(w)
+	send := func(typ string, data map[string]any) bool {
+		return s.unnumbered(typ, mustMarshal(data, "{}")) == nil
+	}
+	snapshot := func(m chats.Message) bool { return send("snapshot", storedSnapshot(m, orRaw(m.PendingCalls, "[]"))) }
+	if !snapshot(m) {
+		return
+	}
+	poll, ping := time.NewTicker(holdPoll), time.NewTicker(pingEvery)
+	defer poll.Stop()
+	defer ping.Stop()
+	seen := m.UpdatedAt
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ping.C:
+			if s.ping() != nil {
+				return
+			}
+			continue
+		case <-poll.C:
+		}
+		if run := e.ownRun(r); run != nil && !run.Finished() {
+			follow(r, run, after, func(ev event) error { return s.event(ev.Seq, ev.Type, ev.Raw) }, s.ping)
+			return // done, or the run left again and the browser reconnects
+		}
+		live, err := e.busy(r.Context(), m.ID) // the row first: it goes in the transaction that writes the final message
+		if err != nil {
+			return
+		}
+		now, err := e.Chats.Message(r.Context(), m.ChatID, m.ID)
+		if err != nil {
+			return
+		}
+		if !live || now.Status != "streaming" {
+			ok := snapshot(now)
+			if ok && now.Status == "error" {
+				ok = send("error", map[string]any{"type": "error", "messageId": now.ID, "code": "interrupted",
+					"message": coalesce(now.Error, "This answer was interrupted.")})
+			}
+			if ok {
+				done := map[string]any{"type": "done", "messageId": now.ID}
+				if now.Status == "stopped" {
+					done["status"] = "stopped"
+				}
+				send("done", done)
+			}
+			return
+		}
+		if !now.UpdatedAt.Equal(seen) {
+			if seen = now.UpdatedAt; !snapshot(now) {
+				return
+			}
+		}
+	}
 }
 
 func (e *Engine) cancelRun(w http.ResponseWriter, r *http.Request) {
@@ -202,17 +299,22 @@ func (e *Engine) chatRuns(w http.ResponseWriter, r *http.Request) {
 
 // ---- callbacks from tool and hook servers --------------------------------------------
 
-// signRunToken returns a bearer token scoped to one run: "<run>.<user>.<exp>.<mac>".
-func signRunToken(k *secret.Keys, runID, userID string, exp time.Time) (string, error) {
+// signRunToken returns a bearer token scoped to one attempt of a run: "<run>.<user>.<exp>.<mac>". The MAC covers the
+// attempt, so a tool server still working for an attempt that a restart ended cannot post into the next one.
+func signRunToken(k *secret.Keys, runID, userID string, attempt int, exp time.Time) (string, error) {
 	if k == nil {
 		return "", errors.New("no keys")
 	}
 	msg := fmt.Sprintf("%s.%s.%d", runID, userID, exp.Unix())
-	return msg + "." + base64.RawURLEncoding.EncodeToString(k.SignCall([]byte("run:"+msg))), nil
+	return msg + "." + base64.RawURLEncoding.EncodeToString(runMAC(k, msg, attempt)), nil
 }
 
-// verifyRunToken checks a callback token for runID.
-func verifyRunToken(k *secret.Keys, runID, tok string) bool {
+func runMAC(k *secret.Keys, msg string, attempt int) []byte {
+	return k.SignCall([]byte(fmt.Sprintf("run:%s:%d", msg, attempt)))
+}
+
+// verifyRunToken checks a callback token for an attempt of runID.
+func verifyRunToken(k *secret.Keys, runID string, attempt int, tok string) bool {
 	i := strings.LastIndex(tok, ".")
 	if i < 0 {
 		return false
@@ -226,7 +328,7 @@ func verifyRunToken(k *secret.Keys, runID, tok string) bool {
 	if err != nil || time.Now().Unix() > exp {
 		return false
 	}
-	want := base64.RawURLEncoding.EncodeToString(k.SignCall([]byte("run:" + msg)))
+	want := base64.RawURLEncoding.EncodeToString(runMAC(k, msg, attempt))
 	return hmac.Equal([]byte(sig), []byte(want))
 }
 
@@ -234,7 +336,7 @@ func (e *Engine) callbackRun(w http.ResponseWriter, r *http.Request) *Run {
 	id := r.PathValue("run")
 	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	run := e.runs.run(id)
-	if run == nil || !verifyRunToken(e.Keys, id, strings.TrimSpace(tok)) {
+	if run == nil || !verifyRunToken(e.Keys, id, run.attempt, strings.TrimSpace(tok)) {
 		api.JSON(w, http.StatusUnauthorized, map[string]any{"detail": "invalid run token", "code": "unauthenticated"})
 		return nil
 	}

@@ -1,12 +1,14 @@
 package engine
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +17,7 @@ import (
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/chats"
 	"github.com/cdmx-in/kera/internal/models"
+	"github.com/cdmx-in/kera/internal/provider"
 	"github.com/cdmx-in/kera/internal/tools"
 )
 
@@ -212,6 +215,7 @@ type durableHarness struct {
 	*harness
 	model *scriptModel
 	tool  *gatedTools
+	peers []*Engine
 }
 
 func newDurable(t *testing.T) *durableHarness {
@@ -223,12 +227,20 @@ func newDurable(t *testing.T) *durableHarness {
 	}
 	tools.Register(h.tool)
 	t.Cleanup(func() {
-		// whatever is still held must end before the database goes
+		// whatever is still held or running must end before the database goes, also after a failed test
+		engines := append([]*Engine{h.e}, h.peers...)
+		for _, e := range engines {
+			for _, r := range e.runs.live() {
+				r.stop(errLostLease)
+			}
+		}
 		h.model.open()
 		for _, n := range []string{"write_a", "write_b", "read_a"} {
 			h.tool.release(n)
 		}
-		h.e.Wait()
+		for _, e := range engines {
+			e.Wait()
+		}
 		srv.Close()
 		tools.Register(inertSet("durable-server"))
 	})
@@ -236,10 +248,10 @@ func newDurable(t *testing.T) *durableHarness {
 }
 
 // peer is a second instance on the same database and files.
-func (h *harness) peer(t *testing.T) *Engine {
+func (h *durableHarness) peer(t *testing.T) *Engine {
 	t.Helper()
 	p := New(h.pool, h.e.Keys, h.e.Settings, h.e.Models, h.e.Files, &chats.Store{DB: h.pool}, "http://kera.test")
-	t.Cleanup(p.Wait)
+	h.peers = append(h.peers, p)
 	return p
 }
 
@@ -420,19 +432,545 @@ func TestLeaseExpiryTakeover(t *testing.T) {
 	h.e.tick(ctx) // and the owner's heartbeat keeps it
 	h.expire(t, mid)
 	b.tick(ctx)
-	b.Wait()
-	m := h.settled(t, cid, mid)
-	if m.Status != "error" {
-		t.Fatalf("a claimed run in this version ends: %q %q", m.Status, m.Error)
+	if r := h.row(t, mid); r.owner != b.instance || r.attempt != 2 || r.recoveries != 1 {
+		t.Fatalf("after the takeover: %+v", r)
 	}
-	// the old owner finds out at its next heartbeat and writes nothing more
-	h.e.tick(ctx)
+	h.e.tick(ctx) // the old owner finds out at its next heartbeat and writes nothing more
+	until(t, "the old owner to stop", run.Finished)
+	if run.detached() == nil {
+		t.Fatal("the old owner ended the run")
+	}
+	h.model.open()
+	if m := h.settled(t, cid, mid); m.Status != "done" || m.Content != "partial rest" {
+		t.Fatalf("taken over: %q %q %q", m.Status, m.Content, m.Error)
+	}
+}
+
+// crash stops a's run the way a killed process would: nothing more is written, and the lease runs out.
+func (h *durableHarness) crash(t *testing.T, a *Engine, run *Run) {
+	t.Helper()
+	run.stop(errLostLease)
+	a.Wait()
+	h.expire(t, run.MessageID)
+}
+
+// resumeOn lets b claim what needs an owner and waits for the reply to end.
+func (h *durableHarness) resumeOn(t *testing.T, b *Engine, cid, mid string) chats.Message {
+	t.Helper()
+	b.tick(context.Background())
+	return h.settled(t, cid, mid)
+}
+
+// A write that was running when the server died is not run again, a write that had finished keeps its result, and
+// the calls after the one in doubt, which never started, run once.
+func TestResumeDoesNotRepeatWriteTool(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	h.tool.block("write_a")
+	cid, run := h.task(t, h.e, "calls: write_b, write_a, write_b")
+	h.tool.await(t, "write_a")
+	h.crash(t, h.e, run)
+	h.tool.release("write_a") // a run that wrongly calls it again gets an answer, and the count shows it
+	m := h.resumeOn(t, b, cid, run.MessageID)
+	if a, wb := h.tool.ran("write_a"), h.tool.ran("write_b"); a != 1 || wb != 2 {
+		t.Fatalf("write_a ran %d times (want 1), write_b %d times (want 2: one before, the unstarted one after)", a, wb)
+	}
+	want := "round 1. done: write_b ok #1 | " + unknownResult + " | write_b ok #2"
+	if m.Status != "done" || m.Content != want {
+		t.Fatalf("resumed %q %q\n got %q\nwant %q", m.Status, m.Error, m.Content, want)
+	}
+	// the message shows each call once, and the answer's text once
+	var steps []string
+	var parts []Part
+	if err := json.Unmarshal(m.Parts, &parts); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range parts {
+		for _, s := range p.Steps {
+			steps = append(steps, s.CallID+" "+s.Name+" "+s.Status)
+		}
+	}
+	if got, want := strings.Join(steps, ", "), "c1-0 write_b done, c1-1 write_a error, c1-2 write_b done"; got != want {
+		t.Fatalf("steps %q, want %q", got, want)
+	}
+}
+
+func TestResumeRerunsReadOnlyTool(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	h.tool.block("read_a")
+	cid, run := h.task(t, h.e, "calls: read_a")
+	h.tool.await(t, "read_a")
+	h.crash(t, h.e, run)
+	h.tool.release("read_a")
+	m := h.resumeOn(t, b, cid, run.MessageID)
+	if h.tool.ran("read_a") != 2 || m.Content != "round 1. done: read_a ok #2" {
+		t.Fatalf("read_a ran %d times, answer %q %q", h.tool.ran("read_a"), m.Content, m.Error)
+	}
+}
+
+// A read before a write in one round: the read runs again; the write may have started, so it does not.
+func TestResumeAfterReadThenWrite(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	h.tool.block("write_a")
+	cid, run := h.task(t, h.e, "calls: read_a, write_a")
+	h.tool.await(t, "write_a")
+	h.crash(t, h.e, run)
+	h.tool.release("write_a") // a run that wrongly calls it again gets an answer, and the count shows it
+	m := h.resumeOn(t, b, cid, run.MessageID)
+	if h.tool.ran("read_a") != 2 || h.tool.ran("write_a") != 1 || m.Content != "round 1. done: read_a ok #2 | "+unknownResult {
+		t.Fatalf("read_a %d, write_a %d, answer %q", h.tool.ran("read_a"), h.tool.ran("write_a"), m.Content)
+	}
+}
+
+// A crash in a later round keeps the earlier rounds as they were and calls nothing of them again.
+func TestResumeInALaterRound(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	h.tool.block("write_b")
+	cid, run := h.task(t, h.e, "calls: write_a ; read_a ; write_b")
+	h.tool.await(t, "write_b")
+	h.crash(t, h.e, run)
+	h.tool.release("write_b") // a run that wrongly calls it again gets an answer, and the count shows it
+	m := h.resumeOn(t, b, cid, run.MessageID)
+	if h.tool.ran("write_a") != 1 || h.tool.ran("read_a") != 1 || h.tool.ran("write_b") != 1 {
+		t.Fatalf("ran %v", h.tool.count)
+	}
+	want := "round 1. round 2. round 3. done: write_a ok #1 | read_a ok #1 | " + unknownResult
+	if m.Content != want {
+		t.Fatalf("answer %q, want %q", m.Content, want)
+	}
+	var usage, prompt int
+	if err := h.pool.QueryRow(context.Background(), `SELECT count(*), coalesce(sum(prompt_tokens), 0) FROM usage WHERE message_id = $1`,
+		run.MessageID).Scan(&usage, &prompt); err != nil {
+		t.Fatal(err)
+	}
+	// four model calls of 10 prompt tokens each, those of the lost attempt included
+	if usage != 1 || prompt != 40 {
+		t.Fatalf("usage rows %d with %d prompt tokens, want 1 with 40", usage, prompt)
+	}
+}
+
+// Before the first model response there is no checkpoint: the answer starts again, once.
+func TestResumeFromZeroWithoutCheckpoint(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	cid, run := h.task(t, h.e, "hang")
+	until(t, "the model to answer", func() bool { return strings.Contains(run.stateText(), "partial") })
+	if r := h.row(t, run.MessageID); r.hasCheckpoint {
+		t.Fatal("checkpoint before the first response")
+	}
+	h.crash(t, h.e, run)
+	h.model.open()
+	if m := h.resumeOn(t, b, cid, run.MessageID); m.Status != "done" || m.Content != "partial rest" {
+		t.Fatalf("from zero: %q %q %q", m.Status, m.Content, m.Error)
+	}
+}
+
+// Events of a resumed run are numbered after every attempt before it, and the first one carries the whole state.
+func TestSeqBaseAfterResume(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	h.tool.block("write_a")
+	_, run := h.task(t, h.e, "calls: write_a")
+	h.tool.await(t, "write_a")
+	seen := run.Seq()
+	h.crash(t, h.e, run)
+	b.tick(context.Background())
+	resumed := b.runs.byMessage(run.MessageID)
+	if resumed == nil || resumed.ID != run.ID {
+		t.Fatal("the resumed run is not registered under its id")
+	}
+	wait(t, resumed)
+	evs, _, _ := resumed.next(seen) // what a browser that saw the first attempt asks for
+	if len(evs) == 0 || evs[0].Type != "snapshot" || evs[0].Seq != 1<<32+1 || evs[len(evs)-1].Type != "done" {
+		t.Fatalf("events after %d: %s, first seq %d", seen, types(evs), evs[0].Seq)
+	}
+	// the callback token of the first attempt does not work on the second
+	old, _ := signRunToken(h.e.Keys, run.ID, run.UserID, 1, time.Now().Add(time.Minute))
+	now, _ := signRunToken(h.e.Keys, run.ID, run.UserID, resumed.attempt, time.Now().Add(time.Minute))
+	if verifyRunToken(h.e.Keys, run.ID, resumed.attempt, old) || !verifyRunToken(h.e.Keys, run.ID, resumed.attempt, now) {
+		t.Fatal("callback tokens are not scoped to the attempt")
+	}
+}
+
+// An owner that was replaced while a read-only call ran must not go on to call a tool that writes.
+func TestStaleOwnerCallsNoWriteTool(t *testing.T) {
+	h := newDurable(t)
+	h.tool.block("read_a")
+	_, run := h.task(t, h.e, "calls: read_a, write_a")
+	h.tool.await(t, "read_a")
+	if _, err := h.pool.Exec(context.Background(), `UPDATE run SET lease_owner = 'other', attempt = attempt + 1 WHERE message_id = $1`,
+		run.MessageID); err != nil {
+		t.Fatal(err)
+	}
+	h.tool.release("read_a")
 	h.e.Wait()
-	if !run.Finished() || run.detached() == nil {
-		t.Fatal("the old owner still runs")
+	if n := h.tool.ran("write_a"); n != 0 {
+		t.Fatalf("a stale owner called write_a %d times", n)
 	}
-	if got := h.message(t, cid, mid); got.Status != "error" || got.Error != m.Error {
-		t.Fatalf("the old owner changed the outcome: %q %q", got.Status, got.Error)
+	if run.detached() == nil {
+		t.Fatal("the stale run did not leave")
+	}
+}
+
+// A run that keeps taking the server down is given up.
+func TestRecoveriesCap(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	h.tool.block("write_a")
+	cid, run := h.task(t, h.e, "calls: write_a")
+	h.tool.await(t, "write_a")
+	h.crash(t, h.e, run)
+	if _, err := h.pool.Exec(context.Background(), `UPDATE run SET recoveries = $2 WHERE message_id = $1`, run.MessageID, maxRecoveries); err != nil {
+		t.Fatal(err)
+	}
+	m := h.resumeOn(t, b, cid, run.MessageID)
+	if m.Status != "error" || !strings.Contains(m.Error, "several times") || h.tool.ran("write_a") != 1 {
+		t.Fatalf("%q %q, write_a ran %d times", m.Status, m.Error, h.tool.ran("write_a"))
+	}
+}
+
+// Everything that allowed a run to start is checked again before it goes on.
+func TestResumeChecksAuthorisation(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup []string // SQL run while no instance owns the run
+		set   map[string]any
+		want  string // in the message's error
+	}{
+		{name: "disabled user", setup: []string{`UPDATE "user" SET disabled_at = now()`}, want: "can no longer use Kera"},
+		{name: "pending user", setup: []string{`UPDATE "user" SET role = 'pending'`}, want: "can no longer use Kera"},
+		{name: "model access revoked", setup: []string{`UPDATE "user" SET role = 'user'`}, want: "no longer have access to this assistant"},
+		{name: "cowork permission lost", setup: []string{`UPDATE "user" SET role = 'user'`},
+			set:  map[string]any{"models.base_public": true, "user.permissions": map[string]any{"features": map[string]any{"cowork": false}}},
+			want: "features.cowork"},
+		{name: "schedule permission lost", setup: []string{`UPDATE "user" SET role = 'user'`, `UPDATE run SET origin = 'schedule:s1'`},
+			set:  map[string]any{"models.base_public": true, "user.permissions": map[string]any{"features": map[string]any{"cowork": true, "cowork_schedule": false}}},
+			want: "features.cowork_schedule"},
+		{name: "local run, hosted model now", setup: []string{`UPDATE run SET request = jsonb_set(request, '{local}', 'true')`}, want: "started on a local model"},
+		{name: "chat locked to local", setup: []string{`UPDATE chat SET locality = 'local'`}, set: map[string]any{"chat.local_lock": true}, want: "started on a local model"},
+		{name: "resume switched off", set: map[string]any{"runs.resume": false}, want: crashedMsg},
+		{name: "unreadable checkpoint", setup: []string{`UPDATE run SET checkpoint = 'not json'::bytea`}, want: crashedMsg},
+		{name: "checkpoint of another version", setup: []string{`UPDATE run SET checkpoint = '{"v":99}'::bytea`}, want: crashedMsg},
+		{name: "unattended time limit passed", setup: []string{`UPDATE run SET deadline = now() - interval '1 second'`}, want: "time limit"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newDurable(t)
+			ctx := context.Background()
+			b := h.peer(t)
+			h.tool.block("read_a") // read-only: a run that is wrongly continued calls it again
+			cid, run := h.task(t, h.e, "calls: read_a")
+			h.tool.await(t, "read_a")
+			h.crash(t, h.e, run)
+			h.tool.release("read_a")
+			for _, q := range c.setup {
+				if _, err := h.pool.Exec(ctx, q); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for k, v := range c.set {
+				if err := h.e.Settings.Set(ctx, k, v, false); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := len(h.model.seen())
+			m := h.resumeOn(t, b, cid, run.MessageID)
+			if m.Status != "error" || !strings.Contains(m.Error, c.want) {
+				t.Fatalf("status %q, error %q, want %q", m.Status, m.Error, c.want)
+			}
+			if h.tool.ran("read_a") != 1 || len(h.model.seen()) != before {
+				t.Fatalf("a refused run went on: read_a %d, model calls %d -> %d", h.tool.ran("read_a"), before, len(h.model.seen()))
+			}
+		})
+	}
+}
+
+// A model server that is still starting after the same reboot does not fail the run: it is tried again.
+func TestResumeWaitsForTheModelServer(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	b := h.peer(t)
+	h.tool.block("read_a")
+	cid, run := h.task(t, h.e, "calls: read_a")
+	mid := run.MessageID
+	h.tool.await(t, "read_a")
+	h.crash(t, h.e, run)
+	h.tool.release("read_a")
+	var url string
+	if err := h.pool.QueryRow(ctx, `SELECT base_url FROM connection WHERE id = 'fake'`).Scan(&url); err != nil {
+		t.Fatal(err)
+	}
+	down := httptest.NewServer(http.NotFoundHandler())
+	defer down.Close()
+	if _, err := h.pool.Exec(ctx, `UPDATE connection SET base_url = $1`, down.URL); err != nil {
+		t.Fatal(err)
+	}
+	b.tick(ctx)
+	until(t, "the run to be put back", func() bool { r := h.row(t, mid); return r.state == "queued" })
+	if m := h.message(t, cid, mid); m.Status != "streaming" {
+		t.Fatalf("failed instead of waiting: %q %q", m.Status, m.Error)
+	}
+	b.tick(ctx) // not before its time
+	if r := h.row(t, mid); r.state != "queued" {
+		t.Fatalf("claimed before its retry time: %+v", r)
+	}
+	if _, err := h.pool.Exec(ctx, `UPDATE connection SET base_url = $1`, url); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(ctx, `UPDATE run SET not_before = now()`); err != nil {
+		t.Fatal(err)
+	}
+	if m := h.resumeOn(t, b, cid, mid); m.Status != "done" || !strings.Contains(m.Content, "done: read_a ok #2") {
+		t.Fatalf("after the server came back: %q %q %q", m.Status, m.Content, m.Error)
+	}
+}
+
+// The origin of a run is stored with it, so tools that depend on it (a scheduled task's notes) are still there.
+func TestResumeKeepsTheOrigin(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	b := h.peer(t)
+	var mu sync.Mutex
+	var origins []string
+	tools.Register(&originTool{saw: func(o string) { mu.Lock(); origins = append(origins, o); mu.Unlock() }})
+	t.Cleanup(func() { tools.Register(inertSet("origin-server")) })
+	h.tool.block("write_a")
+	cid := h.taskChat(t)
+	run, err := h.e.Start(ctx, h.u, &Request{Model: "m1", ChatID: cid, ID: "a1", Unattended: true, Origin: "schedule:s1",
+		ToolIDs: []string{"durable-server", "origin-server"}, UserMessage: &UserMessage{ID: "q1", Content: "calls: write_a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.tool.await(t, "write_a")
+	h.crash(t, h.e, run)
+	if m := h.resumeOn(t, b, cid, "a1"); m.Status != "done" {
+		t.Fatalf("%q %q", m.Status, m.Error)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(origins) < 2 || origins[0] != "schedule:s1" || origins[len(origins)-1] != "schedule:s1" {
+		t.Fatalf("origins seen by the tool list: %q", origins)
+	}
+}
+
+type originTool struct{ saw func(string) }
+
+func (*originTool) ID() string { return "origin-server" }
+func (o *originTool) Tools(ctx context.Context, _ *auth.User) ([]tools.Spec, error) {
+	o.saw(Origin(ctx))
+	return []tools.Spec{{Name: "noop"}}, nil
+}
+func (*originTool) Execute(context.Context, tools.Call) (tools.Result, error) {
+	return tools.Result{}, nil
+}
+
+// What a resumed run may call again: only tools checked to change nothing. Running code is not one of them, and a
+// built-in's own flag is not trusted.
+func TestRerunnable(t *testing.T) {
+	for _, c := range []struct {
+		provider, name string
+		readOnly, want bool
+	}{
+		{"builtin:core", "get_current_timestamp", false, true},
+		{"builtin:core", "search_chats", false, true},
+		{"builtin:files", "view_file", false, true},
+		{"builtin:web", "fetch_url", false, true},
+		{"builtin:knowledge", "query_knowledge_files", false, true},
+		{"builtin:skills", "load_skill", false, true},
+		{"builtin:code", "execute_code", false, false},
+		{"builtin:code", "execute_code", true, false},
+		{"builtin:memory", "add_memory", false, false},
+		{"builtin:memory", "search_memories", false, false},
+		{"builtin:memory", "delete_memory", false, false},
+		{"builtin:schedule", "save_task_notes", false, false},
+		{"builtin:web", "a_tool_added_later", false, false},
+		{"builtin:new", "anything", true, false},
+		{"some-server", "fetch_url", false, false},
+		{"some-server", "list_things", true, true},
+	} {
+		got := rerunnable(toolEntry{spec: tools.Spec{Name: c.name, ReadOnly: c.readOnly}, provider: inertSet(c.provider)})
+		if got != c.want {
+			t.Errorf("%s %s (readOnly %v): rerunnable %v, want %v", c.provider, c.name, c.readOnly, got, c.want)
+		}
+	}
+}
+
+// The tools of a restarted server can differ: a call that was safe is not run through another provider.
+func TestResumePlan(t *testing.T) {
+	entry := func(p, name string, readOnly bool) toolEntry {
+		return toolEntry{spec: tools.Spec{Name: name, ReadOnly: readOnly}, provider: inertSet(p)}
+	}
+	table := map[string]toolEntry{"look": entry("other", "look", false), "read": entry("s", "read", true), "write": entry("s", "write", false)}
+	calls := []provider.ToolCall{{ID: "1", Name: "read"}, {ID: "2", Name: "look"}, {ID: "3", Name: "write"}, {ID: "4", Name: "write"}, {ID: "5", Name: "read"}}
+	o := &openRound{Safe: []string{"s", "s", "", "", "stale"}}
+	got := resumePlan(table, calls, 0, o)
+	if want := []string{"", changedResult, unknownResult, "", ""}; !slices.Equal(got, want) {
+		t.Fatalf("plan %q", got)
+	}
+	if want := []string{"s", "s", "", "", "s"}; !slices.Equal(o.Safe, want) { // the calls that never started are judged anew
+		t.Fatalf("safe %q", o.Safe)
+	}
+	if got := resumePlan(table, calls, 3, &openRound{Safe: []string{"s", "s", "", "", "s"}}); !slices.Equal(got, []string{"", "", "", unknownResult, ""}) {
+		t.Fatalf("plan from 3: %q", got)
+	}
+}
+
+// Images are kept as file references, not as data, and read again only while the user may read them.
+func TestCheckpointImages(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	f, err := h.e.Files.CreateText(ctx, "u1", "shot.png", "not really a png", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, ok := h.e.image(ctx, f)
+	if !ok || img.FileID != f.ID {
+		t.Fatalf("image %v %q", ok, img.FileID)
+	}
+	msgs := []provider.Message{{Role: "user", Content: "look", Data: true, Images: []provider.Image{img, {MIME: "image/png", Data: "inline"}},
+		ToolCalls: []provider.ToolCall{{ID: "c", Name: "n", Arguments: json.RawMessage(`{broken`)}}}}
+	raw, err := json.Marshal(&checkpoint{Version: checkpointVersion, Messages: ckMessages(msgs)})
+	if err != nil {
+		t.Fatalf("arguments that are not JSON must survive: %v", err)
+	}
+	if strings.Contains(string(raw), img.Data) || !strings.Contains(string(raw), f.ID) || !strings.Contains(string(raw), "inline") {
+		t.Fatalf("checkpoint %s", raw)
+	}
+	ck, err := decodeCheckpoint(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := &exec{u: h.u, run: newRun("c", "m", "u1", "m1", true)}
+	got := h.e.restoreMessages(ctx, x, ck.Messages)
+	if len(got) != 1 || !got[0].Data || len(got[0].Images) != 2 || got[0].Images[0] != img || string(got[0].ToolCalls[0].Arguments) != "{broken" {
+		t.Fatalf("restored %+v", got)
+	}
+	x.u = &auth.User{ID: "someone-else", Role: "user"}
+	if got := h.e.restoreMessages(ctx, x, ck.Messages); len(got[0].Images) != 1 {
+		t.Fatalf("an unreadable file's image was restored: %+v", got[0].Images)
+	}
+}
+
+// sseEvents reads a whole event stream.
+func sseEvents(t *testing.T, resp *http.Response, onEvent func(typ string, data map[string]any)) {
+	t.Helper()
+	defer resp.Body.Close()
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(nil, 1<<20)
+	typ := ""
+	for sc.Scan() {
+		line := sc.Text()
+		if v, ok := strings.CutPrefix(line, "event: "); ok {
+			typ = v
+		}
+		if v, ok := strings.CutPrefix(line, "data: "); ok {
+			var d map[string]any
+			if err := json.Unmarshal([]byte(v), &d); err != nil {
+				t.Errorf("bad event data %q", v)
+				return
+			}
+			onEvent(typ, d)
+		}
+	}
+}
+
+// serve exposes one engine's chat routes to its user.
+func (h *harness) serve(t *testing.T, e *Engine) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	for pattern, f := range map[string]http.HandlerFunc{
+		"POST /api/chat/completions":                            e.completions,
+		"GET /api/v1/chats/{id}/messages/{mid}/stream":          e.resume,
+		"POST /api/v1/chats/{id}/messages/{mid}/cancel":         e.cancelRun,
+		"POST /api/v1/chats/{id}/messages/{mid}/calls/{callId}": e.answerCall,
+		"GET /api/v1/chats/{id}/runs":                           e.chatRuns,
+	} {
+		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) { f(w, r.WithContext(auth.WithUser(r.Context(), h.u))) })
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A browser on an instance that does not run the reply stays attached: it gets the stored message, follows the run
+// when this instance resumes it, and never mistakes the wait for the end.
+func TestHeldStreamFollowsTheResume(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	srv := h.serve(t, b)
+	h.tool.block("write_a")
+	cid, run := h.task(t, h.e, "calls: write_a")
+	h.tool.await(t, "write_a")
+	resp, err := http.Get(srv.URL + "/api/v1/chats/" + cid + "/messages/" + run.MessageID + "/stream?after=3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var got []string
+	var seqs []float64
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		sseEvents(t, resp, func(typ string, d map[string]any) {
+			mu.Lock()
+			defer mu.Unlock()
+			got = append(got, typ)
+			if n, ok := d["seq"].(float64); ok {
+				seqs = append(seqs, n)
+			}
+		})
+	}()
+	seen := func() string { mu.Lock(); defer mu.Unlock(); return strings.Join(got, ",") }
+	until(t, "the stored snapshot", func() bool { return seen() == "snapshot" })
+	time.Sleep(5 * holdPoll) // held while the owner works: nothing changes, nothing ends
+	if s := seen(); s != "snapshot" {
+		t.Fatalf("held stream of a live run elsewhere: %s", s)
+	}
+	h.crash(t, h.e, run)
+	b.tick(context.Background())
+	select {
+	case <-finished:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("the held stream did not end: %s", seen())
+	}
+	if s := seen(); !strings.HasPrefix(s, "snapshot,snapshot,") || !strings.HasSuffix(s, ",done") || strings.Count(s, "done") != 1 {
+		t.Fatalf("held stream: %s", s)
+	}
+	for _, n := range seqs {
+		if n <= 1<<32 {
+			t.Fatalf("a held event carries a seq of an older attempt: %v", seqs)
+		}
+	}
+	h.settled(t, cid, run.MessageID)
+}
+
+// A held stream ends with done when the run's row goes, wherever the run ran.
+func TestHeldStreamEndsWithTheRun(t *testing.T) {
+	h := newDurable(t)
+	srv := h.serve(t, h.peer(t))
+	cid, run := h.task(t, h.e, "hang")
+	until(t, "the model to answer", func() bool { return strings.Contains(run.stateText(), "partial") })
+	resp, err := http.Get(srv.URL + "/api/v1/chats/" + cid + "/messages/" + run.MessageID + "/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	var last map[string]any
+	var content string
+	h.model.open()
+	sseEvents(t, resp, func(typ string, d map[string]any) {
+		got = append(got, typ)
+		last = d
+		if typ == "snapshot" {
+			b, _ := json.Marshal(d["parts"])
+			content = string(b)
+		}
+	})
+	if len(got) < 2 || got[len(got)-1] != "done" || !strings.Contains(content, "partial rest") || last["seq"] != nil {
+		t.Fatalf("held stream %v, last %v, parts %s", got, last, content)
 	}
 }
 

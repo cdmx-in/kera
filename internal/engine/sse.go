@@ -38,6 +38,14 @@ func (s *sseWriter) event(seq int64, typ string, data []byte) error {
 	return s.rc.Flush()
 }
 
+// unnumbered is an event without a seq, which leaves the client's resume cursor where it is.
+func (s *sseWriter) unnumbered(typ string, data []byte) error {
+	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", typ, data); err != nil {
+		return err
+	}
+	return s.rc.Flush()
+}
+
 func (s *sseWriter) data(data []byte) error {
 	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", data); err != nil {
 		return err

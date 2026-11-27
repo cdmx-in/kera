@@ -38,6 +38,9 @@ type exec struct {
 	profile     userProfile
 	started     time.Time
 	limit       *time.Timer // unattended runs: stops the run when the time limit passes
+	durable     bool        // a restart resumes this run: it checkpoints its state (durable.go)
+	resumed     bool        // this attempt continues an earlier one
+	ck          *checkpoint // where a resumed run goes on from; nil starts the conversation from the beginning
 	missing     []string    // requested tool servers that did not join (assembleTools)
 	withheld    []string    // read-only runs: functions left out because their server does not declare them read-only
 
@@ -93,6 +96,8 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 		return nil, errCoworkForbidden
 	}
 	x.noChat = req.ChatID == "" && !req.Temporary
+	// client-executed tools hand the loop to the caller, and a run without a stored chat has nowhere to go on in
+	x.durable = x.chat != nil && len(req.Tools) == 0 && e.Settings.Bool(ctx, "runs.resume")
 	if x.chat != nil && x.chat.Locality != nil && *x.chat.Locality == "local" && !m.Local && e.Settings.Bool(ctx, "chat.local_lock") {
 		return nil, errLocalLock
 	}
@@ -121,7 +126,12 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 			run.done("done")
 			return nil, err
 		}
-		run.persist = func() { e.save(x) }
+		if x.durable {
+			// the stored message changes only together with the checkpoint, apart from the open questions
+			run.persist = func() { e.savePending(x) }
+		} else {
+			run.persist = func() { e.save(x) }
+		}
 	}
 	if req.Unattended {
 		x.timeLimit(e.unattendedLimit(ctx), cancel)
@@ -141,6 +151,10 @@ func (e *Engine) runContext(parent context.Context, x *exec) (context.Context, c
 		ctx = retrieval.WithLocalRun(ctx)
 	}
 	ctx = guard.WithNotifier(ctx, x.run.guardNotice)
+	ctx = auth.WithUser(ctx, x.u) // the guardrail audit names the user, also after the request that started the run is gone
+	if x.req.Origin != "" {
+		ctx = WithOrigin(ctx, x.req.Origin)
+	}
 	x.run.setCancel(cancel)
 	return ctx, cancel
 }
@@ -266,17 +280,20 @@ func (e *Engine) execute(ctx context.Context, x *exec) {
 	}()
 	err := e.process(ctx, x)
 	status := "done"
+	var later *tryLater
 	switch {
 	case err == nil:
 	case errors.Is(err, errLostLease) || errors.Is(context.Cause(ctx), errLostLease):
 		e.abandon(x)
+		return
+	case errors.As(err, &later) && ctx.Err() == nil && e.deferRun(x):
 		return
 	case errors.Is(err, errCancelled) || errors.Is(context.Cause(ctx), errCancelled):
 		status = "stopped"
 	case errors.Is(context.Cause(ctx), errShutdown):
 		x.run.fail("interrupted", interruptedMsg)
 	case errors.Is(context.Cause(ctx), errTimeLimit):
-		x.run.fail("timeout", "This scheduled run was stopped because it ran longer than the time limit.")
+		x.run.fail("timeout", timeLimitMsg)
 	default:
 		code, msg := classify(err)
 		slog.Warn("run failed", "run", x.run.ID, "model", x.m.ID, "code", code, "err", err)
@@ -285,18 +302,23 @@ func (e *Engine) execute(ctx context.Context, x *exec) {
 	e.finish(x, status, err == nil)
 }
 
-// process runs the pipeline up to the final answer.
+// process runs the pipeline up to the final answer. A run that goes on from a checkpoint keeps the conversation the
+// checkpoint holds: the inlet hooks, the context and the compaction are not run again.
 func (e *Engine) process(ctx context.Context, x *exec) error {
 	x.run.trace.enable(e.Settings.Bool(ctx, "trace.enable"))
 	x.profile = e.profile(ctx, x.u)
-	x.features = e.features(ctx, x)
-	x.params = map[string]any{}
-	for k, v := range x.m.Params {
-		x.params[k] = v
+	ck := x.ck
+	if ck == nil {
+		x.features = e.features(ctx, x)
+		x.params = map[string]any{}
+		for k, v := range x.m.Params {
+			x.params[k] = v
+		}
+		for k, v := range x.req.Params {
+			x.params[k] = v
+		}
 	}
-	for k, v := range x.req.Params {
-		x.params[k] = v
-	}
+	// also for a checkpoint: the outlet hooks, the title and the user's links read the turns
 	if err := e.loadTurns(ctx, x); err != nil {
 		return err
 	}
@@ -305,28 +327,41 @@ func (e *Engine) process(ctx context.Context, x *exec) error {
 		// after setUserLinks: its URLs are no consent; first, so the goal stays the last user turn
 		x.turns = append([]turn{{msg: provider.Message{Role: "user", Content: p}}}, x.turns...)
 	}
-	if err := e.runHooks(ctx, x, "inlet"); err != nil {
-		return err
-	}
-	if err := e.buildContext(ctx, x); err != nil {
-		return err
+	if ck == nil {
+		if err := e.runHooks(ctx, x, "inlet"); err != nil {
+			return err
+		}
+		if err := e.buildContext(ctx, x); err != nil {
+			return err
+		}
+	} else {
+		ck.restore(x)
 	}
 	table, specs, err := e.assembleTools(ctx, x)
 	if err != nil {
 		return err
 	}
-	if len(x.withheld) > 0 { // the first line of the answer, so the reader of a test sees what was left out
+	if len(x.withheld) > 0 && ck == nil { // the first line of the answer, so the reader of a test sees what was left out
 		x.run.delta(withheldNote(x.withheld) + "\n\n")
 	}
 	if x.req.Unattended && len(x.missing) > 0 {
 		// Nobody can fix it mid-run, and running without the app would only produce a wrong report.
-		return api.Errf(http.StatusConflict, "tool_unavailable", "These tools could not be used for this run (not connected, expired, not allowed for this assistant, or not available): "+strings.Join(x.missing, ", "))
-	}
-	if t, ok := table["execute_code"]; ok && t.provider.ID() == sandbox.ID {
-		x.system = append(x.system, sandbox.Prompt(ctx, e.Settings))
-	}
-	if err := e.compact(ctx, x, x.overheadTokens(specs)); err != nil { // after the prompt and the tools exist, so they count
+		err := api.Errf(http.StatusConflict, "tool_unavailable", "These tools could not be used for this run (not connected, expired, not allowed for this assistant, or not available): "+strings.Join(x.missing, ", "))
+		if x.resumed { // a tool server restarting together with this one gets a while to come back
+			return &tryLater{err}
+		}
 		return err
+	}
+	if x.resumed {
+		e.forgetDeferred(x.run.ID) // it is back: a later interruption gets the whole patience again
+	}
+	if ck == nil {
+		if t, ok := table["execute_code"]; ok && t.provider.ID() == sandbox.ID {
+			x.system = append(x.system, sandbox.Prompt(ctx, e.Settings))
+		}
+		if err := e.compact(ctx, x, x.overheadTokens(specs)); err != nil { // after the prompt and the tools exist, so they count
+			return err
+		}
 	}
 	if err := e.loop(ctx, x, table, specs); err != nil {
 		return err
@@ -405,6 +440,28 @@ func (e *Engine) save(x *exec) {
 		}
 	case err != nil:
 		slog.Error("save message", "run", run.ID, "err", err)
+	}
+}
+
+// savePending writes only the open questions of a run that can be resumed. The rest of its stored message changes
+// together with the checkpoint, so that a resumed run finds the message exactly as its checkpoint left it.
+func (e *Engine) savePending(x *exec) {
+	run := x.run
+	run.saveMu.Lock()
+	defer run.saveMu.Unlock()
+	run.mu.Lock()
+	pending := mustMarshal(run.state.PendingCalls, "[]")
+	run.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tag, err := e.DB.Exec(ctx, `UPDATE message SET pending_calls = $2, updated_at = now() WHERE id = $1
+		AND EXISTS (SELECT 1 FROM run WHERE id = $3 AND lease_owner = $4 AND attempt = $5 FOR SHARE)`,
+		run.MessageID, pending, run.ID, e.instance, run.attempt)
+	switch {
+	case err != nil:
+		slog.Error("save the open questions", "run", run.ID, "err", err)
+	case tag.RowsAffected() == 0 && !run.Finished():
+		run.stop(errLostLease)
 	}
 }
 

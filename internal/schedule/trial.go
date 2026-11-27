@@ -89,7 +89,7 @@ func (s *scheduler) testRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *scheduler) startTrial(ctx context.Context, u *auth.User, t *Task) (string, *engine.Run, error) {
-	req := &engine.Request{Model: t.ModelID, Unattended: true, ReadOnly: true, ToolIDs: cleanIDs(t.ToolIDs)}
+	req := &engine.Request{Model: t.ModelID, Unattended: true, ReadOnly: true, ToolIDs: cleanIDs(t.ToolIDs), Origin: testOrigin + u.ID}
 	if len(t.Features) > 0 {
 		if err := json.Unmarshal(t.Features, &req.Features); err != nil {
 			return "", nil, fmt.Errorf("the feature switches are unreadable: %w", err)

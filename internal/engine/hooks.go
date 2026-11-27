@@ -107,7 +107,7 @@ func (e *Engine) runHooks(ctx context.Context, x *exec, event string) error {
 
 func (e *Engine) envelope(x *exec, h hookServer, event string) map[string]any {
 	run := x.run
-	tok, _ := signRunToken(e.Keys, run.ID, run.UserID, time.Now().Add(15*time.Minute))
+	tok, _ := signRunToken(e.Keys, run.ID, run.UserID, run.attempt, time.Now().Add(15*time.Minute))
 	msgs := make([]provider.Message, 0, len(x.turns))
 	for _, t := range x.turns {
 		msgs = append(msgs, t.msg)

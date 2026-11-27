@@ -49,7 +49,7 @@ func (s *scheduler) run(ctx context.Context, t *Task, now time.Time) (chatID str
 	if !u.Can("features.cowork") || !u.Can("features.cowork_schedule") {
 		return "", fmt.Errorf("the owner no longer has permission to run scheduled tasks")
 	}
-	req := &engine.Request{Model: t.ModelID, Unattended: true, ToolIDs: append([]string{}, t.ToolIDs...)}
+	req := &engine.Request{Model: t.ModelID, Unattended: true, ToolIDs: append([]string{}, t.ToolIDs...), Origin: scheduleOrigin + t.ID}
 	if len(t.Features) > 0 && string(t.Features) != "null" {
 		if err := json.Unmarshal(t.Features, &req.Features); err != nil {
 			return "", fmt.Errorf("the saved feature switches are unreadable: %w", err)
@@ -64,7 +64,7 @@ func (s *scheduler) run(ctx context.Context, t *Task, now time.Time) (chatID str
 	req.ChatID = c.ID
 	req.UserMessage = &engine.UserMessage{Content: t.Prompt, Files: t.Files}
 	req.Preface = s.preface(ctx, t, loc, now)
-	if r, err = s.e.Start(withTask(ctx, t.ID), u, req); err != nil {
+	if r, err = s.e.Start(ctx, u, req); err != nil {
 		if e := s.chats.Delete(ctx, t.UserID, c.ID); e != nil {
 			slog.Warn("delete the chat of a task that did not start", "chat", c.ID, "err", e)
 		}
@@ -113,15 +113,26 @@ func (s *scheduler) preface(ctx context.Context, t *Task, loc *time.Location, no
 
 // ---- the notes tool -----------------------------------------------------------------
 
-type taskKey struct{}
+// A run's origin says what started it (engine.Request.Origin); it is stored with the run, so a run that a restart
+// interrupted keeps its task.
+const (
+	scheduleOrigin = "schedule:"
+	testOrigin     = "test:"
+)
 
-// withTask marks ctx as a scheduled run of task id. The run's context keeps
-// values, so the notes tool sees it; a normal chat has none.
+// withTask marks ctx as a scheduled run of task id, as the engine marks a run's context from its origin.
 func withTask(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, taskKey{}, id)
+	return engine.WithOrigin(ctx, scheduleOrigin+id)
 }
 
-func taskID(ctx context.Context) string { id, _ := ctx.Value(taskKey{}).(string); return id }
+// taskID is the scheduled task of the run ctx belongs to, "" for any other run.
+func taskID(ctx context.Context) string {
+	id, ok := strings.CutPrefix(engine.Origin(ctx), scheduleOrigin)
+	if !ok {
+		return ""
+	}
+	return id
+}
 
 // notesTool is the built-in set with save_task_notes, offered only inside a
 // scheduled run and bound to that run's task: the model never names the task.

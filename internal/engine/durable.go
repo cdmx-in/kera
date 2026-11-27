@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -36,8 +37,12 @@ var orphanAfter = time.Minute
 // crashedMsg is the error of a reply whose run could not be continued.
 const crashedMsg = "The server restarted while this answer was being written."
 
-// errLostLease: this instance no longer owns the run. It stops and writes nothing.
-var errLostLease = errors.New("another instance owns this run now")
+// errLostLease: this instance no longer owns the run. It stops and writes nothing. errRunLater: the run was put back
+// to be tried again.
+var (
+	errLostLease = errors.New("another instance owns this run now")
+	errRunLater  = errors.New("the run will be tried again")
+)
 
 // storedRequest is what is needed to build a run again: the request without its conversation. It carries no
 // credentials: generation parameters are the decoded whitelist (paramKeys), and no headers or tokens are kept.
@@ -84,10 +89,10 @@ func (e *Engine) insertRun(ctx context.Context, x *exec) error {
 	if x.req.Unattended {
 		limit = e.unattendedLimit(ctx).Seconds()
 	}
-	_, err = e.DB.Exec(ctx, `INSERT INTO run (id, message_id, chat_id, user_id, request, state, lease_owner, lease_until, deadline)
+	_, err = e.DB.Exec(ctx, `INSERT INTO run (id, message_id, chat_id, user_id, request, state, lease_owner, lease_until, deadline, origin)
 		VALUES ($1, $2, $3, $4, $5, 'running', $6, now() + make_interval(secs => $7),
-			CASE WHEN $8::float8 > 0 THEN now() + make_interval(secs => $8::float8) END)`,
-		x.run.ID, x.run.MessageID, x.chat.ID, x.u.ID, req, e.instance, leaseFor.Seconds(), limit)
+			CASE WHEN $8::float8 > 0 THEN now() + make_interval(secs => $8::float8) END, $9)`,
+		x.run.ID, x.run.MessageID, x.chat.ID, x.u.ID, req, e.instance, leaseFor.Seconds(), limit, x.req.Origin)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" { // unique_violation: another start won
 		return errBusy
@@ -311,28 +316,54 @@ type claimed struct {
 	request, checkpoint           []byte
 	attempt, recoveries           int
 	cancelled                     bool
+	timeLeft                      *float64 // seconds to the deadline of an unattended run (negative: passed)
 }
 
 // claim takes one run that needs an owner: queued, with an expired lease, or waiting past its wake time.
 func (e *Engine) claim(ctx context.Context) (claimed, bool, error) {
 	var c claimed
 	err := e.DB.QueryRow(ctx, `UPDATE run SET state = 'running', lease_owner = $1, lease_until = now() + make_interval(secs => $2),
-			attempt = attempt + 1, recoveries = recoveries + (state = 'running')::int
-		WHERE id = (SELECT id FROM run WHERE state = 'queued'
+			attempt = attempt + 1, recoveries = recoveries + (state = 'running')::int, not_before = NULL
+		WHERE id = (SELECT id FROM run WHERE (state = 'queued' AND (not_before IS NULL OR not_before <= now()))
 				OR (state = 'running' AND lease_until < now())
 				OR (state = 'waiting' AND wake_at <= now())
 			ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)
-		RETURNING id, message_id, chat_id, user_id, origin, request, checkpoint, attempt, recoveries, cancel_requested`,
+		RETURNING id, message_id, chat_id, user_id, origin, request, checkpoint, attempt, recoveries, cancel_requested,
+			extract(epoch FROM deadline - now())::float8`,
 		e.instance, leaseFor.Seconds()).Scan(&c.id, &c.messageID, &c.chatID, &c.userID, &c.origin, &c.request, &c.checkpoint,
-		&c.attempt, &c.recoveries, &c.cancelled)
+		&c.attempt, &c.recoveries, &c.cancelled, &c.timeLeft)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, false, nil
 	}
 	return c, err == nil, err
 }
 
-// takeOver deals with a claimed run. A run cannot be continued yet, so it ends: stopped when someone asked for that,
-// otherwise with the error of an interrupted answer.
+// ---- resume ---------------------------------------------------------------------------
+
+// A resume that fails for a reason that may pass (the database, a model or tool server still starting after the same
+// reboot) puts the run back for a later try, for up to resumePatience.
+var (
+	resumeRetry    = 15 * time.Second
+	resumePatience = 5 * time.Minute
+)
+
+// tryLater marks an error that may pass.
+type tryLater struct{ err error }
+
+func (t *tryLater) Error() string { return t.err.Error() }
+func (t *tryLater) Unwrap() error { return t.err }
+
+// stopRun is why a claimed run ends without being continued: the error code and what the user reads.
+type stopRun struct{ code, msg string }
+
+func (s *stopRun) Error() string { return s.msg }
+
+func notContinued(code, why string) error {
+	return &stopRun{code, "This answer was not continued after a restart: " + why}
+}
+
+// takeOver continues a claimed run. The run is registered at once, so the heartbeat renews its lease while it is
+// being rebuilt, and a browser that attaches sees its stored state.
 func (e *Engine) takeOver(c claimed) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -348,28 +379,181 @@ func (e *Engine) takeOver(c claimed) {
 		}
 		return
 	}
-	x := e.claimedExec(c, m.ModelID)
-	restoreDisplay(x.run, m)
-	if c.cancelled {
-		e.end(x, "stopped", false)
-		return
+	var ck *checkpoint
+	var ckErr error
+	if c.checkpoint != nil {
+		ck, ckErr = decodeCheckpoint(c.checkpoint)
 	}
-	x.run.fail("interrupted", crashedMsg)
-	e.end(x, "done", false)
-}
-
-// claimedExec is the working state of a claimed run before anything else of it is rebuilt.
-func (e *Engine) claimedExec(c claimed, modelID string) *exec {
-	run := newRun(c.chatID, c.messageID, c.userID, modelID, true)
+	run := newRun(c.chatID, c.messageID, c.userID, m.ModelID, true)
 	run.ID, run.attempt = c.id, c.attempt
 	run.base = int64(c.attempt-1) << 32
+	// The stored message is as the checkpoint left it. Without a checkpoint nothing of the earlier attempt is kept:
+	// the run starts its answer again.
+	if ck != nil || ckErr != nil {
+		restoreDisplay(run, m)
+	}
+	if ck != nil {
+		run.usage = ck.Usage
+	}
+	run.snapshot() // first, so a browser holding the lost attempt's text is reset
+	x := &exec{u: &auth.User{ID: c.userID}, m: &models.Resolved{ID: m.ModelID}, run: run, resumed: true, ck: ck,
+		chat: &chats.Chat{ID: c.chatID, UserID: c.userID}, req: &Request{}, started: time.Now(), disabledNames: map[string]bool{}}
+	if ck != nil {
+		x.started = x.started.Add(-time.Duration(ck.ElapsedMs) * time.Millisecond)
+	}
+	runCtx, stop := context.WithCancelCause(context.Background())
+	run.setCancel(stop)
 	if old := e.runs.replace(run); old != nil {
 		old.stop(errLostLease) // a stale attempt of ours that has not noticed yet
 		old.detach(errLostLease)
 	}
 	run.setLeased()
-	return &exec{u: &auth.User{ID: c.userID}, m: &models.Resolved{ID: modelID}, run: run,
-		chat: &chats.Chat{ID: c.chatID, UserID: c.userID}, req: &Request{}, started: time.Now(), disabledNames: map[string]bool{}}
+	e.wg.Add(1)
+	go e.resumeClaimed(runCtx, x, c, ckErr)
+}
+
+// resumeClaimed rebuilds a claimed run and carries it on. It calls e.wg.Done (through execute when it goes on).
+func (e *Engine) resumeClaimed(ctx context.Context, x *exec, c claimed, ckErr error) {
+	runCtx, err := e.prepareResume(ctx, x, c, ckErr)
+	if err == nil {
+		e.execute(runCtx, x)
+		return
+	}
+	defer e.wg.Done()
+	var stop *stopRun
+	var later *tryLater
+	switch {
+	case errors.Is(context.Cause(ctx), errLostLease):
+		e.abandon(x)
+	case c.cancelled || errors.Is(context.Cause(ctx), errCancelled):
+		e.endUnresumed(x, "stopped")
+	case errors.As(err, &later) && e.deferRun(x):
+	default:
+		if !errors.As(err, &stop) {
+			stop = &stopRun{"interrupted", crashedMsg}
+		}
+		slog.Warn("run not resumed", "run", c.id, "code", stop.code, "err", err)
+		x.run.fail(stop.code, stop.msg)
+		e.endUnresumed(x, "done")
+	}
+}
+
+// endUnresumed ends a run that was not continued. Nothing marks the chat's locality: nothing new was produced.
+func (e *Engine) endUnresumed(x *exec, status string) {
+	if e.end(x, status, false) {
+		e.forgetDeferred(x.run.ID)
+	}
+}
+
+// prepareResume rebuilds what a run needs, checking again everything that allowed it to start: the account, the
+// chat, access to the model, the task permissions, and that a conversation built for a local model stays local.
+func (e *Engine) prepareResume(ctx context.Context, x *exec, c claimed, ckErr error) (context.Context, error) {
+	if c.cancelled {
+		return nil, errCancelled
+	}
+	if c.recoveries > maxRecoveries {
+		return nil, &stopRun{"interrupted", "The server restarted several times while this answer was being written, so it was not continued."}
+	}
+	if !e.Settings.Bool(ctx, "runs.resume") {
+		return nil, &stopRun{"interrupted", crashedMsg}
+	}
+	if ckErr != nil { // never from the start: the lost state may have run tools
+		slog.Error("run checkpoint cannot be read", "run", c.id, "err", ckErr)
+		return nil, &stopRun{"interrupted", crashedMsg}
+	}
+	var stored storedRequest
+	if err := json.Unmarshal(c.request, &stored); err != nil {
+		return nil, &stopRun{"interrupted", crashedMsg}
+	}
+	if stored.ClientTools || (x.ck == nil && stored.OwnMessages) {
+		// without a checkpoint the caller's own conversation is gone: only the request without it was stored
+		return nil, &stopRun{"interrupted", crashedMsg}
+	}
+	u, err := e.LoadUser(ctx, c.userID)
+	switch {
+	case errors.Is(err, auth.ErrUnauthenticated):
+		return nil, notContinued("unauthenticated", "the account that started it can no longer use Kera.")
+	case err != nil:
+		return nil, &tryLater{err}
+	}
+	x.u = u
+	chat, err := e.Chats.Get(ctx, u.ID, c.chatID)
+	if err != nil {
+		return nil, &tryLater{err}
+	}
+	m, err := e.Models.Resolve(ctx, u, stored.Model)
+	switch {
+	case errors.Is(err, models.ErrForbidden):
+		return nil, notContinued("model_forbidden", "you no longer have access to this assistant.")
+	case err != nil: // "not found" is also what a model server that is still starting looks like
+		return nil, &tryLater{notContinued("model_not_found", "the assistant's model is not available.")}
+	case m.Kind != "":
+		return nil, notContinued("model_not_chat", "the assistant's model can no longer chat.")
+	}
+	x.m, x.chat = m, &chat
+	x.run.mu.Lock()
+	x.run.ModelID, x.run.unattended = m.ID, stored.Unattended
+	x.run.mu.Unlock()
+	if x.cowork() && !u.Can("features.cowork") {
+		return nil, notContinued("forbidden", "Permission required: features.cowork")
+	}
+	if strings.HasPrefix(c.origin, "schedule:") && !(u.Can("features.cowork") && u.Can("features.cowork_schedule")) {
+		return nil, notContinued("forbidden", "Permission required: features.cowork_schedule")
+	}
+	wasLocal := stored.Local || (x.ck != nil && x.ck.Local)
+	if !m.Local && (wasLocal || (chat.Locality != nil && *chat.Locality == "local" && e.Settings.Bool(ctx, "chat.local_lock"))) {
+		// what a local run read (mail, documents of local-only tools) must never reach a hosted provider
+		return nil, notContinued("local_lock", "it started on a local model, and the assistant now uses a hosted one.")
+	}
+	if c.timeLeft != nil && *c.timeLeft <= 0 {
+		return nil, &stopRun{"timeout", timeLimitMsg}
+	}
+	x.interactive, x.parentID, x.durable = stored.Interactive, stored.ParentID, true
+	x.req = &Request{Model: stored.Model, ChatID: chat.ID, ID: c.messageID, ParentID: stored.ParentID, Files: stored.Files,
+		Features: stored.Features, ToolIDs: stored.ToolIDs, Params: stored.Params, Unattended: stored.Unattended,
+		ReadOnly: stored.ReadOnly, Preface: stored.Preface, Origin: c.origin}
+	if stored.Interactive {
+		x.req.StreamFormat = "events"
+	}
+	x.run.persist = func() { e.savePending(x) }
+	runCtx, cancel := e.runContext(ctx, x) // a child of ctx, so a stop that came during the setup still applies
+	if c.timeLeft != nil {
+		x.timeLimit(time.Duration(*c.timeLeft*float64(time.Second)), cancel)
+	}
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	return runCtx, nil
+}
+
+// deferRun puts a run back for a later try and reports whether it did; false means it has been tried long enough.
+func (e *Engine) deferRun(x *exec) bool {
+	e.deferMu.Lock()
+	first, ok := e.deferred[x.run.ID]
+	if !ok {
+		first = time.Now()
+		e.deferred[x.run.ID] = first
+	}
+	e.deferMu.Unlock()
+	if time.Since(first) > resumePatience {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	slog.Warn("run cannot be resumed yet, trying again", "run", x.run.ID, "in", resumeRetry)
+	e.detach(x.run, errRunLater)
+	if _, err := e.DB.Exec(ctx, `UPDATE run SET state = 'queued', lease_owner = NULL, lease_until = NULL,
+			not_before = CASE WHEN cancel_requested THEN NULL ELSE now() + make_interval(secs => $4) END
+		WHERE id = $1 AND lease_owner = $2 AND attempt = $3`, x.run.ID, e.instance, x.run.attempt, resumeRetry.Seconds()); err != nil {
+		slog.Warn("put a run back", "run", x.run.ID, "err", err) // the lease expires instead
+	}
+	return true
+}
+
+func (e *Engine) forgetDeferred(runID string) {
+	e.deferMu.Lock()
+	delete(e.deferred, runID)
+	e.deferMu.Unlock()
 }
 
 // restoreDisplay puts the stored message back into a run, so its streams and saves continue from it.
@@ -391,12 +575,27 @@ func restoreDisplay(r *Run, m chats.Message) {
 	r.state = st
 }
 
+// ---- origin -----------------------------------------------------------------------------
+
+type originKey struct{}
+
+// WithOrigin marks ctx as a run started by origin (Request.Origin); Origin reads it back.
+func WithOrigin(ctx context.Context, origin string) context.Context {
+	return context.WithValue(ctx, originKey{}, origin)
+}
+
+// Origin is what started the run ctx belongs to, "" for a run a person sent.
+func Origin(ctx context.Context) string {
+	o, _ := ctx.Value(originKey{}).(string)
+	return o
+}
+
 // ---- cancel ---------------------------------------------------------------------------
 
 // requestCancel records a cancel on the message's run, so the instance that owns it (any of them) stops it. It
 // reports whether the user has such a run.
 func (e *Engine) requestCancel(ctx context.Context, userID, chatID, messageID string) (bool, error) {
-	tag, err := e.DB.Exec(ctx, `UPDATE run SET cancel_requested = true,
+	tag, err := e.DB.Exec(ctx, `UPDATE run SET cancel_requested = true, not_before = NULL,
 			state = CASE WHEN state = 'waiting' THEN 'queued' ELSE state END
 		WHERE message_id = $1 AND chat_id = $2 AND user_id = $3`, messageID, chatID, userID)
 	if err != nil {

@@ -69,6 +69,10 @@ var Defaults = map[string]json.RawMessage{
 	"chat.repeat_limit":         raw(`3`),
 	"chat.parallel_tools":       raw(`true`),
 
+	// Durable runs (internal/engine/durable.go, docs/durable-runs.md): a run of a stored chat that a restart or a crash
+	// interrupts goes on from its last checkpoint. Off: it ends with an error that says the server restarted.
+	"runs.resume": raw(`true`),
+
 	// Run trace (internal/engine/trace.go): sizes and timings of each model round and tool call, kept for
 	// retention_days and then purged. No text is stored.
 	"trace.enable":         raw(`true`),

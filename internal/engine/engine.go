@@ -47,6 +47,13 @@ type Engine struct {
 	// Memory stores what automatic memory review learns; nil switches the review off.
 	Memory *memory.Store
 
+	// LoadUser loads an account with its permissions as they are now, and refuses a disabled or removed one. A resumed
+	// run is allowed to go on only by what this returns (Mount: the app's authenticator).
+	LoadUser func(ctx context.Context, id string) (*auth.User, error)
+
+	deferMu  sync.Mutex
+	deferred map[string]time.Time // runs put back to be resumed later, by the time of the first try
+
 	// instance names this process as the owner of the leases it holds (durable.go).
 	instance string
 	kicked   chan struct{}
@@ -81,6 +88,9 @@ func For(a *app.App) *Engine {
 	return reg[a]
 }
 
+// timeLimitMsg is the error of an unattended run that ran too long.
+const timeLimitMsg = "This scheduled run was stopped because it ran longer than the time limit."
+
 // interruptedMsg is the error a run stopped by a restart is saved with.
 const interruptedMsg = "The server restarted while this answer was being written; the text above is what was written until then."
 
@@ -104,13 +114,15 @@ func (e *Engine) Shutdown(d time.Duration) {
 // New builds an engine; Mount uses the app's shared services.
 func New(db *pgxpool.Pool, keys *secret.Keys, st *settings.Store, reg *models.Registry, fs *files.Service, cs *chats.Store, publicURL string) *Engine {
 	return &Engine{DB: db, Keys: keys, Settings: st, Models: reg, Files: fs, Chats: cs, PublicURL: publicURL,
-		HTTP: &http.Client{}, runs: newRegistry(), instance: ids.New(), kicked: make(chan struct{}, 1), lastBeat: time.Now()}
+		HTTP: &http.Client{}, runs: newRegistry(), instance: ids.New(), kicked: make(chan struct{}, 1), lastBeat: time.Now(),
+		LoadUser: auth.New(db, keys, st, false).LoadUser, deferred: map[string]time.Time{}}
 }
 
 // Mount registers the completion, stream and callback routes and the built-in tools.
 func Mount(a *app.App) error {
 	e := New(a.DB, a.Keys, a.Settings, models.For(a), files.For(a), chats.For(a), a.Env.PublicURL)
 	e.CallbackURL = a.Env.CallbackURL
+	e.LoadUser = a.Auth.LoadUser
 	e.Memory = memory.For(a)
 	e.Chats.SetLive(e.live)
 	tools.Register(&filesTools{e: e})

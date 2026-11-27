@@ -180,6 +180,7 @@ func newHarness(t *testing.T) *harness {
 func init() {
 	pingEvery = 50 * time.Millisecond
 	retryDelay = func(int) time.Duration { return time.Millisecond }
+	holdPoll = 20 * time.Millisecond
 }
 
 func (h *harness) chat(t *testing.T) string {
@@ -673,12 +674,12 @@ func TestResumeReplaysAfterSeqAndSnapshot(t *testing.T) {
 
 func TestRunTokens(t *testing.T) {
 	k, _ := secret.Derive(strings.Repeat("s", 32))
-	tok, _ := signRunToken(k, "r1", "u1", time.Now().Add(time.Minute))
-	if !verifyRunToken(k, "r1", tok) || verifyRunToken(k, "r2", tok) || verifyRunToken(k, "r1", tok+"x") {
+	tok, _ := signRunToken(k, "r1", "u1", 1, time.Now().Add(time.Minute))
+	if !verifyRunToken(k, "r1", 1, tok) || verifyRunToken(k, "r2", 1, tok) || verifyRunToken(k, "r1", 1, tok+"x") || verifyRunToken(k, "r1", 2, tok) {
 		t.Fatal("token check")
 	}
-	old, _ := signRunToken(k, "r1", "u1", time.Now().Add(-time.Second))
-	if verifyRunToken(k, "r1", old) {
+	old, _ := signRunToken(k, "r1", "u1", 1, time.Now().Add(-time.Second))
+	if verifyRunToken(k, "r1", 1, old) {
 		t.Fatal("expired token accepted")
 	}
 }
@@ -1274,7 +1275,7 @@ func TestCallbackFileUpload(t *testing.T) {
 	if err := h.e.runs.add(run); err != nil {
 		t.Fatal(err)
 	}
-	tok, _ := signRunToken(h.e.Keys, run.ID, run.UserID, time.Now().Add(time.Minute))
+	tok, _ := signRunToken(h.e.Keys, run.ID, run.UserID, run.attempt, time.Now().Add(time.Minute))
 	post := func(tok, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/v1/runs/"+run.ID+"/files?name=screen.jpg", strings.NewReader(body))
 		r.SetPathValue("run", run.ID)
@@ -1459,7 +1460,7 @@ func TestCallbackLinks(t *testing.T) {
 		{msg: provider.Message{Role: "assistant", Content: "see https://evil.test/b"}},
 		{msg: provider.Message{Role: "user", Content: "again https://x.test/a"}},
 	})
-	tok, _ := signRunToken(h.e.Keys, run.ID, run.UserID, time.Now().Add(time.Minute))
+	tok, _ := signRunToken(h.e.Keys, run.ID, run.UserID, run.attempt, time.Now().Add(time.Minute))
 	get := func(tok string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", "/api/v1/runs/"+run.ID+"/links", nil)
 		r.SetPathValue("run", run.ID)
