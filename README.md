@@ -93,8 +93,6 @@ How it differs from Open WebUI, LibreChat, AnythingLLM and Onyx, row by row and 
 - 🎨 **Branding.** Your own name, logos and colours, set from the admin console.
 
 <a id="screenshots"></a>
-
-<a id="screenshots"></a>
 ## 📸 Screenshots
 
 The screenshots follow your light or dark theme. They show a demo workspace for a made-up company.
@@ -111,47 +109,11 @@ The screenshots follow your light or dark theme. They show a demo workspace for 
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/knowledge-dark.png">
-        <img src="docs/images/knowledge-light.png" alt="A knowledge collection called Product docs with five indexed Markdown files" width="100%">
-      </picture>
-      <br>
-      <sub><b>Knowledge.</b> A collection of files, indexed for hybrid search.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/assistants-dark.png">
-        <img src="docs/images/assistants-light.png" alt="The Workspace models page listing six assistant presets as cards with their knowledge and tool counts" width="100%">
-      </picture>
-      <br>
-      <sub><b>Assistants.</b> Presets with their own prompt, tools and knowledge.</sub>
-    </td>
-    <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/cowork-dark.png">
-        <img src="docs/images/cowork-light.png" alt="The Cowork task list with tasks that are running, waiting for input, done and failed" width="100%">
-      </picture>
-      <br>
-      <sub><b>Cowork.</b> Tasks that run on their own, finish, or wait for an answer.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/cowork-task-dark.png">
         <img src="docs/images/cowork-task-light.png" alt="A finished Cowork task with its expanded step timeline and the Markdown file it produced in the Outputs panel" width="100%">
       </picture>
       <br>
       <sub><b>A finished task.</b> Its steps, its report and the file it produced.</sub>
-    </td>
-    <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/scheduled-dark.png">
-        <img src="docs/images/scheduled-light.png" alt="The Scheduled tab with five scheduled tasks, their next and last runs, and one failed run with its reason" width="100%">
-      </picture>
-      <br>
-      <sub><b>Scheduled tasks.</b> A timetable per task, and the reason when a run fails.</sub>
     </td>
   </tr>
   <tr>
@@ -165,57 +127,72 @@ The screenshots follow your light or dark theme. They show a demo workspace for 
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/pipelines-dark.png">
-        <img src="docs/images/pipelines-light.png" alt="The Pipelines page with five pipelines in different states: failed, late, warning, never run and OK, each with its last run" width="100%">
-      </picture>
-      <br>
-      <sub><b>Pipelines.</b> Collections kept in sync with their sources, and which runs failed or are late.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/pipeline-run-dark.png">
         <img src="docs/images/pipeline-run-light.png" alt="A failed pipeline run with the error in plain words and the last log lines, above the flow of steps with the build step in red" width="100%">
       </picture>
       <br>
       <sub><b>A failed run.</b> The flow of steps, the step that broke and why.</sub>
     </td>
-    <td width="50%"></td>
   </tr>
 </table>
 
-**Pipelines up close.** A scratch workspace with five invented pipelines whose scripts really ran on two runners: run times, a run that waited for a runner, the step that failed. More screens, and where each timing shows up, are in [Pipelines in pictures](docs/pipelines.md#pipelines-in-pictures).
+<details>
+<summary>More screenshots: knowledge, assistants, Cowork tasks, scheduled tasks, pipelines</summary>
+<br>
 
 <table>
   <tr>
     <td width="50%">
-      <a href="docs/pipelines.md#pipelines-in-pictures"><img src="docs/images/pipelines-overview-light.png" alt="The Pipelines page with five pipelines: Invoice check failed, Nightly report with a warning, Knowledge base refresh running, Docs sync and Ticket digest OK, each with its timetable, next run and last run" width="100%"></a>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/knowledge-dark.png">
+        <img src="docs/images/knowledge-light.png" alt="A knowledge collection called Product docs with five indexed Markdown files" width="100%">
+      </picture>
       <br>
-      <sub><b>The list.</b> State, timetable, next run and last run for each pipeline.</sub>
+      <sub><b>Knowledge.</b> A collection of files, indexed for hybrid search.</sub>
     </td>
     <td width="50%">
-      <a href="docs/pipelines.md#a-finished-run"><picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/pipeline-run-ok-dark.png">
-        <img src="docs/images/pipeline-run-ok-light.png" alt="A finished Docs sync run: Finished OK in 1 min 35 s, a progress bar with four green segments, and a step waterfall with four steps and their durations" width="100%">
-      </picture></a>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/assistants-dark.png">
+        <img src="docs/images/assistants-light.png" alt="The Workspace models page listing six assistant presets as cards with their knowledge and tool counts" width="100%">
+      </picture>
       <br>
-      <sub><b>A finished run.</b> Total time, the usual time, and how long each step took.</sub>
+      <sub><b>Assistants.</b> Presets with their own prompt, tools and knowledge.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <a href="docs/pipelines.md#a-run-in-progress"><img src="docs/images/pipeline-run-live-light.png" alt="A Knowledge base refresh run in progress: Running, step 2 of 4, an elapsed clock at 2 min 23 s, and the open step with a striped bar and a growing log" width="100%"></a>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/cowork-dark.png">
+        <img src="docs/images/cowork-light.png" alt="The Cowork task list with tasks that are running, waiting for input, done and failed" width="100%">
+      </picture>
       <br>
-      <sub><b>A run in progress.</b> The elapsed clock, the open step and its log.</sub>
+      <sub><b>Cowork.</b> Tasks that run on their own, finish, or wait for an answer.</sub>
     </td>
     <td width="50%">
-      <a href="docs/pipelines.md#a-failed-run"><img src="docs/images/pipeline-run-failed-light.png" alt="A failed Invoice check run: Failed at Validate invoices, the error in a red block, the failing step open with its log lines, and two steps skipped" width="100%"></a>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/scheduled-dark.png">
+        <img src="docs/images/scheduled-light.png" alt="The Scheduled tab with five scheduled tasks, their next and last runs, and one failed run with its reason" width="100%">
+      </picture>
       <br>
-      <sub><b>A failed run.</b> Which step failed, why, and the last log lines.</sub>
+      <sub><b>Scheduled tasks.</b> A timetable per task, and the reason when a run fails.</sub>
     </td>
   </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/pipelines-dark.png">
+        <img src="docs/images/pipelines-light.png" alt="The Pipelines page with five pipelines in different states: failed, late, warning, never run and OK, each with its last run" width="100%">
+      </picture>
+      <br>
+      <sub><b>Pipelines.</b> Collections kept in sync with their sources, and which runs failed or are late.</sub>
+    </td>
+    <td width="50%"></td>
+  </tr>
 </table>
+
+</details>
+
+Run times, a run in progress, a run waiting for a runner and the step that failed are in [Pipelines in pictures](docs/pipelines.md#pipelines-in-pictures).
 
 <a id="architecture"></a>
 ## 🧩 Architecture
