@@ -114,6 +114,7 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 	}
 	run := newRun(chatID, msgID, u.ID, m.ID, x.chat != nil)
 	run.unattended = req.Unattended
+	run.resumes = x.durable
 	x.run = run
 	if err := e.runs.add(run); err != nil {
 		return nil, err
@@ -290,6 +291,9 @@ func (e *Engine) execute(ctx context.Context, x *exec) {
 		return
 	case errors.Is(err, errCancelled) || errors.Is(context.Cause(ctx), errCancelled):
 		status = "stopped"
+	case x.durable && (errors.Is(err, errShutdown) || errors.Is(context.Cause(ctx), errShutdown)):
+		e.releaseRun(x)
+		return
 	case errors.Is(context.Cause(ctx), errShutdown):
 		x.run.fail("interrupted", interruptedMsg)
 	case errors.Is(context.Cause(ctx), errTimeLimit):
@@ -380,10 +384,13 @@ func (e *Engine) finish(x *exec, status string, ok bool) {
 		return
 	}
 	x.run.emitUsage()
-	if ok && status == "done" {
-		e.backgroundTasks(ctx, x)
+	// the extras are skipped or cut while shutting down: saving the finished answer matters more
+	if ok && status == "done" && !e.draining() {
+		taskCtx, stop := e.cutOnDrain(ctx)
+		e.backgroundTasks(taskCtx, x)
+		stop()
 	}
-	if e.end(x, status, ok) && ok && status == "done" {
+	if e.end(x, status, ok) && ok && status == "done" && !e.draining() {
 		e.maybeReviewMemory(x)
 	}
 }

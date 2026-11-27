@@ -56,6 +56,9 @@ type openRound struct {
 	// recorded when the model asks, because the tools of a restarted server can differ.
 	Safe []string `json:"safe"`
 	Shot *ckImage `json:"shot,omitempty"` // the newest screenshot among the results so far
+	// Idle: the run stopped between calls on purpose, so no call without a result has started and none is in doubt.
+	// It is cleared, and that is saved, before any call runs again.
+	Idle bool `json:"idle,omitempty"`
 }
 
 type ckMessage struct {
@@ -272,7 +275,7 @@ const (
 // started; they run normally, judged by the tools there are now (o.Safe is brought up to date for them).
 func resumePlan(table map[string]toolEntry, calls []provider.ToolCall, from int, o *openRound) []string {
 	skip := make([]string, len(calls))
-	started := true // calls from here on may have started before the restart
+	started := !o.Idle // calls from here on may have started before the restart
 	for i := from; i < len(calls); i++ {
 		now := safeProvider(table, calls[i])
 		switch {

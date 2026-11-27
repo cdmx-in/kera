@@ -314,9 +314,14 @@ func (h *harness) expire(t *testing.T, mid string) {
 
 // until waits for cond.
 func until(t *testing.T, what string, cond func() bool) {
-	t.Helper()
+	if t != nil {
+		t.Helper()
+	}
 	for deadline := time.Now().Add(30 * time.Second); !cond(); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
+			if t == nil {
+				panic("timed out waiting for " + what)
+			}
 			t.Fatal("timed out waiting for " + what)
 		}
 	}
@@ -1076,5 +1081,228 @@ func TestSaveDropsNUL(t *testing.T) {
 	m := h.message(t, cid, "a1")
 	if m.Content != "ab" || !strings.Contains(string(m.Parts), `"xy"`) || !strings.Contains(string(m.Parts), "12345678901234567890") {
 		t.Fatalf("stored %q %s", m.Content, m.Parts)
+	}
+}
+
+// shutdown runs e.Shutdown in the background and returns a channel closed when it returns.
+func shutdown(e *Engine, d time.Duration) <-chan struct{} {
+	done := make(chan struct{})
+	go func() { e.Shutdown(d); close(done) }()
+	until(nil, "the drain to start", e.draining)
+	return done
+}
+
+func closed(t *testing.T, done <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal(what + " did not finish")
+	}
+}
+
+// A deploy lets the running call finish and records it, starts no other, and hands the run over: the next process
+// runs the rest, with nothing in doubt and no recovery counted.
+func TestShutdownThenStartResumes(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	h.tool.block("write_a")
+	cid, run := h.task(t, h.e, "calls: write_a, write_b")
+	mid := run.MessageID
+	h.tool.await(t, "write_a")
+	done := shutdown(h.e, 20*time.Second)
+	select {
+	case <-done:
+		t.Fatal("shutdown did not wait for the running call")
+	case <-time.After(300 * time.Millisecond):
+	}
+	h.tool.release("write_a")
+	closed(t, done, "shutdown")
+	if r := h.row(t, mid); !r.found || r.state != "queued" || r.owner != "" || !r.hasCheckpoint {
+		t.Fatalf("after the drain: %+v", r)
+	}
+	if m := h.message(t, cid, mid); m.Status != "streaming" || m.Error != "" {
+		t.Fatalf("message after the drain: %q %q", m.Status, m.Error)
+	}
+	if h.tool.ran("write_b") != 0 {
+		t.Fatal("a call started during the drain")
+	}
+	if run.detached() == nil {
+		t.Fatal("an attached stream was told the run is done")
+	}
+	h.e.tick(context.Background()) // a draining engine claims nothing
+	if r := h.row(t, mid); r.state != "queued" {
+		t.Fatalf("a draining engine claimed: %+v", r)
+	}
+	h.tool.block("write_b")
+	b.tick(context.Background())
+	h.tool.await(t, "write_b")
+	if r := h.row(t, mid); r.attempt != 2 || r.recoveries != 0 {
+		t.Fatalf("a released run counts no recovery: %+v", r)
+	}
+	h.tool.release("write_b")
+	m := h.settled(t, cid, mid)
+	if want := "round 1. done: write_a ok #1 | write_b ok #1"; m.Status != "done" || m.Content != want {
+		t.Fatalf("got %q %q, want %q", m.Status, m.Content, want)
+	}
+}
+
+// A call that does not finish in time is cut off. It gets no result, although a tool server answers a cut call with
+// an ordinary error: that would tell the model the write failed, and it would try again.
+func TestShutdownCutsASlowCall(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	h.tool.block("write_a")
+	cid, run := h.task(t, h.e, "calls: write_a")
+	h.tool.await(t, "write_a")
+	closed(t, shutdown(h.e, 100*time.Millisecond), "shutdown")
+	h.tool.release("write_a")
+	if r := h.row(t, run.MessageID); r.state != "queued" {
+		t.Fatalf("after the cut: %+v", r)
+	}
+	m := h.resumeOn(t, b, cid, run.MessageID)
+	if want := "round 1. done: " + unknownResult; m.Content != want || h.tool.ran("write_a") != 1 {
+		t.Fatalf("write_a ran %d times; answer %q, want %q", h.tool.ran("write_a"), m.Content, want)
+	}
+}
+
+// A model reply being streamed is not waited for: it is asked for again after the restart.
+func TestShutdownDuringModelCall(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	cid, run := h.task(t, h.e, "hang")
+	until(t, "the model to answer", func() bool { return strings.Contains(run.stateText(), "partial") })
+	started := time.Now()
+	closed(t, shutdown(h.e, 20*time.Second), "shutdown")
+	if time.Since(started) > 5*time.Second {
+		t.Fatalf("shutdown waited %v for a model reply", time.Since(started))
+	}
+	h.model.open()
+	if m := h.resumeOn(t, b, cid, run.MessageID); m.Status != "done" || m.Content != "partial rest" {
+		t.Fatalf("%q %q %q", m.Status, m.Content, m.Error)
+	}
+}
+
+// After a drain the calls that had not started are marked so. That mark must be gone, on disk, before one of them
+// runs: otherwise a crash during it would run it a second time.
+func TestNothingStartedMarkIsClearedBeforeRunning(t *testing.T) {
+	h := newDurable(t)
+	b, c := h.peer(t), h.peer(t)
+	h.tool.block("write_a")
+	cid, run := h.task(t, h.e, "calls: write_a, write_b")
+	mid := run.MessageID
+	h.tool.await(t, "write_a")
+	done := shutdown(h.e, 20*time.Second)
+	h.tool.release("write_a")
+	closed(t, done, "shutdown")
+	h.tool.block("write_b")
+	b.tick(context.Background())
+	h.tool.await(t, "write_b")
+	h.crash(t, b, b.runs.byMessage(mid))
+	h.tool.release("write_b")
+	m := h.resumeOn(t, c, cid, mid)
+	if want := "round 1. done: write_a ok #1 | " + unknownResult; m.Content != want || h.tool.ran("write_b") != 1 {
+		t.Fatalf("write_b ran %d times; answer %q, want %q", h.tool.ran("write_b"), m.Content, want)
+	}
+}
+
+// A drain during a resumed round must not mark the round as not started while the call that was in flight at the
+// crash is still in doubt.
+func TestDrainKeepsTheDoubt(t *testing.T) {
+	h := newDurable(t)
+	b, c := h.peer(t), h.peer(t)
+	h.tool.block("write_a")
+	cid, run := h.task(t, h.e, "calls: read_a, write_a")
+	mid := run.MessageID
+	h.tool.await(t, "write_a")
+	h.crash(t, h.e, run)
+	h.tool.release("write_a")
+	h.tool.block("read_a")
+	b.tick(context.Background())
+	h.tool.await(t, "read_a") // the resumed run calls the read again
+	done := shutdown(b, 20*time.Second)
+	h.tool.release("read_a")
+	closed(t, done, "shutdown")
+	m := h.resumeOn(t, c, cid, mid)
+	if h.tool.ran("write_a") != 1 || !strings.HasSuffix(m.Content, unknownResult) {
+		t.Fatalf("write_a ran %d times; answer %q", h.tool.ran("write_a"), m.Content)
+	}
+}
+
+// Runs that cannot be resumed are stopped and saved as before: a temporary chat, and any chat with resume off.
+func TestShutdownSavesPartialAnswer(t *testing.T) {
+	h := newDurable(t)
+	if err := h.e.Settings.Set(context.Background(), "runs.resume", false, false); err != nil {
+		t.Fatal(err)
+	}
+	cid, run := h.task(t, h.e, "hang")
+	until(t, "the model to answer", func() bool { return strings.Contains(run.stateText(), "partial") })
+	tmp, err := h.e.Start(context.Background(), h.u, &Request{Model: "m1", StreamFormat: "events", Temporary: true,
+		Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"hang"`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the temporary run to answer", func() bool { return strings.Contains(tmp.stateText(), "partial") })
+	closed(t, shutdown(h.e, 20*time.Second), "shutdown")
+	if !run.Finished() || !tmp.Finished() || tmp.detached() != nil || run.detached() != nil {
+		t.Fatal("Shutdown returned with a run still live")
+	}
+	if m := h.message(t, cid, run.MessageID); m.Status != "error" || m.Content == "" || !strings.Contains(m.Error, "restarted") {
+		t.Fatalf("interrupted message: status %q content %q error %v", m.Status, m.Content, m.Error)
+	}
+	if h.row(t, run.MessageID).found {
+		t.Fatal("the row of a run that cannot be resumed stayed")
+	}
+}
+
+// The time limit of an unattended run is a wall-clock limit: a restart does not give it a new one.
+func TestUnattendedDeadlineSurvivesResume(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	b := h.peer(t)
+	h.tool.block("write_a")
+	cid := h.taskChat(t)
+	run, err := h.e.Start(ctx, h.u, &Request{Model: "m1", ChatID: cid, ID: "a1", Unattended: true,
+		ToolIDs: []string{"durable-server"}, UserMessage: &UserMessage{ID: "q1", Content: "calls: write_a ; write_b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left float64
+	read := `SELECT extract(epoch FROM deadline - now())::float8 FROM run WHERE message_id = 'a1'`
+	if err := h.pool.QueryRow(ctx, read).Scan(&left); err != nil || left <= 0 {
+		t.Fatalf("no deadline on an unattended run: %v %v", left, err)
+	}
+	h.tool.await(t, "write_a")
+	h.crash(t, h.e, run)
+	h.tool.release("write_a")
+	if _, err := h.pool.Exec(ctx, `UPDATE run SET deadline = now() + interval '1500 milliseconds'`); err != nil {
+		t.Fatal(err)
+	}
+	h.tool.block("write_b")
+	m := h.resumeOn(t, b, cid, "a1")
+	if m.Status != "error" || m.Error != timeLimitMsg {
+		t.Fatalf("%q %q", m.Status, m.Error)
+	}
+}
+
+// The trace of the attempts of one run is one list: the later attempt's steps come after the earlier one's.
+func TestTraceAcrossAttempts(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	h.tool.block("write_a")
+	cid, run := h.task(t, h.e, "calls: write_a")
+	h.tool.await(t, "write_a")
+	done := shutdown(h.e, 20*time.Second)
+	h.tool.release("write_a")
+	closed(t, done, "shutdown")
+	h.resumeOn(t, b, cid, run.MessageID)
+	b.Wait()
+	var steps, seqs, early, late int
+	if err := h.pool.QueryRow(context.Background(), `SELECT count(*), count(DISTINCT seq), count(*) FILTER (WHERE seq < $2),
+		count(*) FILTER (WHERE seq >= $2) FROM run_step WHERE run_id = $1`, run.ID, maxTraceSteps).Scan(&steps, &seqs, &early, &late); err != nil {
+		t.Fatal(err)
+	}
+	if steps != seqs || early == 0 || late == 0 {
+		t.Fatalf("steps %d, distinct seq %d, first attempt %d, second %d", steps, seqs, early, late)
 	}
 }

@@ -203,6 +203,19 @@ func (e *Engine) detach(r *Run, why error) {
 	e.runs.remove(r)
 }
 
+// releaseRun hands back a run that a shutdown stopped: queued with no owner, so the next process claims it at once
+// and without counting a recovery. It goes on from its last checkpoint.
+func (e *Engine) releaseRun(x *exec) {
+	e.saveTrace(x) // this attempt's steps
+	e.detach(x.run, errShutdown)
+	ctx, cancel := context.WithTimeout(context.Background(), releaseWait)
+	defer cancel()
+	if _, err := e.DB.Exec(ctx, `UPDATE run SET state = 'queued', lease_owner = NULL, lease_until = NULL
+		WHERE id = $1 AND lease_owner = $2 AND attempt = $3`, x.run.ID, e.instance, x.run.attempt); err != nil {
+		slog.Warn("release a run", "run", x.run.ID, "err", err) // the lease expires instead
+	}
+}
+
 // ---- heartbeat and claims -------------------------------------------------------------
 
 // durableLoop renews the leases and takes over runs that need an owner, until the engine stops.
@@ -235,7 +248,7 @@ func (e *Engine) tick(ctx context.Context) {
 		slog.Warn("run heartbeat", "err", err)
 		return
 	}
-	for {
+	for !e.draining() {
 		c, ok, err := e.claim(ctx)
 		if err != nil {
 			slog.Warn("claim a run", "err", err)
@@ -407,6 +420,7 @@ func (e *Engine) takeOver(c claimed) {
 		old.stop(errLostLease) // a stale attempt of ours that has not noticed yet
 		old.detach(errLostLease)
 	}
+	run.setResumable(true)
 	run.setLeased()
 	e.wg.Add(1)
 	go e.resumeClaimed(runCtx, x, c, ckErr)
@@ -425,6 +439,8 @@ func (e *Engine) resumeClaimed(ctx context.Context, x *exec, c claimed, ckErr er
 	switch {
 	case errors.Is(context.Cause(ctx), errLostLease):
 		e.abandon(x)
+	case errors.Is(context.Cause(ctx), errShutdown):
+		e.releaseRun(x)
 	case c.cancelled || errors.Is(context.Cause(ctx), errCancelled):
 		e.endUnresumed(x, "stopped")
 	case errors.As(err, &later) && e.deferRun(x):

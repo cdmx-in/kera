@@ -176,6 +176,8 @@ func (e *Engine) holdStream(w http.ResponseWriter, r *http.Request, m chats.Mess
 		select {
 		case <-r.Context().Done():
 			return
+		case <-e.drain.Done():
+			return // the server waits for open requests before it exits; the browser reconnects
 		case <-ping.C:
 			if s.ping() != nil {
 				return

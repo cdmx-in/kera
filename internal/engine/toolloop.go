@@ -309,6 +309,9 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 	passthrough := len(x.req.Tools) > 0
 	for ; ; round++ {
 		if open == nil {
+			if x.durable && e.draining() {
+				return errShutdown // the last checkpoint holds the finished rounds
+			}
 			x.run.mu.Lock()
 			x.run.roundText = ""
 			x.run.mu.Unlock()
@@ -339,7 +342,7 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 				}
 			}
 			if err != nil {
-				if final && ctx.Err() == nil { // the work is done and saved; only the closing report is missing
+				if final && ctx.Err() == nil && !errors.Is(err, errShutdown) { // the work is done and saved; only the closing report is missing
 					slog.Warn("final report call failed", "run", x.run.ID, "err", err)
 					return nil
 				}
@@ -385,6 +388,13 @@ func (e *Engine) finishRound(ctx context.Context, x *exec, table map[string]tool
 	skip := make([]string, len(calls))
 	if resumed {
 		skip = resumePlan(table, calls, from, open)
+		if open.Idle {
+			open.Idle = false
+			// saved before anything runs: if the process dies now, a call that has started must be in doubt again
+			if err := e.saveCheckpoint(x, checkpointOf(x, msgs, b, round, open)); err != nil {
+				return msgs, err
+			}
+		}
 	}
 	var shot []provider.Image
 	if open.Shot != nil {
@@ -395,8 +405,11 @@ func (e *Engine) finishRound(ctx context.Context, x *exec, table map[string]tool
 	b.callChars = b.callShare(msgs[:open.At+1], len(calls)) // the round's results share what is left of the window
 	err := e.runCalls(ctx, x, table, b, st, calls[from:], round, roundHooks{
 		skip: skip[from:],
-		before: func(i int) error {
-			if open.Safe[from+i] != "" {
+		before: func(i int, skipped bool) error {
+			if x.durable && e.draining() {
+				return e.stopBetweenCalls(x, msgs, b, round, open, skip[from+i:])
+			}
+			if skipped || open.Safe[from+i] != "" {
 				return nil
 			}
 			return e.hold(ctx, x) // a call that may change something is made only by the run's owner
@@ -434,6 +447,19 @@ func (e *Engine) finishRound(ctx context.Context, x *exec, table map[string]tool
 		return msgs, nil
 	}
 	return msgs, e.saveCheckpoint(x, checkpointOf(x, msgs, b, round, nil))
+}
+
+// stopBetweenCalls stops a draining run before its next call, and records that none of the calls still to run has
+// started. Not while a call is still in doubt from an earlier restart (pending carries its replacement result): the
+// older checkpoint, which says so, stays as it is.
+func (e *Engine) stopBetweenCalls(x *exec, msgs []provider.Message, b *runBudget, round int, open *openRound, pending []string) error {
+	if !slices.ContainsFunc(pending, func(s string) bool { return s != "" }) {
+		open.Idle = true
+		if err := e.saveCheckpoint(x, checkpointOf(x, msgs, b, round, open)); err != nil {
+			return err
+		}
+	}
+	return errShutdown
 }
 
 // retryDelay is the wait before retry n (0-based) of a model call; a variable so tests need not wait.
@@ -475,6 +501,11 @@ type attempt struct {
 func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client, req provider.Request, round int, b *runBudget, final bool) ([]provider.ToolCall, string, error) {
 	retries := 2
 	e.setting(ctx, "chat.model_retries", &retries)
+	if x.durable { // a reply cut off by a shutdown is asked for again after the restart
+		var stop func()
+		ctx, stop = e.cutOnDrain(ctx)
+		defer stop()
+	}
 	for try := 0; ; try++ {
 		started := time.Now()
 		a := e.streamOnce(ctx, x, client, req)
@@ -498,6 +529,7 @@ func (e *Engine) callModel(ctx context.Context, x *exec, client provider.Client,
 // streamOnce makes one model call.
 func (e *Engine) streamOnce(ctx context.Context, x *exec, client provider.Client, req provider.Request) (a attempt) {
 	a.finish = "stop"
+	complete := false
 	for ev, serr := range client.Stream(ctx, req) {
 		if serr != nil {
 			a.err = serr
@@ -523,10 +555,15 @@ func (e *Engine) streamOnce(ctx context.Context, x *exec, client provider.Client
 			u := ev.Usage
 			a.use = &u
 		case provider.EventDone:
+			complete = true
 			if ev.FinishReason != "" {
 				a.finish = ev.FinishReason
 			}
 		}
+	}
+	if c := context.Cause(ctx); c != nil && !complete { // a stream that just ends when cancelled is not a reply
+		a.err, a.calls, a.finish = c, nil, ""
+		return a
 	}
 	x.run.reasoningDone()
 	if len(a.calls) > 0 {
@@ -600,7 +637,7 @@ type callResult struct {
 // roundHooks is how a round's calls report to the loop.
 type roundHooks struct {
 	skip   []string                        // per call: the result to give instead of running it ("" = run it)
-	before func(i int) error               // before a call that runs on its own; an error stops the round
+	before func(i int, skipped bool) error // before a call starts (skipped: it will not run); an error stops the round
 	done   func(i int, r callResult) error // each result, in call order; an error stops the round
 }
 
@@ -626,10 +663,8 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 			if ctx.Err() != nil {
 				break
 			}
-			if h.before != nil && skip[i] == "" {
-				if err := h.before(i); err != nil {
-					return err
-				}
+			if err := h.before(i, skip[i] != ""); err != nil {
+				return err
 			}
 			one(i, e.announce(x, table, calls[i]))
 			if ctx.Err() != nil && out[i].failed {
@@ -640,6 +675,9 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 			}
 		}
 		return nil
+	}
+	if err := h.before(0, false); err != nil {
+		return err
 	}
 	x.run.mu.Lock()
 	first := len(x.run.tools)

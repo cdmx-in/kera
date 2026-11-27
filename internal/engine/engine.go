@@ -54,6 +54,11 @@ type Engine struct {
 	deferMu  sync.Mutex
 	deferred map[string]time.Time // runs put back to be resumed later, by the time of the first try
 
+	// drain is cancelled when the engine starts shutting down: no call starts after it, model calls of runs that can
+	// be resumed are cut, and held streams close.
+	drain      context.Context
+	startDrain context.CancelFunc
+
 	// instance names this process as the owner of the leases it holds (durable.go).
 	instance string
 	kicked   chan struct{}
@@ -94,28 +99,55 @@ const timeLimitMsg = "This scheduled run was stopped because it ran longer than 
 // interruptedMsg is the error a run stopped by a restart is saved with.
 const interruptedMsg = "The server restarted while this answer was being written; the text above is what was written until then."
 
-// Shutdown stops every live run, so each saves what it has written with
-// interruptedMsg, and waits up to d for those saves. Without it a deploy
-// killed the runs and the start-up sweep failed their messages, losing the
-// text since the last tool round.
+// releaseWait is how long runs that a shutdown cut off get to save or release themselves.
+var releaseWait = 5 * time.Second
+
+// Shutdown drains the engine. A run that can be resumed stops between calls: a tool call that is running gets up to
+// d to finish and be recorded, no new call starts, and the run's lease is released so that the next process takes it
+// over at once. After d it is cut off, and the call is in doubt when the run goes on. Every other run is stopped now
+// and saved with interruptedMsg. Without the drain every deploy would leave the calls in flight in doubt.
 func (e *Engine) Shutdown(d time.Duration) {
+	e.startDrain()
 	for _, r := range e.runs.live() {
-		r.stop(errShutdown)
+		if !r.resumable() {
+			r.stop(errShutdown)
+		}
 	}
 	done := make(chan struct{})
 	go func() { e.wg.Wait(); close(done) }()
 	select {
 	case <-done:
+		return
 	case <-time.After(d):
-		slog.Warn("shutdown: runs still saving, giving up", "after", d)
 	}
+	for _, r := range e.runs.live() {
+		r.stop(errShutdown)
+	}
+	select {
+	case <-done:
+	case <-time.After(releaseWait):
+		slog.Warn("shutdown: runs still saving, giving up", "after", d+releaseWait)
+	}
+}
+
+// draining reports that the engine is shutting down.
+func (e *Engine) draining() bool { return e.drain.Err() != nil }
+
+// cutOnDrain is ctx, cancelled with errShutdown once the engine drains: for work that is better done again after the
+// restart than waited for.
+func (e *Engine) cutOnDrain(ctx context.Context) (context.Context, func()) {
+	c, cancel := context.WithCancelCause(ctx)
+	stop := context.AfterFunc(e.drain, func() { cancel(errShutdown) })
+	return c, func() { stop(); cancel(nil) }
 }
 
 // New builds an engine; Mount uses the app's shared services.
 func New(db *pgxpool.Pool, keys *secret.Keys, st *settings.Store, reg *models.Registry, fs *files.Service, cs *chats.Store, publicURL string) *Engine {
-	return &Engine{DB: db, Keys: keys, Settings: st, Models: reg, Files: fs, Chats: cs, PublicURL: publicURL,
+	e := &Engine{DB: db, Keys: keys, Settings: st, Models: reg, Files: fs, Chats: cs, PublicURL: publicURL,
 		HTTP: &http.Client{}, runs: newRegistry(), instance: ids.New(), kicked: make(chan struct{}, 1), lastBeat: time.Now(),
 		LoadUser: auth.New(db, keys, st, false).LoadUser, deferred: map[string]time.Time{}}
+	e.drain, e.startDrain = context.WithCancel(context.Background())
+	return e
 }
 
 // Mount registers the completion, stream and callback routes and the built-in tools.

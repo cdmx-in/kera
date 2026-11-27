@@ -48,6 +48,9 @@ services:
       test: ["CMD", "kera", "health"]
       interval: 5s
       retries: 20
+    # A stopping Kera lets running tool calls finish and hands its runs to the next start (docs/durable-runs.md).
+    # Docker's default of 10 s would cut that short.
+    stop_grace_period: 40s
     restart: unless-stopped
 
   # Document extraction (sidecars/extract): text from PDF, DOCX, PPTX and ODT, and OCR of scanned pages. Only Kera reaches it

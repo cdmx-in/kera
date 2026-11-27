@@ -165,6 +165,7 @@ func (e *Engine) saveTrace(x *exec) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	b := &pgx.Batch{}
+	base := (x.run.attempt - 1) * maxTraceSteps // after the steps of the attempts before a restart
 	for i, s := range steps {
 		detail, err := json.Marshal(s.Detail)
 		if err != nil || s.Detail == nil {
@@ -173,7 +174,7 @@ func (e *Engine) saveTrace(x *exec) {
 		b.Queue(`INSERT INTO run_step (run_id, message_id, user_id, model_id, seq, round, kind, name, started_at, duration_ms,
 			prompt_tokens, cached_tokens, completion_tokens, finish, error, detail)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-			x.run.ID, x.run.MessageID, x.u.ID, x.m.ID, i, s.Round, s.Kind, s.Name, s.Started, s.Duration.Milliseconds(),
+			x.run.ID, x.run.MessageID, x.u.ID, x.m.ID, base+i, s.Round, s.Kind, s.Name, s.Started, s.Duration.Milliseconds(),
 			s.Prompt, s.Cached, s.Completion, s.Finish, s.Err, detail)
 	}
 	res := e.DB.SendBatch(ctx, b)

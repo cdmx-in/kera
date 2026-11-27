@@ -58,6 +58,7 @@ type Run struct {
 	// attempt numbers the attempts of a run with a row; it fences their writes and callback tokens (1 for a new run).
 	attempt int
 	leased  bool  // the run has a row whose lease the heartbeat renews (under mu)
+	resumes bool  // a restart resumes the run, so a shutdown lets it drain (under mu)
 	gone    error // why the run left this instance without ending (under mu)
 
 	mu         sync.Mutex
@@ -479,6 +480,18 @@ func (r *Run) detached() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.gone
+}
+
+func (r *Run) setResumable(v bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.resumes = v
+}
+
+func (r *Run) resumable() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.resumes
 }
 
 func (r *Run) setLeased() {
