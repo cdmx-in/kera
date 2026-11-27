@@ -119,24 +119,40 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 		}
 		run.checkpoint = func() { e.save(x) }
 	}
-	runCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
-	if m.Local {
-		// knowledge (and tools that honour it) keep a local run's documents
-		// away from external services such as a hosted reranker
-		runCtx = retrieval.WithLocalRun(runCtx)
-	}
-	runCtx = guard.WithNotifier(runCtx, run.guardNotice)
-	run.cancel = cancel
+	runCtx, cancel := e.runContext(context.WithoutCancel(ctx), x)
 	if req.Unattended {
-		// The run context drops the caller's deadline and tool calls have no client
-		// timeout, so one hung tool would hold a scheduler seat forever.
-		minutes := 120
-		e.setting(ctx, "cowork.schedule.max_minutes", &minutes)
-		x.limit = time.AfterFunc(time.Duration(max(minutes, 1))*unattendedUnit, func() { cancel(errTimeLimit) })
+		x.timeLimit(e.unattendedLimit(ctx), cancel)
 	}
 	e.wg.Add(1)
 	go e.execute(runCtx, x)
 	return run, nil
+}
+
+// runContext is the context a run works under: it outlives the request, carries what tools, retrieval and the
+// guardrails read from it, and is cancelled with the reason the run stops for.
+func (e *Engine) runContext(parent context.Context, x *exec) (context.Context, context.CancelCauseFunc) {
+	ctx, cancel := context.WithCancelCause(parent)
+	if x.m != nil && x.m.Local {
+		// knowledge (and tools that honour it) keep a local run's documents
+		// away from external services such as a hosted reranker
+		ctx = retrieval.WithLocalRun(ctx)
+	}
+	ctx = guard.WithNotifier(ctx, x.run.guardNotice)
+	x.run.setCancel(cancel)
+	return ctx, cancel
+}
+
+// unattendedLimit is how long a run nobody watches may take.
+func (e *Engine) unattendedLimit(ctx context.Context) time.Duration {
+	minutes := 120
+	e.setting(ctx, "cowork.schedule.max_minutes", &minutes)
+	return time.Duration(max(minutes, 1)) * unattendedUnit
+}
+
+// timeLimit stops the run after d. The run context drops the caller's deadline and tool calls have no client
+// timeout, so one hung tool would hold a scheduler seat forever.
+func (x *exec) timeLimit(d time.Duration, cancel context.CancelCauseFunc) {
+	x.limit = time.AfterFunc(d, func() { cancel(errTimeLimit) })
 }
 
 // prepareMessages stores the user turn and the assistant placeholder.

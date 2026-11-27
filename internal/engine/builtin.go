@@ -312,27 +312,44 @@ func normalizeQuestions(args json.RawMessage) ([]askQuestion, error) {
 }
 
 func (t *coreTools) askUser(ctx context.Context, c tools.Call) (tools.Result, error) {
-	qs, err := normalizeQuestions(c.Args)
+	card, err := askCard(c.Args)
 	if err != nil {
 		return errResult("%v", err), nil
 	}
-	b, _ := json.Marshal(qs)
-	v, err := c.Ask(ctx, tools.AskRequest{Kind: "choice", Questions: b})
+	v, err := c.Ask(ctx, card)
 	if err != nil {
-		return textResult("The user did not answer the questions."), nil
+		return noAnswer(), nil
 	}
+	return askResult(v), nil
+}
+
+// askCard is the question card these ask_user arguments show.
+func askCard(args json.RawMessage) (tools.AskRequest, error) {
+	qs, err := normalizeQuestions(args)
+	if err != nil {
+		return tools.AskRequest{}, err
+	}
+	b, _ := json.Marshal(qs)
+	return tools.AskRequest{Kind: "choice", Questions: b}, nil
+}
+
+// noAnswer is the ask_user result when nobody answered.
+func noAnswer() tools.Result { return textResult("The user did not answer the questions.") }
+
+// askResult is what the model reads back from the user's answer.
+func askResult(v json.RawMessage) tools.Result {
 	var answers []struct {
 		Question string   `json:"question"`
 		Answers  []string `json:"answers"`
 	}
 	if json.Unmarshal(v, &answers) != nil {
-		return textResult("The user answered: %s", string(v)), nil
+		return textResult("The user answered: %s", string(v))
 	}
 	var sb strings.Builder
 	for _, a := range answers {
 		fmt.Fprintf(&sb, "Q: %s\nA: %s\n", a.Question, strings.Join(a.Answers, "; "))
 	}
-	return textResult("%s", sb.String()), nil
+	return textResult("%s", sb.String())
 }
 
 func (t *coreTools) searchChats(ctx context.Context, c tools.Call) (tools.Result, error) {

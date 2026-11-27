@@ -127,9 +127,7 @@ func (e *Engine) cancelRun(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "no running answer for this message"))
 		return
 	}
-	if run.cancel != nil {
-		run.cancel(errCancelled)
-	}
+	run.stop(errCancelled)
 	api.JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

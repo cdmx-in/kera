@@ -50,6 +50,9 @@ type Run struct {
 	Created   time.Time
 
 	unattended bool // nobody can answer: ask fails at once
+	// base is added to every event's sequence number, so the events of a resumed run come after those of the attempt
+	// before it (set before the run is shared, never changed).
+	base int64
 
 	mu         sync.Mutex
 	state      msgState
@@ -96,13 +99,13 @@ func (r *Run) emitLocked(typ string, data map[string]any) {
 	if data == nil {
 		data = map[string]any{}
 	}
-	seq := int64(len(r.events) + 1)
+	seq := r.base + int64(len(r.events)+1)
 	payload := make(map[string]any, len(data)+4)
 	for k, v := range data {
 		payload[k] = v
 	}
 	payload["type"], payload["seq"], payload["messageId"] = typ, seq, r.MessageID
-	if seq == 1 && !r.Persisted {
+	if len(r.events) == 0 && !r.Persisted {
 		payload["chatId"] = r.ChatID
 	}
 	raw, err := json.Marshal(payload)
@@ -125,13 +128,11 @@ func (r *Run) emit(typ string, data map[string]any) {
 }
 
 // next returns the events after seq, a channel closed on the next append,
-// and whether the run has finished.
+// and whether the run has finished. A seq from before this attempt gets them all.
 func (r *Run) next(after int64) ([]event, <-chan struct{}, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if after < 0 {
-		after = 0
-	}
+	after = max(after-r.base, 0)
 	var out []event
 	if after < int64(len(r.events)) {
 		out = slices.Clone(r.events[after:])
@@ -139,11 +140,30 @@ func (r *Run) next(after int64) ([]event, <-chan struct{}, bool) {
 	return out, r.wake, r.finished
 }
 
-// Seq is the number of events so far.
+// Seq is the sequence number of the newest event.
 func (r *Run) Seq() int64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return int64(len(r.events))
+	return r.seqLocked()
+}
+
+func (r *Run) seqLocked() int64 { return r.base + int64(len(r.events)) }
+
+// setCancel stores the function that stops the run.
+func (r *Run) setCancel(f context.CancelCauseFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cancel = f
+}
+
+// stop cancels the run for the given reason.
+func (r *Run) stop(why error) {
+	r.mu.Lock()
+	f := r.cancel
+	r.mu.Unlock()
+	if f != nil {
+		f(why)
+	}
 }
 
 // Finished reports whether done was emitted.
@@ -159,7 +179,7 @@ func (r *Run) Live() chats.Live {
 	defer r.mu.Unlock()
 	return chats.Live{Parts: json.RawMessage(mustMarshal(r.state.Parts, "[]")), Files: json.RawMessage(mustMarshal(r.state.Files, "[]")),
 		Sources: json.RawMessage(mustMarshal(r.state.Sources, "[]")), PendingCalls: json.RawMessage(mustMarshal(r.state.PendingCalls, "[]")),
-		Status: r.state.Status, Seq: int64(len(r.events))}
+		Status: r.state.Status, Seq: r.seqLocked()}
 }
 
 // snapshotLocked is the full-state checkpoint payload.

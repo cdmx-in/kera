@@ -198,7 +198,7 @@ func (e *Engine) image(ctx context.Context, f files.File) (provider.Image, bool)
 	if err != nil {
 		return provider.Image{}, false
 	}
-	return provider.Image{MIME: f.ContentType, Data: base64.StdEncoding.EncodeToString(b)}, true
+	return provider.Image{MIME: f.ContentType, Data: base64.StdEncoding.EncodeToString(b), FileID: f.ID}, true
 }
 
 // knowledge injects the model's collections (and those attached to the

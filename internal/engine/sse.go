@@ -90,12 +90,12 @@ func streamNative(w http.ResponseWriter, r *http.Request, run *Run, after int64,
 	s := newSSE(w)
 	if snapshotFirst && after == 0 {
 		run.mu.Lock()
-		seq := int64(len(run.events))
+		seq := run.seqLocked()
 		if run.finished {
 			seq-- // replay the final done event after the snapshot so the client finishes
 		}
 		var raw []byte
-		if seq > 0 {
+		if seq > run.base {
 			payload := run.snapshotLocked()
 			payload["type"], payload["seq"], payload["messageId"] = "snapshot", seq, run.MessageID
 			if !run.Persisted {

@@ -84,9 +84,7 @@ const interruptedMsg = "The server restarted while this answer was being written
 // text since the last tool round.
 func (e *Engine) Shutdown(d time.Duration) {
 	for _, r := range e.runs.live() {
-		if r.cancel != nil {
-			r.cancel(errShutdown)
-		}
+		r.stop(errShutdown)
 	}
 	done := make(chan struct{})
 	go func() { e.wg.Wait(); close(done) }()

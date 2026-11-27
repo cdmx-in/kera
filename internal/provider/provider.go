@@ -37,6 +37,9 @@ var ErrIdleTimeout = errors.New("provider: no data received within the idle time
 type Image struct {
 	MIME string `json:"mime"`
 	Data string `json:"data"`
+	// FileID is the stored file Data was read from, when there is one. A run's checkpoint keeps it instead of the
+	// bytes. Never sent to a provider.
+	FileID string `json:"-"`
 }
 
 // ToolCall is one fully assembled function call.

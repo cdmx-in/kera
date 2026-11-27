@@ -37,6 +37,25 @@ var coworkAskTimeout = 12 * time.Hour
 // ponytail: a constant; make it a setting if desktop tasks need more history.
 const keepToolImages = 3
 
+// The user turn that carries a round's screenshot, and what is left of it once it is old.
+const (
+	shotNote = "[Screenshots returned by the tool calls above. Continue the task.]"
+	shotGone = "[earlier screenshot removed]"
+)
+
+// dropOldScreenshots blanks all but the newest keepToolImages screenshot turns of the run (msgs[base:]). It looks at
+// the messages every time: compaction rebuilds the list, so remembered positions would point at other messages.
+func dropOldScreenshots(msgs []provider.Message, base int) {
+	kept := 0
+	for i := len(msgs) - 1; i >= base; i-- {
+		if m := msgs[i]; m.Role == "user" && m.Content == shotNote && len(m.Images) > 0 {
+			if kept++; kept > keepToolImages {
+				msgs[i].Images, msgs[i].Content = nil, shotGone
+			}
+		}
+	}
+}
+
 // toolImageTypes are the image types every vision API accepts; a tool image
 // of another type (SVG, BMP, TIFF, HEIC...) is not sent to the model.
 var toolImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
@@ -270,7 +289,6 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 	_, hasView := table["view_file"]
 	b := e.newBudget(ctx, x, len(toolJSON), len(msgs), hasView)
 	st := e.newLoopState(ctx)
-	var imageTurns []int // indexes in msgs of the user turns carrying tool images
 	passthrough := len(x.req.Tools) > 0
 	for round := 0; ; round++ {
 		x.run.mu.Lock()
@@ -329,26 +347,26 @@ func (e *Engine) loop(ctx context.Context, x *exec, table map[string]toolEntry, 
 		x.run.mu.Unlock()
 		msgs = append(msgs, provider.Message{Role: "assistant", Content: text, ToolCalls: calls})
 		b.callChars = b.callShare(msgs, len(calls)) // the round's results share what is left of the window
-		results := e.runCalls(ctx, x, table, b, st, calls, round)
+		var shot []provider.Image
+		err = e.runCalls(ctx, x, table, b, st, calls, round, func(i int, r callResult) error {
+			msgs = append(msgs, provider.Message{Role: "tool", ToolCallID: calls[i].ID, Name: calls[i].Name, Content: r.content})
+			if len(r.images) > 0 {
+				shot = r.images[len(r.images)-1:]
+			}
+			return nil
+		})
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
-		var shots []provider.Image
-		for i, c := range calls {
-			msgs = append(msgs, provider.Message{Role: "tool", ToolCallID: c.ID, Name: c.Name, Content: results[i].content})
-			shots = append(shots, results[i].images...)
+		if err != nil {
+			return err
 		}
-		if len(shots) > 0 { // tool messages cannot carry images in every API; a user turn can
+		if shot != nil { // tool messages cannot carry images in every API; a user turn can
 			// ponytail: only the round's last image is sent (earlier ones are stale
 			// screens of the same desktop); keep more per round if a tool returns
 			// several distinct images the model must compare.
-			msgs = append(msgs, provider.Message{Role: "user", Content: "[Screenshots returned by the tool calls above. Continue the task.]", Images: shots[len(shots)-1:]})
-			imageTurns = append(imageTurns, len(msgs)-1)
-			if len(imageTurns) > keepToolImages {
-				old := &msgs[imageTurns[0]]
-				old.Images, old.Content = nil, "[earlier screenshot removed]"
-				imageTurns = imageTurns[1:]
-			}
+			msgs = append(msgs, provider.Message{Role: "user", Content: shotNote, Images: shot})
+			dropOldScreenshots(msgs, b.base)
 		}
 		x.run.snapshot()
 		e.save(x)
@@ -515,9 +533,11 @@ type callResult struct {
 	images  []provider.Image
 }
 
-// runCalls runs one round's calls and returns their results in call order. The calls run at once only
-// when there are several and every one belongs to a read-only built-in set; anything else stays serial.
-func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEntry, b *runBudget, st *loopState, calls []provider.ToolCall, round int) []callResult {
+// runCalls runs one round's calls and hands their results to done, in call order. The calls run at once only
+// when there are several and every one belongs to a read-only built-in set; anything else stays serial, and then
+// done returns before the next call starts. An error of done stops the round.
+func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEntry, b *runBudget, st *loopState, calls []provider.ToolCall, round int,
+	done func(i int, r callResult) error) error {
 	out := make([]callResult, len(calls))
 	skip := make([]string, len(calls))
 	for i, c := range calls {
@@ -533,8 +553,11 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 				break
 			}
 			one(i, e.announce(x, table, calls[i]))
+			if err := done(i, out[i]); err != nil {
+				return err
+			}
 		}
-		return out
+		return nil
 	}
 	x.run.mu.Lock()
 	first := len(x.run.tools)
@@ -562,7 +585,12 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 	x.run.mu.Lock()
 	slices.SortStableFunc(x.run.tools[first:], func(a, b toolRecord) int { return cmp.Compare(callIndex(calls, a.ID), callIndex(calls, b.ID)) })
 	x.run.mu.Unlock()
-	return out
+	for i := range calls {
+		if err := done(i, out[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func callIndex(calls []provider.ToolCall, id string) int {

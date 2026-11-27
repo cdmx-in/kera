@@ -1509,3 +1509,20 @@ func TestDropUnsetArgs(t *testing.T) {
 		t.Fatal("args without placeholders must pass through unchanged")
 	}
 }
+
+// Old screenshots are found by looking at the messages, so it still works after a mid-run summary rebuilt the list
+// (remembered positions then pointed at other messages). Only the run's own turns count.
+func TestDropOldScreenshots(t *testing.T) {
+	shot := func() provider.Message {
+		return provider.Message{Role: "user", Content: shotNote, Images: []provider.Image{{Data: "x"}}}
+	}
+	msgs := []provider.Message{shot(), {Role: "user", Content: "summary", Data: true}, shot(), {Role: "tool", Content: "t"}, shot(), shot(), shot()}
+	dropOldScreenshots(msgs, 1)
+	var got []bool
+	for _, i := range []int{0, 2, 4, 5, 6} {
+		got = append(got, len(msgs[i].Images) > 0)
+	}
+	if want := []bool{true, false, true, true, true}; !slices.Equal(got, want) || msgs[2].Content != shotGone || msgs[1].Content != "summary" {
+		t.Fatalf("kept %v, want %v: %+v", got, want, msgs)
+	}
+}
