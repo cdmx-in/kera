@@ -264,7 +264,7 @@ Run the same command without `--dry-run`, then put the contents of `new.key` int
 
 ### Upgrade
 
-Upgrade with `docker compose pull && docker compose up -d`; database migrations run on start. An install from before the `extract` service existed gets it by updating the checkout (`git pull`) and running `docker compose up -d`: Kera uses it with no setting changed, and files that failed earlier have a Retry button. The same goes for the `runner` service ([Pipelines run by Kera](#pipelines-run-by-kera)).
+Upgrade with `docker compose pull && docker compose up -d`; database migrations run on start. Replies and tasks that are running are handed to the new process and go on ([durable runs](durable-runs.md)). For that the `kera` service needs `stop_grace_period: 40s`; the shipped compose file has it, so add it to a compose file of your own. An install from before the `extract` service existed gets it by updating the checkout (`git pull`) and running `docker compose up -d`: Kera uses it with no setting changed, and files that failed earlier have a Retry button. The same goes for the `runner` service ([Pipelines run by Kera](#pipelines-run-by-kera)).
 
 ## Troubleshooting
 

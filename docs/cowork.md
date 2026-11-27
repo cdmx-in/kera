@@ -1,6 +1,6 @@
 # Cowork tasks
 
-A Cowork task is a chat in task mode: you give the assistant a goal, it plans and works with the tools, files and knowledge you pick, asks when it is blocked, and leaves a report and files behind. Everyone with `features.cowork` (on by default) can start tasks. A task can also be saved on a timetable (scheduled), which needs `features.cowork_schedule`: on for admins, off for other users until you grant it.
+A Cowork task is a chat in task mode: you give the assistant a goal, it plans and works with the tools, files and knowledge you pick, asks when it is blocked, and leaves a report and files behind. A task survives a restart of the server, and a question it asks waits up to 12 hours without holding anything in memory ([durable runs](durable-runs.md)). Everyone with `features.cowork` (on by default) can start tasks. A task can also be saved on a timetable (scheduled), which needs `features.cowork_schedule`: on for admins, off for other users until you grant it.
 
 ## The New task page
 

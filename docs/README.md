@@ -9,6 +9,7 @@
 | [how-it-answers.md](how-it-answers.md) | See how a question is answered, from guardrails to retrieval to the tool loop, as diagrams with the settings that steer each step and where to look when one misbehaves (also in Admin > Help) |
 | [run-trace.md](run-trace.md) | See what each model round and tool call of a run cost (Admin > Traces), and choose where retrieved passages go in the prompt |
 | [context-management.md](context-management.md) | Understand how a run stays inside the model's window, and how it recovers from failed calls, repeated calls and the round cap |
+| [durable-runs.md](durable-runs.md) | See what happens to a running reply or task when Kera restarts: what resumes, which tool calls are not repeated, how questions wait, and the limits |
 | [integrations.md](integrations.md) | Scheduled directory sync from Google Workspace, and how to write another integration |
 | [retrieval.md](retrieval.md) | Understand how knowledge search ranks and returns passages, which settings change it, and what an upgrade needs (`kera reindex --heads`, prefixes) |
 | [audit.md](audit.md) | See what the audit log records and leaves out, how long it keeps events, and how to export them |
