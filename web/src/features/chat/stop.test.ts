@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { Message } from '@/api/types'
 import { useChat } from '@/stores/chat'
 
 const signals: AbortSignal[] = []
@@ -16,7 +17,7 @@ vi.mock('@/api/client', () => ({
   api: (...a: unknown[]) => api(...a),
   apiFetch: (_url: string, init: RequestInit) => {
     signals.push(init.signal!)
-    return new Promise<Response>(() => undefined)
+    return new Promise<Response>((_, reject) => init.signal!.addEventListener('abort', () => reject(new Error('aborted')))) // as fetch does
   },
 }))
 
@@ -47,5 +48,14 @@ describe('stopStream', () => {
     api.mockRejectedValueOnce(new ApiError(404, 'not running'))
     await stopStream()
     expect(signals[2].aborted).toBe(true)
+  })
+
+  it('takes the question card away with the reply it stops', async () => {
+    const asked: Message = { id: 'a3', parentId: null, childrenIds: [], role: 'assistant', model: 'm', createdAt: 0, status: 'streaming', parts: [], files: [], sources: [], pendingCalls: [{ kind: 'ask_user', callId: 'c1', questions: [] }] }
+    useChat.getState().load('A', '', { a3: asked }, 'a3')
+    resumeStream('A', 'a3')
+    await stopStream()
+    await vi.waitFor(() => expect(useChat.getState().messages.a3.status).toBe('stopped'))
+    expect(useChat.getState().messages.a3.pendingCalls).toEqual([])
   })
 })

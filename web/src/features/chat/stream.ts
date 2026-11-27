@@ -137,7 +137,7 @@ function finish(run: Run, outcome: 'finished' | 'aborted' | 'lost', err?: unknow
       m.status !== 'streaming'
         ? m
         : outcome === 'aborted'
-          ? { ...m, status: 'stopped', statusLine: undefined }
+          ? { ...m, status: 'stopped', statusLine: undefined, pendingCalls: [] } // a stopped reply asks nothing
           : { ...m, status: 'error', statusLine: undefined, error: { message: err instanceof Error ? err.message : 'Connection lost' , code: (err as { code?: string })?.code } },
     )
     if (err && (err as { code?: string }).code === 'local_lock') toast('This chat used a local model, so it stays on local models.', 'error')
