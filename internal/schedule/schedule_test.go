@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -139,7 +140,7 @@ func newFixture(t *testing.T) *fixture {
 	st := settings.New(pool)
 	e := engine.New(pool, keys, st, models.New(pool, keys, st, ""), files.New(pool, st, t.TempDir()), &chats.Store{DB: pool}, "http://kera.test")
 	a := &app.App{DB: pool, Keys: keys, Settings: st, Auth: auth.New(pool, keys, st, false)}
-	f.s = &scheduler{a: a, e: e, chats: &chats.Store{DB: pool}, live: map[string]*engine.Run{}}
+	f.s = &scheduler{a: a, e: e, chats: &chats.Store{DB: pool}, starting: map[string]bool{}}
 	t.Cleanup(func() { close(f.unblock); e.Wait() }) // runs first, before the fake model goes away
 	return f
 }
@@ -172,15 +173,9 @@ func (f *fixture) allowSchedule(t *testing.T) {
 
 func (f *fixture) settle(t *testing.T) {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); ; {
-		f.s.mu.Lock()
-		busy := false
-		for _, r := range f.s.live {
-			busy = busy || r == nil || !r.Finished()
-		}
-		f.s.mu.Unlock()
-		if !busy {
-			f.s.e.Wait() // the stored status (done, not still streaming) is written just after the run reports finished
+	for deadline := time.Now().Add(30 * time.Second); ; {
+		if f.count(t, `SELECT count(*) FROM run`) == 0 { // the row goes in the transaction that stores the outcome
+			f.s.e.Wait()
 			return
 		}
 		if time.Now().After(deadline) {
@@ -290,6 +285,38 @@ func TestRunningTaskSkipsItsNextSlot(t *testing.T) {
 	}
 	if n := f.count(t, `SELECT count(*) FROM scheduled_task WHERE next_run_at > now()`); n != 1 {
 		t.Fatal("the skipped slot was not moved on")
+	}
+}
+
+// What is going is read from the run rows, so a run that a restart left queued still counts, also for a scheduler
+// that never started it (the restarted process, or a second instance).
+func TestRunsLeftByARestartStillCount(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.task(t, "a", "u1", "block")
+	f.s.tick(ctx, time.Now())
+	f.s.e.Shutdown(10 * time.Second) // a deploy: the model call is cut and the run is left for the next start
+	if n := f.count(t, `SELECT count(*) FROM run WHERE state = 'queued' AND origin = 'schedule:a'`); n != 1 {
+		t.Fatalf("%d queued runs of the task, want 1", n)
+	}
+	after := &scheduler{a: f.s.a, e: f.s.e, chats: f.s.chats, starting: map[string]bool{}}
+	if err := after.reserve(ctx, "schedule:a"); !errors.Is(err, errRunning) {
+		t.Fatalf("the task's own run: %v", err)
+	}
+	if err := f.s.a.Settings.Set(ctx, "cowork.schedule.max_concurrent", 1, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := after.reserve(ctx, "schedule:b"); !errors.Is(err, errCapacity) {
+		t.Fatalf("another task: %v", err)
+	}
+	if _, err := f.pool.Exec(ctx, `DELETE FROM run`); err != nil {
+		t.Fatal(err)
+	}
+	if err := after.reserve(ctx, "schedule:b"); err != nil {
+		t.Fatalf("after the run ended: %v", err)
+	}
+	if err := after.reserve(ctx, "test:u1"); !errors.Is(err, errCapacity) {
+		t.Fatalf("a run that is still starting counts: %v", err)
 	}
 }
 

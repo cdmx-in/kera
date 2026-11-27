@@ -62,25 +62,16 @@ func (s *scheduler) testRun(w http.ResponseWriter, r *http.Request) {
 	if t.Title == "" {
 		t.Title = cut(strings.SplitN(t.Prompt, "\n", 2)[0], 60)
 	}
-	key := "test:" + u.ID // ponytail: tracked in the scheduler's in-process live map beside scheduled runs, so tests share their concurrency limit
-	if err := s.reserve(ctx, key); err != nil {
+	origin := testOrigin + u.ID // tests share the concurrency limit with scheduled runs
+	if err := s.reserve(ctx, origin); err != nil {
 		if errors.Is(err, errRunning) {
 			err = api.Errf(http.StatusConflict, "running", "A test run is already going. Wait for it to finish or stop it first")
 		}
 		api.Fail(w, r, err)
 		return
 	}
-	var run *engine.Run
-	defer func() {
-		s.mu.Lock()
-		if run != nil {
-			s.live[key] = run
-		} else {
-			delete(s.live, key)
-		}
-		s.mu.Unlock()
-	}()
-	chatID, run, err := s.startTrial(ctx, u, t)
+	defer s.release(origin)
+	chatID, err := s.startTrial(ctx, u, t)
 	if err != nil {
 		api.Fail(w, r, api.Errf(http.StatusConflict, "not_started", err.Error()))
 		return
@@ -88,26 +79,25 @@ func (s *scheduler) testRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(w, http.StatusOK, map[string]string{"chat_id": chatID})
 }
 
-func (s *scheduler) startTrial(ctx context.Context, u *auth.User, t *Task) (string, *engine.Run, error) {
+func (s *scheduler) startTrial(ctx context.Context, u *auth.User, t *Task) (string, error) {
 	req := &engine.Request{Model: t.ModelID, Unattended: true, ReadOnly: true, ToolIDs: cleanIDs(t.ToolIDs), Origin: testOrigin + u.ID}
 	if len(t.Features) > 0 {
 		if err := json.Unmarshal(t.Features, &req.Features); err != nil {
-			return "", nil, fmt.Errorf("the feature switches are unreadable: %w", err)
+			return "", fmt.Errorf("the feature switches are unreadable: %w", err)
 		}
 	}
 	c := &chats.Chat{UserID: u.ID, ModelIDs: []string{t.ModelID}, Mode: "cowork", Title: "Test · " + t.Title,
 		Meta: map[string]any{"test_run": true}}
 	if err := s.chats.Create(ctx, c); err != nil {
-		return "", nil, err
+		return "", err
 	}
 	req.ChatID = c.ID
 	req.UserMessage = &engine.UserMessage{Content: t.Prompt, Files: t.Files}
-	run, err := s.e.Start(ctx, u, req)
-	if err != nil {
+	if _, err := s.e.Start(ctx, u, req); err != nil {
 		if e := s.chats.Delete(ctx, u.ID, c.ID); e != nil {
 			slog.Warn("delete the chat of a test run that did not start", "chat", c.ID, "err", e)
 		}
-		return "", nil, err
+		return "", err
 	}
-	return c.ID, run, nil
+	return c.ID, nil
 }

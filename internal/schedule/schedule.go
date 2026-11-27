@@ -77,8 +77,8 @@ type scheduler struct {
 	e     *engine.Engine
 	chats *chats.Store
 
-	mu   sync.Mutex
-	live map[string]*engine.Run // task id -> its running run (nil while it is starting)
+	mu       sync.Mutex
+	starting map[string]bool // origins this process is starting a run for, before the run has its row
 }
 
 // Mount registers the routes and starts the ticker. It needs the engine, which
@@ -88,7 +88,7 @@ func Mount(a *app.App) error {
 	if e == nil {
 		return errors.New("schedule: the engine is not mounted")
 	}
-	s := &scheduler{a: a, e: e, chats: chats.For(a), live: map[string]*engine.Run{}}
+	s := &scheduler{a: a, e: e, chats: chats.For(a), starting: map[string]bool{}}
 	tools.Register(&notesTool{db: a.DB})
 	for p, f := range map[string]http.HandlerFunc{
 		"GET /api/v1/cowork/schedules":           s.list,
@@ -178,30 +178,43 @@ func (s *scheduler) setting(ctx context.Context, key string, def int) int {
 	return v
 }
 
-// reserve claims a seat for task id: errRunning while its previous run is
-// going, errCapacity when cowork.schedule.max_concurrent runs are going.
-func (s *scheduler) reserve(ctx context.Context, id string) error {
+// reserve claims a seat for a run of origin ("schedule:<task>" or "test:<user>"): errRunning while one of that
+// origin is going, errCapacity when cowork.schedule.max_concurrent runs are going. What is going is read from the
+// run rows, so a run that waits to be resumed after a restart, here or on another instance, still counts. Release
+// the seat once the run has its row (or did not start).
+// ponytail: two instances asked in the same instant can both pass; the timetable itself cannot start a slot twice
+// (tick claims it). A database lock if the limit must be exact.
+func (s *scheduler) reserve(ctx context.Context, origin string) error {
 	limit := s.setting(ctx, "cowork.schedule.max_concurrent", 2)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for k, r := range s.live {
-		if r != nil && r.Finished() {
-			delete(s.live, k)
+	rows, err := s.a.DB.Query(ctx, `SELECT DISTINCT origin FROM run WHERE origin LIKE $1 OR origin LIKE $2`,
+		scheduleOrigin+"%", testOrigin+"%")
+	if err != nil {
+		return fmt.Errorf("list running scheduled tasks: %w", err)
+	}
+	going, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("list running scheduled tasks: %w", err)
+	}
+	for o := range s.starting {
+		if !slices.Contains(going, o) {
+			going = append(going, o)
 		}
 	}
-	if _, busy := s.live[id]; busy {
+	if slices.Contains(going, origin) {
 		return errRunning
 	}
-	if len(s.live) >= limit {
+	if len(going) >= limit {
 		return errCapacity
 	}
-	s.live[id] = nil
+	s.starting[origin] = true
 	return nil
 }
 
-func (s *scheduler) release(id string) {
+func (s *scheduler) release(origin string) {
 	s.mu.Lock()
-	delete(s.live, id)
+	delete(s.starting, origin)
 	s.mu.Unlock()
 }
 
@@ -221,15 +234,19 @@ func (s *scheduler) tick(ctx context.Context, now time.Time) {
 		return
 	}
 	for _, t := range due {
-		reserved := s.reserve(ctx, t.ID)
+		reserved := s.reserve(ctx, scheduleOrigin+t.ID)
 		if errors.Is(reserved, errCapacity) {
 			return // the rest stay due and go first on the next tick
+		}
+		if reserved != nil && !errors.Is(reserved, errRunning) {
+			slog.Error("schedule: reserve", "task", t.ID, "err", reserved)
+			return // stays due
 		}
 		claim, err := s.a.DB.Exec(ctx, `UPDATE scheduled_task SET next_run_at = $3 WHERE id = $1 AND next_run_at = $2`,
 			t.ID, t.next, t.schedule(now))
 		if err != nil || claim.RowsAffected() == 0 {
 			if reserved == nil {
-				s.release(t.ID)
+				s.release(scheduleOrigin + t.ID)
 			}
 			continue
 		}
@@ -557,7 +574,7 @@ func (s *scheduler) runNow(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
-	if err := s.reserve(ctx, t.ID); err != nil {
+	if err := s.reserve(ctx, scheduleOrigin+t.ID); err != nil {
 		api.Fail(w, r, err)
 		return
 	}

@@ -20,15 +20,8 @@ import (
 // id and records the outcome on the row either way (a failed start stores the
 // reason in last_error and leaves no empty chat behind).
 func (s *scheduler) run(ctx context.Context, t *Task, now time.Time) (chatID string, err error) {
-	var r *engine.Run
 	defer func() {
-		s.mu.Lock()
-		if r != nil {
-			s.live[t.ID] = r
-		} else {
-			delete(s.live, t.ID)
-		}
-		s.mu.Unlock()
+		s.release(scheduleOrigin + t.ID) // a started run is counted by its row from here on
 		msg := ""
 		if err != nil {
 			msg = cut(err.Error(), 500)
@@ -64,7 +57,7 @@ func (s *scheduler) run(ctx context.Context, t *Task, now time.Time) (chatID str
 	req.ChatID = c.ID
 	req.UserMessage = &engine.UserMessage{Content: t.Prompt, Files: t.Files}
 	req.Preface = s.preface(ctx, t, loc, now)
-	if r, err = s.e.Start(ctx, u, req); err != nil {
+	if _, err = s.e.Start(ctx, u, req); err != nil {
 		if e := s.chats.Delete(ctx, t.UserID, c.ID); e != nil {
 			slog.Warn("delete the chat of a task that did not start", "chat", c.ID, "err", e)
 		}
