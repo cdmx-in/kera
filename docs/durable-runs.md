@@ -58,6 +58,7 @@ When the process dies without warning the connection just drops, and the run sti
 
 ## Limits
 
+- The web app reopens a dropped stream for about a minute (ten tries in a row that bring nothing). After a longer outage it shows "Connection lost" although the run goes on: reload the page.
 - The trace (Admin > Traces) of an attempt that crashed is lost, and so are the tokens of its model calls that no checkpoint had recorded (usage and spend undercount them). A model call that a restart interrupts is paid for twice.
 - Outlet hooks can run twice if the process dies between them and the last save.
 - Tool-server sessions are per process and start again after a restart. The tools on offer can differ if a server changed.
@@ -66,6 +67,7 @@ When the process dies without warning the connection just drops, and the run sti
 - A checkpoint is plain text in the database, like the messages, and is deleted when the run ends. It holds what the model was sent and what tools returned. The stored request holds no credentials, but provider tool definitions that an inlet hook adds are stored as given, so a hook that puts a credential in them puts it in this table.
 - An upgrade to a version with a different checkpoint format ends the runs that were live, as interrupted.
 - Running an older and a newer version side by side on one database is not supported: an older one fails every reply it finds being written when it starts.
+- Rolling back to a version without durable runs works: it starts on the newer database, fails the replies that were being written as interrupted, and ignores the `run` table. After upgrading again, the rows it left behind are removed within a minute.
 
 ## Settings
 

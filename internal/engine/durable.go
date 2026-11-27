@@ -206,6 +206,7 @@ func (e *Engine) detach(r *Run, why error) {
 // releaseRun hands back a run that a shutdown stopped: queued with no owner, so the next process claims it at once
 // and without counting a recovery. It goes on from its last checkpoint.
 func (e *Engine) releaseRun(x *exec) {
+	slog.Info("run released for the next start", "run", x.run.ID)
 	e.saveTrace(x) // this attempt's steps
 	e.detach(x.run, errShutdown)
 	ctx, cancel := context.WithTimeout(context.Background(), releaseWait)
@@ -397,6 +398,8 @@ func (e *Engine) takeOver(c claimed) {
 	if c.checkpoint != nil {
 		ck, ckErr = decodeCheckpoint(c.checkpoint)
 	}
+	// ids and counts only: the checkpoint's content is never logged
+	slog.Info("taking over a run", "run", c.id, "attempt", c.attempt, "recoveries", c.recoveries, "cancelled", c.cancelled)
 	run := newRun(c.chatID, c.messageID, c.userID, m.ModelID, true)
 	run.ID, run.attempt = c.id, c.attempt
 	run.base = int64(c.attempt-1) << 32
@@ -637,8 +640,14 @@ func (e *Engine) requestCancel(ctx context.Context, userID, chatID, messageID st
 
 // failOrphans fails replies that are marked as being written but have no run: nothing will ever finish them (a run
 // of an older version, or a copied message). It replaces a start-up sweep, which with two instances would have
-// failed the other one's live answers.
+// failed the other one's live answers. The reverse is dropped too: a waiting or queued run whose reply has ended
+// (an older version, rolled back to, failed it) would keep the message busy until the question's time. A running row
+// is left alone: a run being started has one before its message is marked.
 func (e *Engine) failOrphans(ctx context.Context) (int64, error) {
+	if _, err := e.DB.Exec(ctx, `DELETE FROM run USING message WHERE message.id = run.message_id
+		AND run.state <> 'running' AND message.status <> 'streaming'`); err != nil {
+		return 0, fmt.Errorf("drop the runs of ended replies: %w", err)
+	}
 	tag, err := e.DB.Exec(ctx, `UPDATE message SET status = 'error', error = $1, pending_calls = '[]', updated_at = now()
 		WHERE status = 'streaming' AND updated_at < now() - make_interval(secs => $2)
 			AND NOT EXISTS (SELECT 1 FROM run WHERE run.message_id = message.id)`, crashedMsg, orphanAfter.Seconds())

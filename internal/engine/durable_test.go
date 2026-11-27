@@ -1763,3 +1763,23 @@ func TestRestoreDropsWhatTheUserMayNoLongerUse(t *testing.T) {
 		t.Fatal("restore changed the checkpoint")
 	}
 }
+
+// A waiting run whose reply an older version failed (a rollback and back) is removed, so the message is not busy
+// until the question's time is up. A live parked run and a run that is just starting stay.
+func TestJanitorDropsRunsOfEndedReplies(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	_, stale, _ := h.parked(t, h.e, "ask_user")
+	_, live, _ := h.parked(t, h.e, "ask_user")
+	_, starting := h.task(t, h.e, "hang")
+	until(t, "the third run", func() bool { return h.row(t, starting.MessageID).state == "running" })
+	h.exec_(t, `UPDATE message SET status = 'error', error = 'x' WHERE id = ANY($1)`, []string{stale.MessageID, starting.MessageID})
+	if _, err := h.e.failOrphans(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for mid, want := range map[string]bool{stale.MessageID: false, live.MessageID: true, starting.MessageID: true} {
+		if got := h.row(t, mid).found; got != want {
+			t.Errorf("%s: row kept = %v, want %v", mid, got, want)
+		}
+	}
+}
