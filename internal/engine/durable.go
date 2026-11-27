@@ -400,15 +400,13 @@ func (e *Engine) takeOver(c claimed) {
 	run := newRun(c.chatID, c.messageID, c.userID, m.ModelID, true)
 	run.ID, run.attempt = c.id, c.attempt
 	run.base = int64(c.attempt-1) << 32
-	// The stored message is as the checkpoint left it. Without a checkpoint nothing of the earlier attempt is kept:
-	// the run starts its answer again.
-	if ck != nil || ckErr != nil {
-		parked := ""
-		if ck != nil && ck.Open != nil {
-			parked = ck.Open.Parked
-		}
-		restoreDisplay(run, m, parked)
+	// The stored message first: a run that is not continued keeps what was saved of its reply. (One that starts its
+	// answer again, having no checkpoint, clears it before it does.)
+	parked := ""
+	if ck != nil && ck.Open != nil {
+		parked = ck.Open.Parked
 	}
+	restoreDisplay(run, m, parked)
 	if ck != nil {
 		run.usage = ck.Usage
 	}
@@ -434,6 +432,9 @@ func (e *Engine) takeOver(c claimed) {
 func (e *Engine) resumeClaimed(ctx context.Context, x *exec, c claimed, ckErr error) {
 	runCtx, err := e.prepareResume(ctx, x, c, ckErr)
 	if err == nil {
+		if x.ck == nil { // from the start: nothing of the earlier attempt is part of the new answer
+			x.run.restart()
+		}
 		e.execute(runCtx, x)
 		return
 	}

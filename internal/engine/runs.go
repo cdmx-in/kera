@@ -437,6 +437,14 @@ func (r *Run) settle(status string) {
 	r.state.PendingCalls = nil
 }
 
+// restart empties the message for an answer that starts again, and tells the streams.
+func (r *Run) restart() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.state = msgState{Status: "streaming"}
+	r.emitLocked("snapshot", r.snapshotLocked())
+}
+
 // close ends the event log with done.
 func (r *Run) close() {
 	r.mu.Lock()

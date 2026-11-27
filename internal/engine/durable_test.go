@@ -1017,6 +1017,9 @@ func TestBusyAcrossInstances(t *testing.T) {
 	if _, err := h.e.Chats.Message(context.Background(), cid, "q-second"); err == nil {
 		t.Fatal("the refused request stored its user message")
 	}
+	if b.runs.byMessage(run.MessageID) != nil {
+		t.Fatal("the refused request left a run in memory, which would shadow the real one")
+	}
 }
 
 // Deleting a chat, a message or a user removes the run row (and its checkpoint) and stops the run.
@@ -1720,5 +1723,43 @@ func TestTemporaryChatAsksInMemory(t *testing.T) {
 	wait(t, run)
 	if got := run.stateText(); got != "round 1. done: "+told {
 		t.Fatalf("%q", got)
+	}
+}
+
+// A run that cannot be resumed (here: runs.resume off) keeps what was saved of its reply when its owner dies.
+func TestCrashOfARunThatCannotResumeKeepsItsText(t *testing.T) {
+	h := newDurable(t)
+	if err := h.e.Settings.Set(context.Background(), "runs.resume", false, false); err != nil {
+		t.Fatal(err)
+	}
+	h.tool.block("write_b")
+	cid, run := h.task(t, h.e, "calls: write_a ; write_b")
+	h.tool.await(t, "write_b")
+	h.crash(t, h.e, run)
+	h.tool.release("write_b")
+	m := h.resumeOn(t, h.peer(t), cid, run.MessageID)
+	if m.Status != "error" || m.Error != crashedMsg || !strings.HasPrefix(m.Content, "round 1. ") || !strings.Contains(string(m.Parts), "write_a ok #1") {
+		t.Fatalf("%q %q content %q parts %s", m.Status, m.Error, m.Content, m.Parts)
+	}
+	if h.tool.ran("write_a") != 1 || h.tool.ran("write_b") != 1 {
+		t.Fatalf("ran %v", h.tool.count)
+	}
+}
+
+// Features come back from the checkpoint only as far as the user may still use them.
+func TestRestoreDropsWhatTheUserMayNoLongerUse(t *testing.T) {
+	ck := &checkpoint{Features: map[string]bool{"web_search": true, "code_interpreter": true, "memory": false},
+		ProviderTools: []json.RawMessage{json.RawMessage(`{"type":"web_search","search_context_size":"low"}`), json.RawMessage(`{"type":"image_generation"}`)}}
+	may := auth.Permissions{}
+	if err := json.Unmarshal([]byte(`{"features":{"code_interpreter":true}}`), &may); err != nil {
+		t.Fatal(err)
+	}
+	x := &exec{u: &auth.User{ID: "u2", Role: "user", Permissions: may}, disabledNames: map[string]bool{}}
+	ck.restore(x)
+	if x.features["web_search"] || !x.features["code_interpreter"] || len(x.providerTools) != 1 || !strings.Contains(string(x.providerTools[0]), "image_generation") {
+		t.Fatalf("features %v, provider tools %s", x.features, x.providerTools)
+	}
+	if len(ck.ProviderTools) != 2 {
+		t.Fatal("restore changed the checkpoint")
 	}
 }

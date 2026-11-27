@@ -228,14 +228,15 @@ func (e *Engine) cancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run := e.ownRun(r)
-	switch {
-	case run != nil:
-		run.stop(errCancelled)
-	case stored:
-		e.kick()
-	default:
+	if run == nil && !stored {
 		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "no running answer for this message"))
 		return
+	}
+	if run != nil {
+		run.stop(errCancelled)
+	}
+	if stored {
+		e.kick() // a parked or queued run is picked up now, not at the next heartbeat
 	}
 	api.JSON(w, http.StatusOK, map[string]any{"ok": true})
 }

@@ -169,10 +169,26 @@ func (c *checkpoint) restore(x *exec) {
 	if x.params == nil {
 		x.params = map[string]any{}
 	}
+	// what the user may no longer use stays off; tool providers check this themselves, but the model server's own
+	// web search would come back with the provider tools
+	for id, on := range x.features {
+		x.features[id] = on && x.u.Can("features."+id)
+	}
 	x.providerTools, x.disableServers = c.ProviderTools, c.DisableServers
+	if !x.u.Can("features.web_search") {
+		x.providerTools = slices.DeleteFunc(slices.Clone(x.providerTools), isWebSearch)
+	}
 	for _, n := range c.DisabledNames {
 		x.disabledNames[n] = true
 	}
+}
+
+// isWebSearch reports a provider tool of the web search family ({"type": "web_search"...}).
+func isWebSearch(raw json.RawMessage) bool {
+	var t struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(raw, &t) == nil && strings.HasPrefix(t.Type, "web_search")
 }
 
 func decodeCheckpoint(raw []byte) (*checkpoint, error) {

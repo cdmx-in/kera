@@ -125,6 +125,7 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 		if err := e.prepareMessages(ctx, x); err != nil {
 			cancel(err)
 			run.done("done")
+			e.runs.remove(run) // it would shadow the run that owns the message, e.g. a parked one
 			return nil, err
 		}
 		if x.durable {
