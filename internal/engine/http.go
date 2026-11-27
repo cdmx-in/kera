@@ -248,19 +248,30 @@ func (e *Engine) answerCall(w http.ResponseWriter, r *http.Request) {
 		api.Fail(w, r, err)
 		return
 	}
-	run := e.ownRun(r)
-	if run == nil {
-		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "no running answer for this message"))
-		return
-	}
 	if len(body.Value) == 0 {
 		body.Value = json.RawMessage("null")
 	}
-	if err := run.answer(r.PathValue("callId"), body.Value); err != nil {
-		api.Fail(w, r, api.Errf(http.StatusNotFound, "no_such_call", "this question was already answered or withdrawn"))
+	callID, mid := r.PathValue("callId"), r.PathValue("mid")
+	run := e.ownRun(r)
+	if run != nil && run.answer(callID, body.Value) == nil { // a call that is waiting in this process
+		api.JSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	api.JSON(w, http.StatusOK, map[string]any{"ok": true})
+	// otherwise the stored question of a parked run
+	stored, err := e.hasRun(r.Context(), auth.FromContext(r.Context()).ID, r.PathValue("id"), mid)
+	if err == nil && stored {
+		err = e.Answer(r.Context(), mid, callID, body.Value)
+	}
+	switch {
+	case err == nil && stored:
+		api.JSON(w, http.StatusOK, map[string]any{"ok": true})
+	case err != nil && !errors.Is(err, ErrNoSuchCall):
+		api.Fail(w, r, err)
+	case run == nil && !stored:
+		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "no running answer for this message"))
+	default:
+		api.Fail(w, r, api.Errf(http.StatusNotFound, "no_such_call", "this question was already answered or withdrawn"))
+	}
 }
 
 // chatRuns lists a chat's live and recent runs (reattach after a reload): those here, and those that only have a

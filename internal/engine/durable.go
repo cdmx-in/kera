@@ -403,7 +403,11 @@ func (e *Engine) takeOver(c claimed) {
 	// The stored message is as the checkpoint left it. Without a checkpoint nothing of the earlier attempt is kept:
 	// the run starts its answer again.
 	if ck != nil || ckErr != nil {
-		restoreDisplay(run, m)
+		parked := ""
+		if ck != nil && ck.Open != nil {
+			parked = ck.Open.Parked
+		}
+		restoreDisplay(run, m, parked)
 	}
 	if ck != nil {
 		run.usage = ck.Usage
@@ -572,8 +576,9 @@ func (e *Engine) forgetDeferred(runID string) {
 	e.deferMu.Unlock()
 }
 
-// restoreDisplay puts the stored message back into a run, so its streams and saves continue from it.
-func restoreDisplay(r *Run, m chats.Message) {
+// restoreDisplay puts the stored message back into a run, so its streams and saves continue from it. parked is the
+// call id of the question the run waits on; no other stored card is still open (its call is gone).
+func restoreDisplay(r *Run, m chats.Message, parked string) {
 	st := msgState{Status: "streaming"}
 	decode := func(raw json.RawMessage, dst any) {
 		if len(raw) > 0 {
@@ -586,6 +591,13 @@ func restoreDisplay(r *Run, m chats.Message) {
 	decode(m.Files, &st.Files)
 	decode(m.Sources, &st.Sources)
 	decode(m.FollowUps, &st.FollowUps)
+	var pending []PendingCall
+	decode(m.PendingCalls, &pending)
+	for _, p := range pending {
+		if parked != "" && p.CallID == parked {
+			st.PendingCalls = append(st.PendingCalls, p)
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.state = st

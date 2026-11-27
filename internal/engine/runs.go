@@ -527,21 +527,7 @@ func (r *Run) ask(ctx context.Context, pc PendingCall, timeout time.Duration) (j
 	if persist != nil {
 		persist()
 	}
-	r.mu.Lock()
-	data := map[string]any{"callId": pc.CallID}
-	if pc.Kind == "confirm" {
-		data["title"], data["message"] = pc.Title, pc.Message
-		if pc.ConfirmLabel != "" {
-			data["confirmLabel"] = pc.ConfirmLabel
-		}
-		if pc.CancelLabel != "" {
-			data["cancelLabel"] = pc.CancelLabel
-		}
-	} else {
-		data["questions"] = pc.Questions
-	}
-	r.emitLocked(pc.Kind, data)
-	r.mu.Unlock()
+	r.card(pc)
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
@@ -555,6 +541,39 @@ func (r *Run) ask(ctx context.Context, pc PendingCall, timeout time.Duration) (j
 	}
 	r.withdraw(pc.CallID)
 	return nil, fmt.Errorf("%w: %v", ErrNoAnswer, context.Cause(ctx))
+}
+
+// card sends the event that shows a question.
+func (r *Run) card(pc PendingCall) {
+	data := map[string]any{"callId": pc.CallID}
+	if pc.Kind == "confirm" {
+		data["title"], data["message"] = pc.Title, pc.Message
+		if pc.ConfirmLabel != "" {
+			data["confirmLabel"] = pc.ConfirmLabel
+		}
+		if pc.CancelLabel != "" {
+			data["cancelLabel"] = pc.CancelLabel
+		}
+	} else {
+		data["questions"] = pc.Questions
+	}
+	r.emit(pc.Kind, data)
+}
+
+// addPending adds the question to the open ones, once.
+func (r *Run) addPending(pc PendingCall) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.removePendingLocked(pc.CallID)
+	r.state.PendingCalls = append(r.state.PendingCalls, pc)
+}
+
+// dropPending closes the question's card.
+func (r *Run) dropPending(callID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.removePendingLocked(callID)
+	r.emitLocked("snapshot", r.snapshotLocked())
 }
 
 // withdraw removes an unanswered question and persists that, so the stored

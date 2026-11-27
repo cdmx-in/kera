@@ -291,6 +291,9 @@ func (e *Engine) execute(ctx context.Context, x *exec) {
 		return
 	case errors.Is(err, errCancelled) || errors.Is(context.Cause(ctx), errCancelled):
 		status = "stopped"
+	case errors.Is(err, errParked):
+		e.park(x)
+		return
 	case x.durable && (errors.Is(err, errShutdown) || errors.Is(context.Cause(ctx), errShutdown)):
 		e.releaseRun(x)
 		return

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -226,6 +227,7 @@ func newDurable(t *testing.T) *durableHarness {
 		t.Fatal(err)
 	}
 	tools.Register(h.tool)
+	tools.Register(&coreTools{e: h.e}) // ask_user
 	t.Cleanup(func() {
 		// whatever is still held or running must end before the database goes, also after a failed test
 		engines := append([]*Engine{h.e}, h.peers...)
@@ -243,6 +245,7 @@ func newDurable(t *testing.T) *durableHarness {
 		}
 		srv.Close()
 		tools.Register(inertSet("durable-server"))
+		tools.Register(inertSet("builtin:core"))
 	})
 	return h
 }
@@ -781,6 +784,7 @@ func TestRerunnable(t *testing.T) {
 	}{
 		{"builtin:core", "get_current_timestamp", false, true},
 		{"builtin:core", "search_chats", false, true},
+		{"builtin:core", "ask_user", false, false},
 		{"builtin:files", "view_file", false, true},
 		{"builtin:web", "fetch_url", false, true},
 		{"builtin:knowledge", "query_knowledge_files", false, true},
@@ -1304,5 +1308,417 @@ func TestTraceAcrossAttempts(t *testing.T) {
 	}
 	if steps != seqs || early == 0 || late == 0 {
 		t.Fatalf("steps %d, distinct seq %d, first attempt %d, second %d", steps, seqs, early, late)
+	}
+}
+
+const answerB = `[{"question":"Which one?","answers":["B"]}]`
+
+// told is what the model reads after the answer.
+const told = "Q: Which one?\nA: B\n"
+
+// parked starts a task that asks and waits until its run is parked. It returns the chat, the run and the call id.
+func (h *durableHarness) parked(t *testing.T, e *Engine, script string) (string, *Run, string) {
+	t.Helper()
+	cid, run := h.task(t, e, "calls: "+script)
+	until(t, "the run to park", func() bool { return h.row(t, run.MessageID).state == "waiting" })
+	e.Wait() // returns only because no goroutine is left waiting for the answer
+	r := h.row(t, run.MessageID)
+	return cid, run, r.waitKey
+}
+
+func (h *durableHarness) pending(t *testing.T, cid, mid string) string {
+	t.Helper()
+	return string(h.message(t, cid, mid).PendingCalls)
+}
+
+func (h *durableHarness) exec_(t *testing.T, q string, args ...any) {
+	t.Helper()
+	if _, err := h.pool.Exec(context.Background(), q, args...); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A question is a stored wait: the run holds nothing in memory, a restart keeps it, and the answer, given to any
+// instance, carries the run on.
+func TestParkedQuestionAnsweredAfterRestart(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	cid, run, call := h.parked(t, h.e, "ask_user")
+	mid := run.MessageID
+	if !errors.Is(run.detached(), errParked) || h.e.runs.byMessage(mid) != nil {
+		t.Fatalf("the parked run is still in memory: %v", run.detached())
+	}
+	evs, _, _ := run.next(0)
+	if got := types(evs); !strings.HasSuffix(got, "tool_call,ask_user") {
+		t.Fatalf("events %s", got)
+	}
+	var hours float64
+	if err := h.pool.QueryRow(ctx, `SELECT extract(epoch FROM wake_at - now())::float8 / 3600 FROM run WHERE message_id = $1`, mid).Scan(&hours); err != nil {
+		t.Fatal(err)
+	}
+	if r := h.row(t, mid); r.owner != "" || call != "c1-0" || hours < 11.9 || hours > 12 {
+		t.Fatalf("parked row %+v, waits %v hours", r, hours)
+	}
+	if m := h.message(t, cid, mid); m.Status != "streaming" || !strings.Contains(string(m.PendingCalls), `"c1-0"`) || !strings.Contains(string(m.PendingCalls), "Which one?") {
+		t.Fatalf("stored %q %s", m.Status, m.PendingCalls)
+	}
+	b := h.peer(t) // the restarted server
+	b.tick(ctx)
+	if r := h.row(t, mid); r.state != "waiting" || r.attempt != 1 {
+		t.Fatalf("a waiting run was claimed before it was answered: %+v", r)
+	}
+	if err := b.Answer(ctx, mid, "not-the-call", json.RawMessage(answerB)); !errors.Is(err, ErrNoSuchCall) {
+		t.Fatalf("unknown call: %v", err)
+	}
+	if err := b.Answer(ctx, mid, call, json.RawMessage(answerB)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Answer(ctx, mid, call, json.RawMessage(`true`)); !errors.Is(err, ErrNoSuchCall) {
+		t.Fatalf("a second answer: %v", err)
+	}
+	if p := h.pending(t, cid, mid); p != "[]" {
+		t.Fatalf("the card stayed after the answer: %s", p)
+	}
+	m := h.resumeOn(t, b, cid, mid)
+	if want := "round 1. done: " + told; m.Status != "done" || m.Content != want || string(m.PendingCalls) != "[]" {
+		t.Fatalf("got %q %q %s, want %q", m.Status, m.Content, m.PendingCalls, want)
+	}
+	if n := strings.Count(string(m.Parts), `"callId": "c1-0"`); n != 1 || strings.Contains(string(m.Parts), `"running"`) {
+		t.Fatalf("the question's step appears %d times: %s", n, m.Parts)
+	}
+}
+
+func TestParkedQuestionTimesOut(t *testing.T) {
+	h := newDurable(t)
+	cid, run, call := h.parked(t, h.e, "ask_user")
+	h.exec_(t, `UPDATE run SET wake_at = now() - interval '1 second'`)
+	m := h.resumeOn(t, h.peer(t), cid, run.MessageID)
+	if m.Status != "done" || m.Content != "round 1. done: The user did not answer the questions." || string(m.PendingCalls) != "[]" {
+		t.Fatalf("%q %q %s", m.Status, m.Content, m.PendingCalls)
+	}
+	if err := h.e.Answer(context.Background(), run.MessageID, call, json.RawMessage(answerB)); !errors.Is(err, ErrNoSuchCall) {
+		t.Fatalf("an answer after the end: %v", err)
+	}
+}
+
+// A question that timed out is closed by the read that finds it so: an answer arriving after that is refused, not
+// accepted and then ignored.
+func TestTimeoutRacingAnswer(t *testing.T) {
+	h := newDurable(t)
+	_, run, call := h.parked(t, h.e, "ask_user")
+	h.exec_(t, `UPDATE run SET wake_at = now() - interval '1 second', state = 'running', lease_owner = $1, lease_until = now() + interval '30 seconds'`, h.e.instance)
+	x := &exec{run: &Run{ID: run.ID, MessageID: run.MessageID, attempt: 1}}
+	got, err := h.e.takeAnswer(x, call)
+	if err != nil || string(got) != "null" {
+		t.Fatalf("the timed out question: %s %v", got, err)
+	}
+	if err := h.e.Answer(context.Background(), run.MessageID, call, json.RawMessage(answerB)); !errors.Is(err, ErrNoSuchCall) {
+		t.Fatalf("a late answer was accepted: %v", err)
+	}
+}
+
+// An answer that arrives while an instance already holds the run (claimed, or still parking) is kept for it.
+func TestAnswerWhileResuming(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	cid, run, call := h.parked(t, h.e, "ask_user")
+	mid := run.MessageID
+	h.exec_(t, `UPDATE run SET state = 'running', lease_owner = 'claimer', lease_until = now() + interval '30 seconds', attempt = attempt + 1`)
+	if err := h.e.Answer(ctx, mid, call, json.RawMessage(answerB)); err != nil {
+		t.Fatal(err)
+	}
+	if r := h.row(t, mid); r.state != "running" || r.owner != "claimer" || r.answer == "" {
+		t.Fatalf("answered while held: %+v", r)
+	}
+	h.expire(t, mid) // and that instance dies with it
+	if m := h.resumeOn(t, h.peer(t), cid, mid); m.Content != "round 1. done: "+told {
+		t.Fatalf("%q %q", m.Content, m.Error)
+	}
+}
+
+// The answer can arrive between the card and the end of parking: the run is queued at once.
+func TestAnswerBeforeParkingIsDone(t *testing.T) {
+	h := newDurable(t)
+	_, run, call := h.parked(t, h.e, "ask_user")
+	mid := run.MessageID
+	h.exec_(t, `UPDATE run SET state = 'running', lease_owner = $1, lease_until = now() + interval '30 seconds'`, h.e.instance)
+	if err := h.e.Answer(context.Background(), mid, call, json.RawMessage(answerB)); err != nil {
+		t.Fatal(err)
+	}
+	h.e.park(&exec{run: &Run{ID: run.ID, MessageID: mid, attempt: 1, wake: make(chan struct{})}})
+	if r := h.row(t, mid); r.state != "queued" || r.owner != "" {
+		t.Fatalf("parking over an answer: %+v", r)
+	}
+}
+
+// A crash between storing the question and parking asks it again, with the time it had left.
+func TestCrashBeforeParkingKeepsTheQuestion(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	cid, run, call := h.parked(t, h.e, "ask_user")
+	mid := run.MessageID
+	var before, after time.Time
+	if err := h.pool.QueryRow(ctx, `SELECT wake_at FROM run`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	h.exec_(t, `UPDATE run SET state = 'running', lease_owner = 'dead', lease_until = now() - interval '1 second'`)
+	b := h.peer(t)
+	b.tick(ctx)
+	until(t, "the run to park again", func() bool { return h.row(t, mid).state == "waiting" })
+	b.Wait()
+	if err := h.pool.QueryRow(ctx, `SELECT wake_at FROM run`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if r := h.row(t, mid); !after.Equal(before) || r.waitKey != call || r.recoveries != 1 || strings.Count(h.pending(t, cid, mid), `"c1-0"`) != 1 {
+		t.Fatalf("parked again: %+v, wake %v then %v, pending %s", r, before, after, h.pending(t, cid, mid))
+	}
+}
+
+// A shutdown that catches a parked run being resumed hands it back with the answer still there.
+func TestDrainKeepsAParkedAnswer(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	cid, run, call := h.parked(t, h.e, "ask_user")
+	mid := run.MessageID
+	if err := h.e.Answer(ctx, mid, call, json.RawMessage(answerB)); err != nil {
+		t.Fatal(err)
+	}
+	b := h.peer(t)
+	c, ok, err := b.claim(ctx)
+	if err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	b.startDrain() // the shutdown arrives before the resumed run reads the answer
+	b.takeOver(c)
+	b.Wait()
+	if r := h.row(t, mid); r.state != "queued" || r.waitKey != call || r.answer == "" {
+		t.Fatalf("after the drain: %+v", r)
+	}
+	if m := h.resumeOn(t, h.peer(t), cid, mid); m.Content != "round 1. done: "+told {
+		t.Fatalf("the answer was lost: %q %q", m.Content, m.Error)
+	}
+}
+
+func TestCancelParkedRun(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	b := h.peer(t)
+	srv := h.serve(t, b)
+	cid, run, call := h.parked(t, h.e, "write_a, ask_user, write_b")
+	mid := run.MessageID
+	post := func(path, body string) int {
+		resp, err := http.Post(srv.URL+path, "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := post("/api/v1/chats/another-chat/messages/"+mid+"/cancel", ""); got != http.StatusNotFound {
+		t.Fatalf("cancel through another chat: %d", got)
+	}
+	if got := post("/api/v1/chats/"+cid+"/messages/"+mid+"/cancel", ""); got != http.StatusOK {
+		t.Fatalf("cancel: %d", got)
+	}
+	if err := b.Answer(ctx, mid, call, json.RawMessage(answerB)); !errors.Is(err, ErrNoSuchCall) {
+		t.Fatalf("an answer to a cancelled run: %v", err)
+	}
+	m := h.resumeOn(t, b, cid, mid)
+	if m.Status != "stopped" || m.Content != "round 1. " || string(m.PendingCalls) != "[]" || h.tool.ran("write_b") != 0 {
+		t.Fatalf("%q %q %s, write_b %d", m.Status, m.Content, m.PendingCalls, h.tool.ran("write_b"))
+	}
+}
+
+// A write before a question keeps its result; one after it runs once, with nothing in doubt.
+func TestWritesAroundAQuestion(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	srv := h.serve(t, b)
+	cid, run, call := h.parked(t, h.e, "write_a, ask_user, write_b")
+	mid := run.MessageID
+	if h.tool.ran("write_a") != 1 || h.tool.ran("write_b") != 0 {
+		t.Fatalf("before the answer: %v", h.tool.count)
+	}
+	// through the HTTP route: only the chat's own address works, and only once
+	answer := func(chat string) int {
+		resp, err := http.Post(srv.URL+"/api/v1/chats/"+chat+"/messages/"+mid+"/calls/"+call, "application/json",
+			strings.NewReader(`{"value":`+answerB+`}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := []int{answer("another-chat"), answer(cid), answer(cid)}; !slices.Equal(got, []int{404, 200, 404}) {
+		t.Fatalf("answer statuses %v", got)
+	}
+	m := h.resumeOn(t, b, cid, mid)
+	if want := "round 1. done: write_a ok #1 | " + told + " | write_b ok #1"; m.Content != want {
+		t.Fatalf("got %q %q, want %q", m.Content, m.Error, want)
+	}
+	if h.tool.ran("write_a") != 1 || h.tool.ran("write_b") != 1 {
+		t.Fatalf("ran %v", h.tool.count)
+	}
+}
+
+// The answer is recorded the moment it is read: a crash during the next write neither asks again nor repeats it.
+func TestWriteAfterAnswerNotRepeated(t *testing.T) {
+	h := newDurable(t)
+	b, c := h.peer(t), h.peer(t)
+	cid, run, call := h.parked(t, h.e, "ask_user, write_b")
+	mid := run.MessageID
+	if err := b.Answer(context.Background(), mid, call, json.RawMessage(answerB)); err != nil {
+		t.Fatal(err)
+	}
+	h.tool.block("write_b")
+	b.tick(context.Background())
+	h.tool.await(t, "write_b")
+	h.crash(t, b, b.runs.byMessage(mid))
+	h.tool.release("write_b")
+	m := h.resumeOn(t, c, cid, mid)
+	if want := "round 1. done: " + told + " | " + unknownResult; m.Content != want || h.tool.ran("write_b") != 1 {
+		t.Fatalf("write_b ran %d times; got %q %q, want %q", h.tool.ran("write_b"), m.Content, m.Error, want)
+	}
+}
+
+// A browser attached to a parked run keeps its card: the stream is held, and goes on when the answer comes.
+func TestHeldStreamShowsTheParkedQuestion(t *testing.T) {
+	h := newDurable(t)
+	b := h.peer(t)
+	srv := h.serve(t, b)
+	cid, run, call := h.parked(t, h.e, "ask_user")
+	mid := run.MessageID
+	resp, err := http.Get(srv.URL + "/api/v1/chats/" + cid + "/messages/" + mid + "/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var kinds []string
+	var cards []int // open cards in each snapshot
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		sseEvents(t, resp, func(typ string, d map[string]any) {
+			mu.Lock()
+			defer mu.Unlock()
+			kinds = append(kinds, typ)
+			if p, ok := d["pendingCalls"].([]any); ok {
+				cards = append(cards, len(p))
+			}
+		})
+	}()
+	first := func() []int { mu.Lock(); defer mu.Unlock(); return slices.Clone(cards) }
+	until(t, "the stored card", func() bool { return len(first()) > 0 })
+	time.Sleep(5 * holdPoll)
+	if got := first(); !slices.Equal(got, []int{1}) {
+		t.Fatalf("cards %v", got)
+	}
+	if err := b.Answer(context.Background(), mid, call, json.RawMessage(answerB)); err != nil {
+		t.Fatal(err)
+	}
+	b.tick(context.Background())
+	closed(t, ended, "the held stream")
+	mu.Lock()
+	defer mu.Unlock()
+	if kinds[len(kinds)-1] != "done" || cards[len(cards)-1] != 0 {
+		t.Fatalf("held stream %v, cards %v", kinds, cards)
+	}
+}
+
+// A caller that is not the web app is never asked (nobody could answer), so its run never parks.
+func TestRunWithoutAPersonNeverParks(t *testing.T) {
+	h := newDurable(t)
+	cid := h.taskChat(t)
+	srv := h.serve(t, h.e)
+	resp, err := http.Post(srv.URL+"/api/chat/completions", "application/json", strings.NewReader(
+		`{"model":"m1","stream":false,"chat_id":"`+cid+`","id":"api1","messages":[{"role":"user","content":"calls: ask_user"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Choices []struct {
+			Message struct{ Content string }
+		}
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || len(out.Choices) != 1 || !strings.Contains(out.Choices[0].Message.Content, `there is no tool named "ask_user"`) {
+		t.Fatalf("%d %+v", resp.StatusCode, out)
+	}
+	h.settled(t, cid, "api1")
+}
+
+// A stream:false caller whose run is handed over is told so, with a status the OpenAI SDKs are told not to retry:
+// it is neither a success nor a hang, and sending the request again would run the tools again.
+func TestAPICallerOfAHandedOverRun(t *testing.T) {
+	h := newDurable(t)
+	cid := h.taskChat(t)
+	srv := h.serve(t, h.e)
+	type reply struct {
+		status int
+		retry  string
+		body   string
+	}
+	got := make(chan reply, 1)
+	go func() {
+		resp, err := http.Post(srv.URL+"/api/chat/completions", "application/json", strings.NewReader(
+			`{"model":"m1","stream":false,"chat_id":"`+cid+`","id":"api1","messages":[{"role":"user","content":"hang"}]}`))
+		if err != nil {
+			got <- reply{body: err.Error()}
+			return
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		got <- reply{resp.StatusCode, resp.Header.Get("x-should-retry"), string(b)}
+	}()
+	until(t, "the run to start", func() bool {
+		r := h.e.runs.byMessage("api1")
+		return r != nil && strings.Contains(r.stateText(), "partial")
+	})
+	closed(t, shutdown(h.e, 10*time.Second), "shutdown")
+	select {
+	case r := <-got:
+		if r.status != http.StatusServiceUnavailable || r.retry != "false" || !strings.Contains(r.body, `"run_detached"`) || !strings.Contains(r.body, cid) {
+			t.Fatalf("%+v", r)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the caller was left waiting")
+	}
+	// the caller sent its own conversation and no model reply was recorded yet, so this one cannot be rebuilt
+	m := h.resumeOn(t, h.peer(t), cid, "api1")
+	if m.Status != "error" || m.Error != crashedMsg {
+		t.Fatalf("%q %q", m.Status, m.Error)
+	}
+}
+
+// Temporary chats have nowhere to park: their question waits in memory, as before.
+func TestTemporaryChatAsksInMemory(t *testing.T) {
+	h := newDurable(t)
+	run, err := h.e.Start(context.Background(), h.u, &Request{Model: "m1", StreamFormat: "events", Temporary: true,
+		Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"calls: ask_user"`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := ""
+	until(t, "the question", func() bool {
+		evs, _, _ := run.next(0)
+		for _, ev := range evs {
+			if ev.Type == "ask_user" {
+				call, _ = ev.Data["callId"].(string)
+			}
+		}
+		return call != ""
+	})
+	if run.Finished() {
+		t.Fatal("the temporary run did not wait")
+	}
+	if err := run.answer(call, json.RawMessage(answerB)); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, run)
+	if got := run.stateText(); got != "round 1. done: "+told {
+		t.Fatalf("%q", got)
 	}
 }

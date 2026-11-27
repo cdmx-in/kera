@@ -79,6 +79,63 @@ describe('streamLoop', () => {
     expect(outcome).toBe('lost')
   })
 
+  it('counts only failures in a row, and applies events that carry no seq', async () => {
+    // a restart: held snapshots without seq, drops in between, then the resumed run's events
+    let calls = 0
+    const got: StreamEvent[] = []
+    const waits: number[] = []
+    const outcome = await streamLoop({
+      start: async () => body(sse(['delta', { seq: 7, text: 'a' }])),
+      resume: async (after) => {
+        calls++
+        expect(after).toBe(7)
+        if (calls % 3 !== 0) throw new Error('down')
+        return calls < 12 ? body(sse(['snapshot', { parts: [] }])) : body(sse(['done', {}]))
+      },
+      onEvent: (e) => got.push(e),
+      signal: new AbortController().signal,
+      retries: 3, // two drops before each stream that brings something: never more than three reconnects in a row
+      delayMs: (n) => (waits.push(n), 0),
+    })
+    expect(outcome).toBe('finished')
+    expect(calls).toBe(12)
+    expect(got.map((e) => e.type)).toEqual(['delta', 'snapshot', 'snapshot', 'snapshot', 'done'])
+    expect(Math.max(...waits)).toBe(2) // the delay starts short again after progress
+  })
+
+  it('keeps trying for ten failures in a row by default', async () => {
+    let calls = 0
+    const outcome = await streamLoop({
+      start: async () => body(''),
+      resume: async () => {
+        calls++
+        throw new Error('down')
+      },
+      onEvent: () => {},
+      signal: new AbortController().signal,
+      delayMs: () => 0,
+    })
+    expect(outcome).toBe('lost')
+    expect(calls).toBe(10)
+  })
+
+  it('does not count a replay of events already seen as progress', async () => {
+    let calls = 0
+    const outcome = await streamLoop({
+      start: async () => body(sse(['delta', { seq: 1, text: 'a' }])),
+      resume: async () => {
+        calls++
+        return body(sse(['delta', { seq: 1, text: 'a' }]))
+      },
+      onEvent: () => {},
+      signal: new AbortController().signal,
+      retries: 3,
+      delayMs: () => 0,
+    })
+    expect(outcome).toBe('lost')
+    expect(calls).toBe(3)
+  })
+
   it('reattaches with after= when resuming an existing run', async () => {
     const after: number[] = []
     await streamLoop({

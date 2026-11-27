@@ -1,6 +1,8 @@
 // Runs a completion over SSE and folds its events into the chat store, one
 // store update per animation frame. A dropped connection resumes from the last
-// seq via GET .../messages/{mid}/stream?after=<seq>.
+// seq via GET .../messages/{mid}/stream?after=<seq>. A reply goes on while the
+// server restarts, so the stream is reopened for about a minute before the
+// message is shown as lost.
 
 import { ApiError, apiFetch, api } from '@/api/client'
 import { readSSE } from '@/api/sse'
@@ -34,13 +36,15 @@ export interface StreamLoop {
 
 /**
  * Reads events until `done` or `error`, resuming after drops. Events at or
- * below the last seen seq are skipped (replays after a resume). Returns
- * 'finished', 'aborted' or 'lost'.
+ * below the last seen seq are skipped (replays after a resume). `retries` is
+ * how many times in a row a stream may bring nothing new; one that brought an
+ * event starts the count again. Returns 'finished', 'aborted' or 'lost'.
  */
 export async function streamLoop(o: StreamLoop): Promise<'finished' | 'aborted' | 'lost'> {
   let last = o.after ?? 0
   let finished = false
-  const retries = o.retries ?? 5
+  let received = false
+  const retries = o.retries ?? 10
   const handle = (event: string, data: string) => {
     const ev = decodeEvent(event, data)
     if (!ev) return
@@ -49,23 +53,28 @@ export async function streamLoop(o: StreamLoop): Promise<'finished' | 'aborted' 
       last = ev.seq
     }
     if (ev.type === 'done' || ev.type === 'error') finished = true
+    received = true
     o.onEvent(ev)
   }
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  let failures = 0
+  for (let first = true; ; first = false) {
     if (o.signal.aborted) return 'aborted'
+    received = false
     try {
-      const res = attempt === 0 && o.after == null ? await o.start() : await o.resume(last)
+      const res = first && o.after == null ? await o.start() : await o.resume(last)
       if (!res.body) throw new Error('no body')
       await readSSE(res.body, (m) => handle(m.event, m.data), o.signal)
       if (finished) return 'finished'
     } catch (e) {
       if (o.signal.aborted) return 'aborted'
       // a 4xx on the first request is a real error (bad model, local lock): surface it
-      if (attempt === 0 && o.after == null && (e as { status?: number }).status && (e as { status: number }).status < 500) throw e
+      if (first && o.after == null && (e as { status?: number }).status && (e as { status: number }).status < 500) throw e
     }
-    if (attempt < retries) await new Promise((r) => setTimeout(r, (o.delayMs ?? ((n) => Math.min(8000, 500 * 2 ** n)))(attempt)))
+    if (received) failures = 0
+    if (failures >= retries) return o.signal.aborted ? 'aborted' : 'lost'
+    await new Promise((r) => setTimeout(r, (o.delayMs ?? ((n) => Math.min(8000, 500 * 2 ** n)))(failures)))
+    failures++
   }
-  return o.signal.aborted ? 'aborted' : 'lost'
 }
 
 // ---- store wiring -----------------------------------------------------------

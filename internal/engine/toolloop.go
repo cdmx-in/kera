@@ -25,13 +25,22 @@ import (
 	"github.com/cdmx-in/kera/internal/tools"
 )
 
-// askTimeout bounds how long a tool waits for the user by default.
+// askTimeout bounds how long a question to the user waits by default.
 var askTimeout = 30 * time.Minute
 
-// coworkAskTimeout is the default wait in a task, where the user is often away.
-// ponytail: an in-memory wait; a restart withdraws the question (the start-up
-// sweep marks the message as failed). Persist pending asks if tasks must survive restarts.
+// coworkAskTimeout is the default wait in a task, where the user is often away. ask_user in a run that can be resumed
+// waits in the database (parked.go).
+// ponytail: a question a tool server asks in the middle of a call (MCP elicitation, the ask callback) and one in a
+// temporary chat still wait in memory, and a restart withdraws them; storing them means replaying a half-done call.
 var coworkAskTimeout = 12 * time.Hour
+
+// askWait is how long this run's questions wait.
+func (x *exec) askWait() time.Duration {
+	if x.cowork() {
+		return coworkAskTimeout
+	}
+	return askTimeout
+}
 
 // keepToolImages is how many tool image turns (screenshots) stay in the
 // conversation; older ones are blanked to bound tokens.
@@ -403,6 +412,7 @@ func (e *Engine) finishRound(ctx context.Context, x *exec, table map[string]tool
 		}
 	}
 	b.callChars = b.callShare(msgs[:open.At+1], len(calls)) // the round's results share what is left of the window
+	parkedAt := from                                        // a parked question is the first call without a result
 	err := e.runCalls(ctx, x, table, b, st, calls[from:], round, roundHooks{
 		skip: skip[from:],
 		before: func(i int, skipped bool) error {
@@ -413,6 +423,22 @@ func (e *Engine) finishRound(ctx context.Context, x *exec, table map[string]tool
 				return nil
 			}
 			return e.hold(ctx, x) // a call that may change something is made only by the run's owner
+		},
+		parked: func(i int) bool { return open.Parked != "" && from+i == parkedAt },
+		ask: func(i int, c provider.ToolCall) (*tools.Result, error) {
+			asked := open.Parked != "" && from+i == parkedAt
+			switch {
+			case !x.durable:
+				return nil, nil // the tool waits for the answer itself
+			case asksUser(table, c):
+				return e.question(x, c, open, func() error { return e.saveCheckpoint(x, checkpointOf(x, msgs, b, round, open)) })
+			case asked: // another tool has taken the name since: it was never asked for
+				open.Parked = ""
+				x.run.dropPending(c.ID)
+				r := errResult("the question could not be asked again after a restart")
+				return &r, nil
+			}
+			return nil, nil
 		},
 		done: func(i int, r callResult) error {
 			c := calls[from+i]
@@ -639,6 +665,10 @@ type roundHooks struct {
 	skip   []string                        // per call: the result to give instead of running it ("" = run it)
 	before func(i int, skipped bool) error // before a call starts (skipped: it will not run); an error stops the round
 	done   func(i int, r callResult) error // each result, in call order; an error stops the round
+	parked func(i int) bool                // the call is the question the run was parked on: it is shown already
+	// ask handles a question to the user without running its tool: it returns the result, or errParked. nil, nil: run
+	// the call like any other.
+	ask func(i int, c provider.ToolCall) (*tools.Result, error)
 }
 
 // runCalls runs one round's calls and hands their results to h.done, in call order. The calls run at once only
@@ -657,7 +687,9 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 			skip[i] = h.skip[i]
 		}
 	}
-	one := func(i int, c provider.ToolCall) { out[i] = e.runTool(ctx, x, table, b, c, round, skip[i]) }
+	one := func(i int, c provider.ToolCall, given *tools.Result) {
+		out[i] = e.runTool(ctx, x, table, b, c, round, skip[i], given)
+	}
 	if !st.parallel || len(calls) < 2 || !allReadOnly(table, calls) {
 		for i := range calls {
 			if ctx.Err() != nil {
@@ -666,7 +698,20 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 			if err := h.before(i, skip[i] != ""); err != nil {
 				return err
 			}
-			one(i, e.announce(x, table, calls[i]))
+			var c provider.ToolCall
+			if h.parked(i) {
+				c = prepared(table, calls[i])
+			} else {
+				c = e.announce(x, table, calls[i])
+			}
+			var given *tools.Result
+			if skip[i] == "" {
+				var err error
+				if given, err = h.ask(i, c); err != nil {
+					return err
+				}
+			}
+			one(i, c, given)
 			if ctx.Err() != nil && out[i].failed {
 				break
 			}
@@ -697,7 +742,7 @@ func (e *Engine) runCalls(ctx context.Context, x *exec, table map[string]toolEnt
 				<-sem
 				wg.Done()
 			}()
-			one(i, c)
+			one(i, c, nil)
 		}()
 	}
 	wg.Wait()
@@ -732,18 +777,25 @@ func allReadOnly(table map[string]toolEntry, calls []provider.ToolCall) bool {
 
 // announce shows a call to the user as a step and returns it with its unset arguments dropped, ready for runTool.
 func (e *Engine) announce(x *exec, table map[string]toolEntry, c provider.ToolCall) provider.ToolCall {
-	entry, ok := table[c.Name]
-	if ok {
+	c = prepared(table, c)
+	x.run.toolCall(c.ID, c.Name, table[c.Name].server, c.Arguments)
+	return c
+}
+
+// prepared is c with its unset arguments dropped.
+func prepared(table map[string]toolEntry, c provider.ToolCall) provider.ToolCall {
+	if entry, ok := table[c.Name]; ok {
 		c.Arguments = dropUnsetArgs(entry.spec.Parameters, c.Arguments)
 	}
-	x.run.toolCall(c.ID, c.Name, entry.server, c.Arguments)
 	return c
 }
 
 // runTool executes one announced call and returns what the model reads back: the text
 // and, for a vision model, the result's images.
 // skip, when set, is the result instead of running the call (the repeat guard, or a call a resumed run does not repeat).
-func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, b *runBudget, c provider.ToolCall, round int, skip string) callResult {
+// given, when set, is the call's result (the answer to a question).
+func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntry, b *runBudget, c provider.ToolCall, round int, skip string,
+	given *tools.Result) callResult {
 	started := time.Now()
 	entry, ok := table[c.Name]
 	var res tools.Result
@@ -752,6 +804,8 @@ func (e *Engine) runTool(ctx context.Context, x *exec, table map[string]toolEntr
 		res = tools.Result{Content: fmt.Sprintf("Error: there is no tool named %q.", c.Name), IsError: true}
 	case skip != "":
 		res = tools.Result{Content: skip, IsError: true}
+	case given != nil:
+		res = *given
 	default:
 		var err error
 		call := e.toolCall(x, c)
@@ -881,10 +935,7 @@ func (e *Engine) toolCall(x *exec, c provider.ToolCall) tools.Call {
 		CallbackURL: e.callbackURL(run.ID), CallbackToken: tok,
 		Emit: func(ev tools.Event) { e.applyEvent(run, c.ID, ev.Type, ev.Data) },
 		Ask: func(ctx context.Context, r tools.AskRequest) (json.RawMessage, error) {
-			timeout := askTimeout
-			if x.cowork() {
-				timeout = coworkAskTimeout
-			}
+			timeout := x.askWait()
 			if r.TimeoutMS > 0 {
 				timeout = time.Duration(r.TimeoutMS) * time.Millisecond
 			}

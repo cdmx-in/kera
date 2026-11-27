@@ -59,6 +59,9 @@ type openRound struct {
 	// Idle: the run stopped between calls on purpose, so no call without a result has started and none is in doubt.
 	// It is cleared, and that is saved, before any call runs again.
 	Idle bool `json:"idle,omitempty"`
+	// Parked is the call id of the question the run waits on, the first call without a result. Nothing from it on has
+	// started. Every checkpoint that carries it keeps the question's wake time and answer in the row.
+	Parked string `json:"parked,omitempty"`
 }
 
 type ckMessage struct {
@@ -198,6 +201,10 @@ func (e *Engine) saveCheckpoint(x *exec, c *checkpoint) error {
 	if err != nil {
 		return fmt.Errorf("save the run's state: %w", err)
 	}
+	var waitKey *string // the question the run is parked on, if any
+	if c.Open != nil && c.Open.Parked != "" {
+		waitKey = &c.Open.Parked
+	}
 	x.run.saveMu.Lock()
 	defer x.run.saveMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -207,8 +214,12 @@ func (e *Engine) saveCheckpoint(x *exec, c *checkpoint) error {
 		return fmt.Errorf("save the run's state: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE run SET checkpoint = $4 WHERE id = $1 AND lease_owner = $2 AND attempt = $3`,
-		x.run.ID, e.instance, x.run.attempt, raw)
+	// the same question keeps its wake time and the answer that may already be there; any other state has neither
+	tag, err := tx.Exec(ctx, `UPDATE run SET checkpoint = $4, wait_key = $5,
+			wake_at = CASE WHEN $5::text IS NULL THEN NULL WHEN wait_key = $5 THEN wake_at ELSE now() + make_interval(secs => $6) END,
+			answer = CASE WHEN wait_key = $5 THEN answer END
+		WHERE id = $1 AND lease_owner = $2 AND attempt = $3`,
+		x.run.ID, e.instance, x.run.attempt, raw, waitKey, x.askWait().Seconds())
 	if err != nil {
 		return fmt.Errorf("save the run's state: %w", err)
 	}
@@ -226,9 +237,9 @@ func (e *Engine) saveCheckpoint(x *exec, c *checkpoint) error {
 // rerunnableBuiltins are the built-in tools a resumed run may call again, by name: each was checked against its code
 // and only reads. A tool added to a set later is not here until someone has checked it too. Left out on purpose:
 // builtin:code (runs any code, with whatever the sandbox can reach, and stores files), builtin:memory and
-// builtin:schedule (they write).
+// builtin:schedule (they write), and ask_user (its answer must be recorded the moment it is read).
 var rerunnableBuiltins = map[string][]string{
-	"builtin:core":      {"get_current_timestamp", "search_chats", "ask_user"},
+	"builtin:core":      {"get_current_timestamp", "search_chats"},
 	"builtin:files":     {"list_chat_files", "view_file", "grep_chat_files"},
 	"builtin:knowledge": {"list_knowledge", "search_knowledge_files", "query_knowledge_files", "view_knowledge_file"},
 	"builtin:web":       {"search_web", "fetch_url"},
@@ -275,7 +286,7 @@ const (
 // started; they run normally, judged by the tools there are now (o.Safe is brought up to date for them).
 func resumePlan(table map[string]toolEntry, calls []provider.ToolCall, from int, o *openRound) []string {
 	skip := make([]string, len(calls))
-	started := !o.Idle // calls from here on may have started before the restart
+	started := !o.Idle && o.Parked == "" // calls from here on may have started before the restart
 	for i := from; i < len(calls); i++ {
 		now := safeProvider(table, calls[i])
 		switch {
