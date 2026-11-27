@@ -39,7 +39,9 @@ type toolRecord struct {
 
 // Run is one completion: its message state, its event log and its pending
 // questions. It lives in memory, detached from the HTTP request that started it.
-// ponytail: single-instance registry; a second instance would need PG LISTEN/NOTIFY.
+// Runs of stored chats also have a row (durable.go), which is what other instances and a restart see.
+// ponytail: events stay in this process, so a browser on another instance gets snapshots instead of a token
+// stream; LISTEN/NOTIFY and a chunk table if that matters.
 type Run struct {
 	ID        string
 	ChatID    string // "temp:<run id>" when nothing is persisted
@@ -53,6 +55,10 @@ type Run struct {
 	// base is added to every event's sequence number, so the events of a resumed run come after those of the attempt
 	// before it (set before the run is shared, never changed).
 	base int64
+	// attempt numbers the attempts of a run with a row; it fences their writes and callback tokens (1 for a new run).
+	attempt int
+	leased  bool  // the run has a row whose lease the heartbeat renews (under mu)
+	gone    error // why the run left this instance without ending (under mu)
 
 	mu         sync.Mutex
 	state      msgState
@@ -74,13 +80,13 @@ type Run struct {
 	uploads     int      // files stored through the files callback
 	userLinks   []string // URLs the user typed in this conversation (the links callback)
 
-	checkpoint func()     // persists the state (set by the engine; may be nil)
-	saveMu     sync.Mutex // orders saves: state read + write happen together
+	persist func()     // writes the state to the message (set by the engine; may be nil)
+	saveMu  sync.Mutex // orders saves: state read + write happen together
 }
 
 func newRun(chatID, messageID, userID, modelID string, persisted bool) *Run {
 	r := &Run{ID: ids.New(), ChatID: chatID, MessageID: messageID, UserID: userID, ModelID: modelID,
-		Persisted: persisted, Created: time.Now(), wake: make(chan struct{}), waiters: map[string]chan json.RawMessage{},
+		Persisted: persisted, Created: time.Now(), attempt: 1, wake: make(chan struct{}), waiters: map[string]chan json.RawMessage{},
 		state: msgState{Status: "streaming"}}
 	if r.ChatID == "" {
 		r.ChatID = "temp:" + r.ID
@@ -421,21 +427,64 @@ func (r *Run) fail(code, msg string) {
 	r.emitLocked("error", map[string]any{"code": code, "message": msg})
 }
 
-// done closes the log. status is done or stopped.
-func (r *Run) done(status string) {
+// settle gives the state its final status (done or stopped) and withdraws open questions.
+func (r *Run) settle(status string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.state.finish(status, time.Now())
-	for id, ch := range r.waiters {
-		close(ch)
-		delete(r.waiters, id)
-	}
+	r.closeWaitersLocked()
 	r.state.PendingCalls = nil
+}
+
+// close ends the event log with done.
+func (r *Run) close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	data := map[string]any{}
 	if r.state.Status == "stopped" {
 		data["status"] = "stopped"
 	}
 	r.emitLocked("done", data)
+}
+
+// done is settle and close, for a run that is not persisted.
+func (r *Run) done(status string) {
+	r.settle(status)
+	r.close()
+}
+
+func (r *Run) closeWaitersLocked() {
+	for id, ch := range r.waiters {
+		close(ch)
+		delete(r.waiters, id)
+	}
+}
+
+// detach ends the log without done: the run goes on in another attempt, so a stream that closes here must be
+// reopened, not taken as finished.
+func (r *Run) detach(why error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.finished {
+		return
+	}
+	r.finished, r.finishedAt, r.gone = true, time.Now(), why
+	r.closeWaitersLocked()
+	close(r.wake)
+	r.wake = make(chan struct{})
+}
+
+// detached is why the run left this instance without ending, or nil.
+func (r *Run) detached() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.gone
+}
+
+func (r *Run) setLeased() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.leased = true
 }
 
 // ---- questions ----------------------------------------------------------------------
@@ -459,11 +508,11 @@ func (r *Run) ask(ctx context.Context, pc PendingCall, timeout time.Duration) (j
 	}
 	r.waiters[pc.CallID] = ch
 	r.state.PendingCalls = append(r.state.PendingCalls, pc)
-	cp := r.checkpoint
+	persist := r.persist
 	r.mu.Unlock()
 	// persist before the card goes out, so a reload right after it shows the card
-	if cp != nil {
-		cp()
+	if persist != nil {
+		persist()
 	}
 	r.mu.Lock()
 	data := map[string]any{"callId": pc.CallID}
@@ -506,10 +555,10 @@ func (r *Run) withdraw(callID string) {
 	delete(r.waiters, callID)
 	r.removePendingLocked(callID)
 	r.emitLocked("snapshot", r.snapshotLocked())
-	cp := r.checkpoint
+	persist := r.persist
 	r.mu.Unlock()
-	if cp != nil {
-		cp()
+	if persist != nil {
+		persist()
 	}
 }
 
@@ -531,11 +580,11 @@ func (r *Run) answer(callID string, value json.RawMessage) error {
 	delete(r.waiters, callID)
 	r.removePendingLocked(callID)
 	r.emitLocked("snapshot", r.snapshotLocked())
-	cp := r.checkpoint
+	persist := r.persist
 	r.mu.Unlock()
 	ch <- value
-	if cp != nil {
-		cp()
+	if persist != nil {
+		persist()
 	}
 	return nil
 }
@@ -574,6 +623,47 @@ func (g *registry) run(id string) *Run {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.byID[id]
+}
+
+// replace registers r over any run of the same message and returns the unfinished one it displaced.
+func (g *registry) replace(r *Run) *Run {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.sweepLocked()
+	old := g.byMsg[r.MessageID]
+	g.byMsg[r.MessageID] = r
+	g.byID[r.ID] = r
+	if old != nil && !old.Finished() {
+		return old
+	}
+	return nil
+}
+
+// remove forgets r (not an attempt that has replaced it).
+func (g *registry) remove(r *Run) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.byID[r.ID] == r {
+		delete(g.byID, r.ID)
+	}
+	if g.byMsg[r.MessageID] == r {
+		delete(g.byMsg, r.MessageID)
+	}
+}
+
+// leased lists, by id, the unfinished runs whose row this instance renews.
+func (g *registry) leased() map[string]*Run {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := map[string]*Run{}
+	for id, r := range g.byID {
+		r.mu.Lock()
+		if r.leased && !r.finished {
+			out[id] = r
+		}
+		r.mu.Unlock()
+	}
+	return out
 }
 
 // live lists the runs that have not finished.

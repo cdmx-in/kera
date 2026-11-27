@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -112,14 +113,16 @@ func (e *Engine) Start(ctx context.Context, u *auth.User, req *Request) (*Run, e
 	if err := e.runs.add(run); err != nil {
 		return nil, err
 	}
+	// the cancel func is in place before the row, which the heartbeat acts on
+	runCtx, cancel := e.runContext(context.WithoutCancel(ctx), x)
 	if x.chat != nil {
 		if err := e.prepareMessages(ctx, x); err != nil {
+			cancel(err)
 			run.done("done")
 			return nil, err
 		}
-		run.checkpoint = func() { e.save(x) }
+		run.persist = func() { e.save(x) }
 	}
-	runCtx, cancel := e.runContext(context.WithoutCancel(ctx), x)
 	if req.Unattended {
 		x.timeLimit(e.unattendedLimit(ctx), cancel)
 	}
@@ -158,6 +161,12 @@ func (x *exec) timeLimit(d time.Duration, cancel context.CancelCauseFunc) {
 // prepareMessages stores the user turn and the assistant placeholder.
 func (e *Engine) prepareMessages(ctx context.Context, x *exec) error {
 	c, req, msgID := x.chat, x.req, x.run.MessageID
+	// before anything is written: a run on another instance owns the message just as one here does
+	if busy, err := e.busy(ctx, msgID); err != nil {
+		return err
+	} else if busy {
+		return errBusy
+	}
 	switch {
 	case req.UserMessage != nil:
 		um := req.UserMessage
@@ -217,6 +226,21 @@ func (e *Engine) prepareMessages(ctx context.Context, x *exec) error {
 		ModelID: x.m.ID, Status: "streaming"}); err != nil {
 		return err
 	}
+	// the row first: it decides who may write the message, and a message marked as being written without one is an
+	// orphan to the janitor
+	if err := e.insertRun(ctx, x); err != nil {
+		return err
+	}
+	if err := e.startMessage(ctx, x); err != nil {
+		e.dropRun(x)
+		return err
+	}
+	return nil
+}
+
+// startMessage marks the assistant message as being written and makes it the chat's current one.
+func (e *Engine) startMessage(ctx context.Context, x *exec) error {
+	c, msgID := x.chat, x.run.MessageID
 	if _, err := e.DB.Exec(ctx, `UPDATE message SET status = 'streaming', model_id = $2, error = '', updated_at = now()
 		WHERE id = $1`, msgID, x.m.ID); err != nil {
 		return fmt.Errorf("reset message: %w", err)
@@ -237,15 +261,17 @@ func (e *Engine) execute(ctx context.Context, x *exec) {
 		if v := recover(); v != nil {
 			slog.Error("run panic", "run", x.run.ID, "value", v)
 			x.run.fail("internal", "internal error")
-			x.run.done("done")
-			e.save(x)
+			e.end(x, "done", false)
 		}
 	}()
 	err := e.process(ctx, x)
 	status := "done"
 	switch {
 	case err == nil:
-	case errors.Is(context.Cause(ctx), errCancelled):
+	case errors.Is(err, errLostLease) || errors.Is(context.Cause(ctx), errLostLease):
+		e.abandon(x)
+		return
+	case errors.Is(err, errCancelled) || errors.Is(context.Cause(ctx), errCancelled):
 		status = "stopped"
 	case errors.Is(context.Cause(ctx), errShutdown):
 		x.run.fail("interrupted", interruptedMsg)
@@ -312,37 +338,53 @@ func (e *Engine) process(ctx context.Context, x *exec) error {
 func (e *Engine) finish(x *exec, status string, ok bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	run := x.run
-	run.emitUsage()
+	// an owner that was replaced must not report the run as done to anyone
+	err := e.hold(ctx, x)
+	if errors.Is(err, errLostLease) {
+		e.abandon(x)
+		return
+	}
+	x.run.emitUsage()
 	if ok && status == "done" {
 		e.backgroundTasks(ctx, x)
 	}
-	run.done(status)
-	e.save(x)
-	if ok && status == "done" {
+	if e.end(x, status, ok) && ok && status == "done" {
 		e.maybeReviewMemory(x)
 	}
-	run.mu.Lock()
-	u := run.usage
-	run.mu.Unlock()
-	var chatID, msgID *string
-	if x.chat != nil {
-		chatID, msgID = &x.chat.ID, &run.MessageID
-		if ok {
-			if err := e.Chats.SetLocality(ctx, x.chat.ID, x.m.Local); err != nil {
-				slog.Warn("set locality", "err", err)
-			}
-		}
-	}
-	if _, err := e.DB.Exec(ctx, `INSERT INTO usage (user_id, model_id, chat_id, message_id, prompt_tokens, completion_tokens, duration_ms)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, x.u.ID, x.m.ID, chatID, msgID, u.PromptTokens, u.CompletionTokens,
-		time.Since(x.started).Milliseconds()); err != nil {
-		slog.Warn("record usage", "err", err)
-	}
-	e.saveTrace(x)
 }
 
-// save persists the message state (persisted chats only).
+// end closes the run, persists its outcome and then tells the streams it is done, so a reload right after done shows
+// the final state. It reports whether the outcome was written by this instance as the run's owner.
+func (e *Engine) end(x *exec, status string, ok bool) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	run := x.run
+	run.settle(status)
+	run.mu.Lock()
+	u := &usageRow{userID: x.u.ID, modelID: x.m.ID, usage: run.usage, duration: time.Since(x.started)}
+	run.mu.Unlock()
+	var err error
+	if x.chat == nil {
+		err = insertUsage(ctx, e.DB, *u)
+	} else {
+		u.chatID, u.msgID = &x.chat.ID, &run.MessageID
+		run.saveMu.Lock()
+		err = e.endRun(ctx, x, run.progress(), ok, u)
+		run.saveMu.Unlock()
+	}
+	if errors.Is(err, errLostLease) {
+		e.abandon(x)
+		return false
+	}
+	if err != nil { // the row stays; its lease expires and the run is taken over
+		slog.Error("end run", "run", run.ID, "err", err)
+	}
+	run.close()
+	e.saveTrace(x)
+	return err == nil
+}
+
+// save persists the message state (persisted chats only). A run that lost its lease is stopped.
 func (e *Engine) save(x *exec) {
 	if x.chat == nil {
 		return
@@ -352,20 +394,33 @@ func (e *Engine) save(x *exec) {
 	// the read and the write keeps an older state from landing after a newer one
 	run.saveMu.Lock()
 	defer run.saveMu.Unlock()
-	run.mu.Lock()
-	p := chats.Progress{Content: run.state.Text(), Parts: json.RawMessage(mustMarshal(run.state.Parts, "[]")),
-		Files: json.RawMessage(mustMarshal(run.state.Files, "[]")), Sources: json.RawMessage(mustMarshal(run.state.Sources, "[]")),
-		PendingCalls: json.RawMessage(mustMarshal(run.state.PendingCalls, "[]")), FollowUps: run.state.FollowUps,
-		Status: run.state.Status, Error: run.state.Error}
-	if run.state.Usage != nil {
-		p.Usage = run.state.Usage
-	}
-	run.mu.Unlock()
+	p := run.progress()
+	p.Fence = e.fence(x)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := e.Chats.SaveProgress(ctx, run.MessageID, p); err != nil {
+	switch err := e.Chats.SaveProgress(ctx, run.MessageID, p); {
+	case errors.Is(err, chats.ErrFenced):
+		if !run.Finished() {
+			run.stop(errLostLease)
+		}
+	case err != nil:
 		slog.Error("save message", "run", run.ID, "err", err)
 	}
+}
+
+// progress is the run's message state as it is stored.
+func (r *Run) progress() chats.Progress {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p := chats.Progress{Content: r.state.Text(), Parts: json.RawMessage(mustMarshal(r.state.Parts, "[]")),
+		Files: json.RawMessage(mustMarshal(r.state.Files, "[]")), Sources: json.RawMessage(mustMarshal(r.state.Sources, "[]")),
+		PendingCalls: json.RawMessage(mustMarshal(r.state.PendingCalls, "[]")),
+		FollowUps:    slices.Clone(r.state.FollowUps), Status: r.state.Status, Error: r.state.Error}
+	if r.state.Usage != nil {
+		u := *r.state.Usage
+		p.Usage = &u
+	}
+	return p
 }
 
 // classify turns an error into the code and text the user sees.

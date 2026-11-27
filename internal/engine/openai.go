@@ -52,6 +52,10 @@ func streamOpenAI(w http.ResponseWriter, r *http.Request, run *Run, model string
 		}
 		return nil
 	}, s.ping)
+	if run.detached() != nil { // no [DONE]: the answer is not complete
+		code, msg := detachedError(run)
+		_ = send(map[string]any{"error": map[string]any{"message": msg, "code": code, "type": "server_error"}})
+	}
 }
 
 func finishStream(s *sseWriter, run *Run, model string, created int64) error {
@@ -100,12 +104,27 @@ func wireCalls(calls []provider.ToolCall) []any {
 	return out
 }
 
+// detachedError is what an OpenAI-style caller gets when its run left this instance without ending. The run is not
+// lost, so the caller must not send the request again: that would run its tools a second time.
+func detachedError(run *Run) (code, msg string) {
+	return "run_detached", "Kera stopped serving this answer on this request (the server is restarting, or another instance took the run over). " +
+		"Do not send the request again: the outcome appears in chat " + run.ChatID + ", message " + run.MessageID + "."
+}
+
 // respondOpenAI waits for the run and returns one chat.completion. The
 // content is the final answer only (the text of the last model round).
 func respondOpenAI(w http.ResponseWriter, r *http.Request, run *Run, model string) {
 	follow(r, run, 0, func(event) error { return nil }, func() error { return nil })
 	if !run.Finished() {
 		return // client went away; the run continues and is persisted
+	}
+	if run.detached() != nil {
+		code, msg := detachedError(run)
+		w.Header().Set("x-should-retry", "false") // the OpenAI SDKs retry a 503 unless told not to
+		api.JSON(w, http.StatusServiceUnavailable, map[string]any{"detail": msg, "code": code,
+			"error": map[string]any{"message": msg, "code": code, "type": "server_error"},
+			"kera":  map[string]any{"run_id": run.ID, "message_id": run.MessageID, "chat_id": run.ChatID}})
+		return
 	}
 	run.mu.Lock()
 	defer run.mu.Unlock()

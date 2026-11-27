@@ -4,6 +4,7 @@
 package chats
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cdmx-in/kera/internal/api"
@@ -159,11 +161,16 @@ func (s *Store) SetCurrent(ctx context.Context, chatID, messageID string) error 
 // SetLocality records where a chat's replies were produced. A local reply
 // locks the chat to local models; a cloud reply only fills an empty value.
 func (s *Store) SetLocality(ctx context.Context, chatID string, local bool) error {
+	return SetLocalityIn(ctx, s.DB, chatID, local)
+}
+
+// SetLocalityIn is SetLocality on a transaction of the caller.
+func SetLocalityIn(ctx context.Context, db Execer, chatID string, local bool) error {
 	q := `UPDATE chat SET locality = 'local' WHERE id = $1`
 	if !local {
 		q = `UPDATE chat SET locality = 'cloud' WHERE id = $1 AND locality IS NULL`
 	}
-	if _, err := s.DB.Exec(ctx, q, chatID); err != nil {
+	if _, err := db.Exec(ctx, q, chatID); err != nil {
 		return fmt.Errorf("set locality: %w", err)
 	}
 	return nil
@@ -271,19 +278,91 @@ type Progress struct {
 	Status         string
 	Error          string
 	ContextSummary *string // nil leaves it unchanged
+	// Fence, when set, makes the write count only while its run is still this attempt of this owner.
+	Fence *Fence
+}
+
+// Fence names one attempt of a run in the run table. A write that carries it does nothing (ErrFenced) once another
+// instance has taken the run over or its row is gone, so a stale owner cannot overwrite the new one.
+type Fence struct {
+	RunID, Owner string
+	Attempt      int
+}
+
+// ErrFenced means the write did not happen: the writer no longer owns the run.
+var ErrFenced = errors.New("the run has another owner")
+
+// Execer is the pool or a transaction.
+type Execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
 // SaveProgress writes an assistant message's streamed state.
 func (s *Store) SaveProgress(ctx context.Context, messageID string, p Progress) error {
-	_, err := s.DB.Exec(ctx, `UPDATE message SET content = $2, parts = $3, files = $4, sources = $5, pending_calls = $6,
+	return SaveProgressIn(ctx, s.DB, messageID, p)
+}
+
+// SaveProgressIn is SaveProgress on a transaction of the caller.
+func SaveProgressIn(ctx context.Context, db Execer, messageID string, p Progress) error {
+	q := `UPDATE message SET content = $2, parts = $3, files = $4, sources = $5, pending_calls = $6,
 			follow_ups = $7, usage = $8, status = $9, error = $10, context_summary = coalesce($11, context_summary),
 			updated_at = now()
-		WHERE id = $1`, messageID, p.Content, jsonOr(p.Parts, "[]"), jsonOr(p.Files, "[]"), jsonOr(p.Sources, "[]"),
-		jsonOr(p.PendingCalls, "[]"), jsonOr(p.FollowUps, "[]"), jsonOr(p.Usage, "{}"), p.Status, p.Error, p.ContextSummary)
+		WHERE id = $1`
+	args := []any{messageID, noNULText(p.Content), noNUL(jsonOr(p.Parts, "[]")), noNUL(jsonOr(p.Files, "[]")),
+		noNUL(jsonOr(p.Sources, "[]")), noNUL(jsonOr(p.PendingCalls, "[]")), noNUL(jsonOr(p.FollowUps, "[]")),
+		noNUL(jsonOr(p.Usage, "{}")), p.Status, noNULText(p.Error), p.ContextSummary}
+	if f := p.Fence; f != nil {
+		// FOR SHARE: a claim of the run waits for this write, or this write sees the claim
+		q += ` AND EXISTS (SELECT 1 FROM run WHERE id = $12 AND message_id = $1 AND lease_owner = $13 AND attempt = $14 FOR SHARE)`
+		args = append(args, f.RunID, f.Owner, f.Attempt)
+	}
+	tag, err := db.Exec(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf("save message %s: %w", messageID, err)
 	}
+	if p.Fence != nil && tag.RowsAffected() == 0 {
+		return fmt.Errorf("save message %s: %w", messageID, ErrFenced)
+	}
 	return nil
+}
+
+// noNULText and noNUL remove NUL characters, which neither text nor jsonb can store: one in a tool result would
+// otherwise stop the whole message from being saved.
+func noNULText(s string) string { return strings.ReplaceAll(s, "\x00", "") }
+
+func noNUL(b []byte) []byte {
+	if !bytes.Contains(b, []byte(`\u0000`)) {
+		return b
+	}
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	var v any
+	if d.Decode(&v) != nil {
+		return b
+	}
+	out, err := json.Marshal(stripNUL(v))
+	if err != nil {
+		return b
+	}
+	return out
+}
+
+func stripNUL(v any) any {
+	switch x := v.(type) {
+	case string:
+		return noNULText(x)
+	case []any:
+		for i := range x {
+			x[i] = stripNUL(x[i])
+		}
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			out[noNULText(k)] = stripNUL(val)
+		}
+		return out
+	}
+	return v
 }
 
 // SetContextSummary marks messageID as the last message a compaction summary covers.

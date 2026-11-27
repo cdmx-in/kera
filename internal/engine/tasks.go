@@ -148,6 +148,9 @@ func (e *Engine) backgroundTasks(ctx context.Context, x *exec) {
 			if title == "" {
 				return
 			}
+			if err := e.hold(ctx, x); err != nil {
+				return
+			}
 			if _, err := e.Chats.SetTitle(ctx, x.u.ID, x.chat.ID, title); err != nil {
 				slog.Warn("save title", "err", err)
 				return
@@ -166,6 +169,9 @@ func (e *Engine) backgroundTasks(ctx context.Context, x *exec) {
 			}
 			if len(out.Tags) > 3 {
 				out.Tags = out.Tags[:3]
+			}
+			if err := e.hold(ctx, x); err != nil {
+				return
 			}
 			if err := e.Chats.AddTags(ctx, x.chat.ID, out.Tags); err != nil {
 				slog.Warn("save tags", "err", err)

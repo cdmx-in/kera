@@ -508,7 +508,7 @@ func TestShutdownSavesPartialAnswer(t *testing.T) {
 func TestAskTimeoutCheckpoints(t *testing.T) {
 	run := newRun("c1", "a1", "u1", "m1", true)
 	saved := -1
-	run.checkpoint = func() { run.mu.Lock(); saved = len(run.state.PendingCalls); run.mu.Unlock() }
+	run.persist = func() { run.mu.Lock(); saved = len(run.state.PendingCalls); run.mu.Unlock() }
 	if _, err := run.ask(context.Background(), PendingCall{Kind: "input"}, 10*time.Millisecond); !errors.Is(err, ErrNoAnswer) {
 		t.Fatalf("err %v", err)
 	}

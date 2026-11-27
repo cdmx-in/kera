@@ -122,12 +122,22 @@ func (e *Engine) resumeStored(w http.ResponseWriter, r *http.Request, after int6
 }
 
 func (e *Engine) cancelRun(w http.ResponseWriter, r *http.Request) {
+	// the row first: it reaches a run on another instance, and one that nothing in memory holds
+	stored, err := e.requestCancel(r.Context(), auth.FromContext(r.Context()).ID, r.PathValue("id"), r.PathValue("mid"))
+	if err != nil {
+		api.Fail(w, r, err)
+		return
+	}
 	run := e.ownRun(r)
-	if run == nil {
+	switch {
+	case run != nil:
+		run.stop(errCancelled)
+	case stored:
+		e.kick()
+	default:
 		api.Fail(w, r, api.Errf(http.StatusNotFound, "not_found", "no running answer for this message"))
 		return
 	}
-	run.stop(errCancelled)
 	api.JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -154,16 +164,38 @@ func (e *Engine) answerCall(w http.ResponseWriter, r *http.Request) {
 	api.JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// chatRuns lists a chat's live and recent runs (reattach after a reload).
+// chatRuns lists a chat's live and recent runs (reattach after a reload): those here, and those that only have a
+// row (waiting for an answer, queued, or on another instance).
 func (e *Engine) chatRuns(w http.ResponseWriter, r *http.Request) {
 	u := auth.FromContext(r.Context())
 	out := []map[string]any{}
+	here := map[string]bool{}
 	for _, run := range e.runs.forChat(r.PathValue("id")) {
 		if run.UserID != u.ID {
 			continue
 		}
+		here[run.ID] = true
 		out = append(out, map[string]any{"run_id": run.ID, "message_id": run.MessageID, "model": run.ModelID,
 			"seq": run.Seq(), "done": run.Finished(), "created_at": run.Created.Unix()})
+	}
+	rows, err := e.DB.Query(r.Context(), `SELECT id, message_id, coalesce(request->>'model', ''), created_at FROM run
+		WHERE chat_id = $1 AND user_id = $2 ORDER BY created_at, id`, r.PathValue("id"), u.ID)
+	if err != nil {
+		api.Fail(w, r, fmt.Errorf("list runs: %w", err))
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, mid, model string
+		var created time.Time
+		if err := rows.Scan(&id, &mid, &model, &created); err != nil {
+			api.Fail(w, r, fmt.Errorf("list runs: %w", err))
+			return
+		}
+		if !here[id] {
+			out = append(out, map[string]any{"run_id": id, "message_id": mid, "model": model, "seq": 0, "done": false,
+				"created_at": created.Unix()})
+		}
 	}
 	api.JSON(w, http.StatusOK, out)
 }

@@ -111,6 +111,9 @@ func (e *Engine) compact(ctx context.Context, x *exec, overhead int) error {
 		return nil
 	}
 	summary = strings.TrimSpace(summary)
+	if err := e.hold(ctx, x); err != nil { // the summary is written to the chat
+		return err
+	}
 	if err := e.Chats.SetContextSummary(ctx, x.chat.ID, lastID, summary); err != nil {
 		return err
 	}

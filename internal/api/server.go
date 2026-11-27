@@ -23,6 +23,7 @@ type Server struct {
 	spa *spa
 
 	onShutdown []func()
+	onStart    []func()
 	wrap       []func(http.Handler) http.Handler
 }
 
@@ -97,6 +98,10 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// OnStart runs f when the server starts serving, after every feature has been mounted: the place for background
+// work that needs what other features register.
+func (s *Server) OnStart(f func()) { s.onStart = append(s.onStart, f) }
+
 // ListenAndServe serves until ctx is cancelled, then drains for up to 30 s.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	srv := &http.Server{
@@ -105,6 +110,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		// No WriteTimeout: chat responses stream for minutes.
+	}
+	for _, f := range s.onStart {
+		f()
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()

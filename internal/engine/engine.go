@@ -20,6 +20,7 @@ import (
 	"github.com/cdmx-in/kera/internal/auth"
 	"github.com/cdmx-in/kera/internal/chats"
 	"github.com/cdmx-in/kera/internal/files"
+	"github.com/cdmx-in/kera/internal/ids"
 	"github.com/cdmx-in/kera/internal/memory"
 	"github.com/cdmx-in/kera/internal/models"
 	"github.com/cdmx-in/kera/internal/secret"
@@ -45,6 +46,11 @@ type Engine struct {
 
 	// Memory stores what automatic memory review learns; nil switches the review off.
 	Memory *memory.Store
+
+	// instance names this process as the owner of the leases it holds (durable.go).
+	instance string
+	kicked   chan struct{}
+	lastBeat time.Time // the last successful heartbeat; only the heartbeat's goroutine touches it
 
 	runs     *registry
 	wg       sync.WaitGroup
@@ -98,7 +104,7 @@ func (e *Engine) Shutdown(d time.Duration) {
 // New builds an engine; Mount uses the app's shared services.
 func New(db *pgxpool.Pool, keys *secret.Keys, st *settings.Store, reg *models.Registry, fs *files.Service, cs *chats.Store, publicURL string) *Engine {
 	return &Engine{DB: db, Keys: keys, Settings: st, Models: reg, Files: fs, Chats: cs, PublicURL: publicURL,
-		HTTP: &http.Client{}, runs: newRegistry()}
+		HTTP: &http.Client{}, runs: newRegistry(), instance: ids.New(), kicked: make(chan struct{}, 1), lastBeat: time.Now()}
 }
 
 // Mount registers the completion, stream and callback routes and the built-in tools.
@@ -106,21 +112,12 @@ func Mount(a *app.App) error {
 	e := New(a.DB, a.Keys, a.Settings, models.For(a), files.For(a), chats.For(a), a.Env.PublicURL)
 	e.CallbackURL = a.Env.CallbackURL
 	e.Memory = memory.For(a)
-	e.Chats.SetLive(func(id string) (chats.Live, bool) {
-		if r := e.runs.byMessage(id); r != nil {
-			return r.Live(), true
-		}
-		return chats.Live{}, false
-	})
-	// ponytail: single instance, so a message still "streaming" at start-up lost its run.
-	if _, err := a.DB.Exec(context.Background(), `UPDATE message SET status = 'error',
-		error = 'The server restarted while this answer was being written.' WHERE status = 'streaming'`); err != nil {
-		return err
-	}
+	e.Chats.SetLive(e.live)
 	tools.Register(&filesTools{e: e})
 	tools.Register(&coreTools{e: e})
 	a.Server.OnShutdown(func() { e.Shutdown(20 * time.Second) })
 	go e.janitor()
+	a.Server.OnStart(func() { go e.durableLoop() }) // not now: a claimed run needs what later features register
 	e.routes(a)
 	regMu.Lock()
 	reg[a] = e
@@ -134,6 +131,11 @@ func (e *Engine) janitor() {
 	for tick := 0; ; tick++ {
 		<-t.C
 		e.runs.sweep()
+		if n, err := e.failOrphans(context.Background()); err != nil {
+			slog.Warn("janitor", "err", err)
+		} else if n > 0 {
+			slog.Info("failed replies that had no run", "replies", n)
+		}
 		if tick%60 == 0 { // hourly, the first a minute after start-up
 			if n, err := e.purgeTrace(context.Background()); err != nil {
 				slog.Warn("purge run trace", "err", err)
@@ -142,6 +144,15 @@ func (e *Engine) janitor() {
 			}
 		}
 	}
+}
+
+// live is the in-flight state of a message, from this instance's run. A run that has ended here no longer speaks
+// for its message: the stored row does, and another instance may be writing it.
+func (e *Engine) live(messageID string) (chats.Live, bool) {
+	if r := e.runs.byMessage(messageID); r != nil && !r.Finished() {
+		return r.Live(), true
+	}
+	return chats.Live{}, false
 }
 
 // Wait blocks until background run goroutines finish (tests).
