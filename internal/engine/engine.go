@@ -190,10 +190,11 @@ func (e *Engine) janitor() {
 	}
 }
 
-// live is the in-flight state of a message, from this instance's run. A run that has ended here no longer speaks
-// for its message: the stored row does, and another instance may be writing it.
+// live is the in-flight state of a stored message, from this instance's run. A run that has ended here no longer
+// speaks for its message (the stored row does, and another instance may be writing it), and a temporary run never
+// does, whatever message id its caller gave it.
 func (e *Engine) live(messageID string) (chats.Live, bool) {
-	if r := e.runs.byMessage(messageID); r != nil && !r.Finished() {
+	if r := e.runs.byMessage(messageID); r != nil && r.Persisted && !r.Finished() {
 		return r.Live(), true
 	}
 	return chats.Live{}, false

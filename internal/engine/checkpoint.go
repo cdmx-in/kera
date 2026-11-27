@@ -314,6 +314,11 @@ func resumePlan(table map[string]toolEntry, calls []provider.ToolCall, from int,
 			skip[i] = changedResult
 		}
 	}
+	if o.Parked != "" && from < len(calls) {
+		// the parked call's result is always saved at once, whatever tool has its name now: until then the stored
+		// state says that nothing has started, which must not be true any more when a later call starts
+		o.Safe[from] = ""
+	}
 	return skip
 }
 

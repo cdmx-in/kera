@@ -481,8 +481,11 @@ func (e *Engine) finishRound(ctx context.Context, x *exec, table map[string]tool
 func (e *Engine) stopBetweenCalls(x *exec, msgs []provider.Message, b *runBudget, round int, open *openRound, pending []string) error {
 	if !slices.ContainsFunc(pending, func(s string) bool { return s != "" }) {
 		open.Idle = true
-		if err := e.saveCheckpoint(x, checkpointOf(x, msgs, b, round, open)); err != nil {
+		switch err := e.saveCheckpoint(x, checkpointOf(x, msgs, b, round, open)); {
+		case errors.Is(err, errLostLease):
 			return err
+		case err != nil: // released all the same: the older state makes the resumed run more careful, not less
+			slog.Warn("drain: save the run's state", "run", x.run.ID, "err", err)
 		}
 	}
 	return errShutdown

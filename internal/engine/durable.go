@@ -47,25 +47,27 @@ var (
 // storedRequest is what is needed to build a run again: the request without its conversation. It carries no
 // credentials: generation parameters are the decoded whitelist (paramKeys), and no headers or tokens are kept.
 type storedRequest struct {
-	Model       string          `json:"model"`
-	Interactive bool            `json:"interactive,omitempty"` // stream_format "events": ask_user is offered
-	Local       bool            `json:"local,omitempty"`       // the model was local when the run started
-	ParentID    string          `json:"parent_id,omitempty"`   // the message the answer replies to
-	OwnMessages bool            `json:"own_messages,omitempty"`
-	ClientTools bool            `json:"client_tools,omitempty"`
-	Files       []FileAttach    `json:"files,omitempty"`
-	Features    map[string]bool `json:"features"` // null and {} differ (the model's defaults, or none)
-	ToolIDs     []string        `json:"tool_ids"` // null and [] differ (the model's servers, or none)
-	Params      map[string]any  `json:"params,omitempty"`
-	Unattended  bool            `json:"unattended,omitempty"`
-	ReadOnly    bool            `json:"read_only,omitempty"`
-	Preface     string          `json:"preface,omitempty"`
+	Model       string `json:"model"`
+	Interactive bool   `json:"interactive,omitempty"` // stream_format "events": ask_user is offered
+	Local       bool   `json:"local,omitempty"`       // the model was local when the run started
+	ParentID    string `json:"parent_id,omitempty"`   // the message the answer replies to
+	OwnMessages bool   `json:"own_messages,omitempty"`
+	// Durable: the run saves checkpoints, so having none means no tool has run. A run started without (client tools,
+	// runs.resume off) is never resumed, whatever the setting says later: its tools may have run.
+	Durable    bool            `json:"durable,omitempty"`
+	Files      []FileAttach    `json:"files,omitempty"`
+	Features   map[string]bool `json:"features"` // null and {} differ (the model's defaults, or none)
+	ToolIDs    []string        `json:"tool_ids"` // null and [] differ (the model's servers, or none)
+	Params     map[string]any  `json:"params,omitempty"`
+	Unattended bool            `json:"unattended,omitempty"`
+	ReadOnly   bool            `json:"read_only,omitempty"`
+	Preface    string          `json:"preface,omitempty"`
 }
 
 func storedOf(x *exec) storedRequest {
 	r := x.req
 	return storedRequest{Model: r.Model, Interactive: x.interactive, Local: x.m.Local, ParentID: x.parentID,
-		OwnMessages: r.UserMessage == nil && len(r.Messages) > 0, ClientTools: len(r.Tools) > 0, Files: r.Files,
+		OwnMessages: r.UserMessage == nil && len(r.Messages) > 0, Durable: x.durable, Files: r.Files,
 		Features: r.Features, ToolIDs: r.ToolIDs, Params: r.Params, Unattended: r.Unattended, ReadOnly: r.ReadOnly,
 		Preface: r.Preface}
 }
@@ -489,7 +491,7 @@ func (e *Engine) prepareResume(ctx context.Context, x *exec, c claimed, ckErr er
 	if err := json.Unmarshal(c.request, &stored); err != nil {
 		return nil, &stopRun{"interrupted", crashedMsg}
 	}
-	if stored.ClientTools || (x.ck == nil && stored.OwnMessages) {
+	if !stored.Durable || (x.ck == nil && stored.OwnMessages) {
 		// without a checkpoint the caller's own conversation is gone: only the request without it was stored
 		return nil, &stopRun{"interrupted", crashedMsg}
 	}

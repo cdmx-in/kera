@@ -73,6 +73,6 @@ When the process dies without warning the connection just drops, and the run sti
 
 | Setting | Default | Controls |
 |---|---|---|
-| `runs.resume` | `true` | Whether a restart resumes the runs of saved chats. Off: they end with an error. It is read when a run starts and again when one is claimed, so turning it off also ends runs that are waiting for an answer when they are next picked up. |
+| `runs.resume` | `true` | Whether a restart resumes the runs of saved chats. Off: they end with an error. It is read when a run starts and again when one is taken over. A run that started while it was off is never resumed, even if it is on again later. Turning it off also ends runs that are waiting for an answer, when they are next picked up. |
 
 The lease (30 s), the heartbeat (10 s), the drain (20 s), the retry window (5 min) and the 3 recoveries are not settings.

@@ -825,6 +825,18 @@ func TestResumePlan(t *testing.T) {
 	if got := resumePlan(table, calls, 3, &openRound{Safe: []string{"s", "s", "", "", "s"}}); !slices.Equal(got, []string{"", "", "", unknownResult, ""}) {
 		t.Fatalf("plan from 3: %q", got)
 	}
+	// a parked or idle round has nothing in doubt; the parked call's result is saved at once even if a read-only
+	// tool has taken its name since
+	parked := &openRound{Parked: "1", Safe: []string{"", "", "", "", ""}}
+	if got := resumePlan(table, calls, 0, parked); !slices.Equal(got, []string{"", "", "", "", ""}) {
+		t.Fatalf("parked plan %q", got)
+	}
+	if want := []string{"", "", "", "", "s"}; !slices.Equal(parked.Safe, want) {
+		t.Fatalf("parked safe %q, want %q", parked.Safe, want)
+	}
+	if got := resumePlan(table, calls, 2, &openRound{Idle: true, Safe: []string{"s", "", "", "", "s"}}); !slices.Equal(got, []string{"", "", "", "", ""}) {
+		t.Fatalf("idle plan %q", got)
+	}
 }
 
 // Images are kept as file references, not as data, and read again only while the user may read them.
@@ -1782,4 +1794,45 @@ func TestJanitorDropsRunsOfEndedReplies(t *testing.T) {
 			t.Errorf("%s: row kept = %v, want %v", mid, got, want)
 		}
 	}
+}
+
+// A run that started with resuming off never saved a checkpoint, so "no checkpoint" says nothing about what it did.
+// Switching the setting on afterwards must not start it again from the beginning.
+func TestResumeSwitchedOnLaterDoesNotRepeatTools(t *testing.T) {
+	h := newDurable(t)
+	ctx := context.Background()
+	if err := h.e.Settings.Set(ctx, "runs.resume", false, false); err != nil {
+		t.Fatal(err)
+	}
+	h.tool.block("write_b")
+	cid, run := h.task(t, h.e, "calls: write_a ; write_b")
+	h.tool.await(t, "write_b")
+	h.crash(t, h.e, run)
+	h.tool.release("write_b")
+	if err := h.e.Settings.Set(ctx, "runs.resume", true, false); err != nil {
+		t.Fatal(err)
+	}
+	m := h.resumeOn(t, h.peer(t), cid, run.MessageID)
+	if h.tool.ran("write_a") != 1 || h.tool.ran("write_b") != 1 {
+		t.Fatalf("tools were called again: %v (message %q %q)", h.tool.count, m.Status, m.Content)
+	}
+	if m.Status != "error" || m.Error != crashedMsg {
+		t.Fatalf("%q %q", m.Status, m.Error)
+	}
+}
+
+// A temporary run is not the state of a stored message, even with the same message id.
+func TestTemporaryRunNeverOverlaysAStoredMessage(t *testing.T) {
+	h := newDurable(t)
+	_, run, _ := h.parked(t, h.e, "ask_user")
+	tmp, err := h.e.Start(context.Background(), h.u, &Request{Model: "m1", StreamFormat: "events", Temporary: true, ID: run.MessageID,
+		Messages: []WireMessage{{Role: "user", Content: json.RawMessage(`"hang"`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the temporary run to answer", func() bool { return strings.Contains(tmp.stateText(), "partial") })
+	if l, ok := h.e.live(run.MessageID); ok {
+		t.Fatalf("a temporary run speaks for a stored message: %+v", l)
+	}
+	h.model.open()
 }
