@@ -12,6 +12,51 @@ A reply in a saved chat or a Cowork task is a run. If Kera restarts or crashes w
 
 ## How it works
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/durable-run-dark.svg">
+    <img src="images/durable-run-light.svg" alt="The life of a run: it saves checkpoints in Postgres while it works. If the server stops, the next Kera process claims the run, checks access again and goes on from the last checkpoint. A question parks the run until it is answered or times out, 30 minutes in a chat and 12 hours in a task. After the final answer the reply is saved and the checkpoint deleted." width="880">
+  </picture>
+</p>
+
+<details>
+<summary>Text version (Mermaid)</summary>
+
+```mermaid
+flowchart TD
+    running["Running: model replies and tool calls"]
+    checkpoint["Checkpoint saved in Postgres"]
+    parked["Waits for you, nothing held in memory<br/>30 minutes in a chat, 12 hours in a task"]
+    stops["Server stops: deploy, restart or crash"]
+    claim["The next Kera process claims the run<br/>and checks access again"]
+    done["Reply saved, checkpoint deleted"]
+    running -->|"after each round of calls, and each write"| checkpoint
+    checkpoint -->|"goes on"| running
+    checkpoint -.->|"at any moment"| stops
+    stops -->|"next start"| claim
+    claim -->|"from the last checkpoint"| running
+    running -->|"asks a question"| parked
+    parked -->|"answer, or time is up"| running
+    running -->|"final answer"| done
+    classDef cMd fill:#ede4ff,stroke:#7c3aed,color:#1a1a1a,stroke-width:1.5px
+    classDef cKn fill:#d7eef2,stroke:#1e7f8c,color:#1a1a1a,stroke-width:1.5px
+    classDef cGd fill:#fdf0d2,stroke:#d9960f,color:#1a1a1a,stroke-width:1.5px
+    classDef cBd fill:#fbe0e0,stroke:#d64a4a,color:#1a1a1a,stroke-width:1.5px
+    classDef cIn fill:#dbeafe,stroke:#2563eb,color:#1a1a1a,stroke-width:1.5px
+    classDef cOt fill:#d9f2e3,stroke:#2f9e63,color:#1a1a1a,stroke-width:1.5px
+    class running cMd
+    class checkpoint cKn
+    class parked cGd
+    class stops cBd
+    class claim cIn
+    class done cOt
+    linkStyle default stroke:#8b949e,stroke-width:2px
+```
+
+</details>
+
+The server can stop at any point, not only just after a checkpoint; whatever happened since the last one is covered by the rules below. [A restart recorded on a scratch install](images/durable-restart.gif) shows it with a clean stop.
+
 Each live run of a saved chat has a row in the `run` table, owned by one Kera process under a lease that is renewed every 10 seconds and lasts 30. The row holds a checkpoint: the working conversation, tool results included. It is written after every model reply that asks for tools, after every tool call that must not be repeated, and at the end of every round of calls, in the same transaction as the message. The row is deleted when the run ends. Deleting the chat, the message or the user deletes it too, and stops the run (within about 10 seconds, and always before its next call that changes something).
 
 A restarted run goes on from the last checkpoint: the system prompt, retrieved passages and anything inlet hooks changed are in it, and inlet hooks and compaction do not run again. A run that had no checkpoint yet starts its answer again from the beginning; no tool had run. A checkpoint that cannot be read, for instance after an upgrade that changed its format, ends the run as interrupted; it never starts over.

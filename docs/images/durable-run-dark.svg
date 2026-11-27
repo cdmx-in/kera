@@ -1,0 +1,269 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="426" viewBox="0 0 880 426" role="img" aria-labelledby="t d">
+  <title id="t">A durable run: how a reply or task goes on after a restart</title>
+  <desc id="d">A run calls the model and runs tools, and saves a checkpoint in Postgres as its tool rounds go. The server can stop at any moment. The next start claims the run, checks access again, and goes on from the last checkpoint. When the assistant asks a question, the run waits in the database with nothing held in memory, for 30 minutes in a chat or 12 hours in a task; then it goes on with the answer, or is told the user did not answer. After the final answer the reply is saved and the checkpoint is deleted.</desc>
+  <!-- Icons from Lucide (ISC licence). The words and numbers follow docs/durable-runs.md. -->
+  <defs>
+    <symbol id="i-database" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></g></symbol>
+    <symbol id="i-message-circle-question-mark" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></g></symbol>
+    <symbol id="i-message-square-quote" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14a2 2 0 0 0 2-2V8h-2"/><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M8 14a2 2 0 0 0 2-2V8H8"/></g></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></g></symbol>
+    <symbol id="i-rotate-ccw" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></g></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></g></symbol>
+    <marker id="ah-n" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-n" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-in" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-in" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-cx" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-cx" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-kn" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-kn" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-gd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-gd" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-md" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-md" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-tl" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-tl" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-ot" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-ot" d="M1 1 L9 5 L1 9 Z"/></marker>
+    <marker id="ah-bd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-bd" d="M1 1 L9 5 L1 9 Z"/></marker>
+  </defs>
+  <style>
+    svg { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .panel { fill: #0d1117; stroke: #30363d; stroke-width: 1; }
+    .band { fill: #161b22; stroke: #30363d; stroke-width: 1; }
+    .band-label rect { fill: #0d1117; stroke: #30363d; }
+    .band-label text { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; fill: #a8b3c0; }
+    .frame { fill: none; stroke-width: 1.6; stroke-dasharray: 7 5; }
+    .t { font-size: 13.5px; font-weight: 700; fill: #e6edf3; }
+    .s { font-size: 12px; fill: #a8b3c0; }
+    .note { font-size: 11px; fill: #a8b3c0; }
+    .card { stroke-width: 1.5; }
+    .chip text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 10.5px; }
+    .num text { font-size: 11px; font-weight: 700; }
+    .pill text { font-size: 11px; font-weight: 700; }
+    .ln { fill: none; stroke: #7d8590; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .dash { stroke-dasharray: 6 6; }
+    .halo { fill: none; stroke-width: 6; stroke-opacity: 0.25; }
+    .edge { fill: none; stroke-width: 2.5; }
+    .glow { opacity: 0; }
+    .in .card { fill: #1a293b; stroke: #4779b6; }
+    .in .tile { fill: #60a5fa; }
+    .in .ico { color: #0d1117; }
+    .in .chip rect { fill: #233954; }
+    .in .chip text { fill: #83b9fb; }
+    .in .num circle, .in .num rect { fill: #60a5fa; stroke: #161b22; stroke-width: 2; }
+    .in .num text { fill: #0d1117; }
+    .in .halo, .in .edge { stroke: #60a5fa; }
+    .pill.in rect { fill: #60a5fa; }
+    .pill.in text { fill: #0d1117; }
+    .mk-in { fill: #60a5fa; }
+    .ln.in { stroke: #60a5fa; }
+    .frame.in { stroke: #60a5fa; }
+    .dot-in { fill: #60a5fa; }
+    .cx .card { fill: #20253b; stroke: #5e67b5; }
+    .cx .tile { fill: #818cf8; }
+    .cx .ico { color: #0d1117; }
+    .cx .chip rect { fill: #2c3254; }
+    .cx .chip text { fill: #9da5fa; }
+    .cx .num circle, .cx .num rect { fill: #818cf8; stroke: #161b22; stroke-width: 2; }
+    .cx .num text { fill: #0d1117; }
+    .cx .halo, .cx .edge { stroke: #818cf8; }
+    .pill.cx rect { fill: #818cf8; }
+    .pill.cx text { fill: #0d1117; }
+    .mk-cx { fill: #818cf8; }
+    .ln.cx { stroke: #818cf8; }
+    .frame.cx { stroke: #818cf8; }
+    .dot-cx { fill: #818cf8; }
+    .kn .card { fill: #152a33; stroke: #2f8090; }
+    .kn .tile { fill: #3dafc4; }
+    .kn .ico { color: #0d1117; }
+    .kn .chip rect { fill: #1a3c46; }
+    .kn .chip text { fill: #68c1d1; }
+    .kn .num circle, .kn .num rect { fill: #3dafc4; stroke: #161b22; stroke-width: 2; }
+    .kn .num text { fill: #0d1117; }
+    .kn .halo, .kn .edge { stroke: #3dafc4; }
+    .pill.kn rect { fill: #3dafc4; }
+    .pill.kn text { fill: #0d1117; }
+    .mk-kn { fill: #3dafc4; }
+    .ln.kn { stroke: #3dafc4; }
+    .frame.kn { stroke: #3dafc4; }
+    .dot-kn { fill: #3dafc4; }
+    .gd .card { fill: #332d19; stroke: #b48b20; }
+    .gd .tile { fill: #fbbf24; }
+    .gd .ico { color: #0d1117; }
+    .gd .chip rect { fill: #4d401b; }
+    .gd .chip text { fill: #fccd54; }
+    .gd .num circle, .gd .num rect { fill: #fbbf24; stroke: #161b22; stroke-width: 2; }
+    .gd .num text { fill: #0d1117; }
+    .gd .halo, .gd .edge { stroke: #fbbf24; }
+    .pill.gd rect { fill: #fbbf24; }
+    .pill.gd text { fill: #0d1117; }
+    .mk-gd { fill: #fbbf24; }
+    .ln.gd { stroke: #fbbf24; }
+    .frame.gd { stroke: #fbbf24; }
+    .dot-gd { fill: #fbbf24; }
+    .md .card { fill: #26253b; stroke: #7966b6; }
+    .md .tile { fill: #a78bfa; }
+    .md .ico { color: #0d1117; }
+    .md .chip rect { fill: #373254; }
+    .md .chip text { fill: #baa5fb; }
+    .md .num circle, .md .num rect { fill: #a78bfa; stroke: #161b22; stroke-width: 2; }
+    .md .num text { fill: #0d1117; }
+    .md .halo, .md .edge { stroke: #a78bfa; }
+    .pill.md rect { fill: #a78bfa; }
+    .pill.md text { fill: #0d1117; }
+    .mk-md { fill: #a78bfa; }
+    .ln.md { stroke: #a78bfa; }
+    .frame.md { stroke: #a78bfa; }
+    .dot-md { fill: #a78bfa; }
+    .tl .card { fill: #33261d; stroke: #b46b31; }
+    .tl .tile { fill: #fb923c; }
+    .tl .ico { color: #0d1117; }
+    .tl .chip rect { fill: #4d3421; }
+    .tl .chip text { fill: #fcaa67; }
+    .tl .num circle, .tl .num rect { fill: #fb923c; stroke: #161b22; stroke-width: 2; }
+    .tl .num text { fill: #0d1117; }
+    .tl .halo, .tl .edge { stroke: #fb923c; }
+    .pill.tl rect { fill: #fb923c; }
+    .pill.tl text { fill: #0d1117; }
+    .mk-tl { fill: #fb923c; }
+    .ln.tl { stroke: #fb923c; }
+    .frame.tl { stroke: #fb923c; }
+    .dot-tl { fill: #fb923c; }
+    .ot .card { fill: #13302c; stroke: #289972; }
+    .ot .tile { fill: #34d399; }
+    .ot .ico { color: #0d1117; }
+    .ot .chip rect { fill: #18453a; }
+    .ot .chip text { fill: #61ddaf; }
+    .ot .num circle, .ot .num rect { fill: #34d399; stroke: #161b22; stroke-width: 2; }
+    .ot .num text { fill: #0d1117; }
+    .ot .halo, .ot .edge { stroke: #34d399; }
+    .pill.ot rect { fill: #34d399; }
+    .pill.ot text { fill: #0d1117; }
+    .mk-ot { fill: #34d399; }
+    .ln.ot { stroke: #34d399; }
+    .frame.ot { stroke: #34d399; }
+    .dot-ot { fill: #34d399; }
+    .bd .card { fill: #332025; stroke: #b25456; }
+    .bd .tile { fill: #f87171; }
+    .bd .ico { color: #0d1117; }
+    .bd .chip rect { fill: #4c2b2f; }
+    .bd .chip text { fill: #fa9090; }
+    .bd .num circle, .bd .num rect { fill: #f87171; stroke: #161b22; stroke-width: 2; }
+    .bd .num text { fill: #0d1117; }
+    .bd .halo, .bd .edge { stroke: #f87171; }
+    .pill.bd rect { fill: #f87171; }
+    .pill.bd text { fill: #0d1117; }
+    .mk-bd { fill: #f87171; }
+    .ln.bd { stroke: #f87171; }
+    .frame.bd { stroke: #f87171; }
+    .dot-bd { fill: #f87171; }
+    .mk-n { fill: #7d8590; }
+    .dot .halo2 { fill: #3dafc4; opacity: 0.28; }
+    .dot .core { fill: #ffffff; stroke: #3dafc4; stroke-width: 2; }
+    .junction { fill: #7d8590; }
+    .legend text { font-size: 11px; fill: #e6edf3; }
+    .legend text.note { fill: #a8b3c0; }
+    .flow { stroke-dasharray: 6 6; animation: flow 0.9s linear infinite; }
+    @keyframes flow { to { stroke-dashoffset: -12; } }
+    @keyframes ret { to { stroke-dashoffset: -11; } }
+    .ret { stroke-dasharray: 5 6; animation: ret 0.9s linear infinite; }
+    .g-running { animation: g-running 16s linear infinite; }
+    .g-checkpoint { animation: g-checkpoint 16s linear infinite; }
+    .g-stops { animation: g-stops 16s linear infinite; }
+    .g-claim { animation: g-claim 16s linear infinite; }
+    .g-parked { animation: g-parked 16s linear infinite; }
+    .g-done { animation: g-done 16s linear infinite; }
+    @keyframes g-running{0%{opacity:0}1.38%{opacity:0}2.5%{opacity:1}6.56%{opacity:1}9.06%{opacity:0}23.41%{opacity:0}24.53%{opacity:1}28.9%{opacity:1}31.4%{opacity:0}60.11%{opacity:0}61.23%{opacity:1}65.42%{opacity:1}67.92%{opacity:0}82.26%{opacity:0}83.39%{opacity:1}87.76%{opacity:1}90.26%{opacity:0}100%{opacity:0}}
+    @keyframes g-checkpoint{0%{opacity:0}12.24%{opacity:0}13.36%{opacity:1}17.73%{opacity:1}20.23%{opacity:0}34.58%{opacity:0}35.7%{opacity:1}40.07%{opacity:1}42.57%{opacity:0}100%{opacity:0}}
+    @keyframes g-stops{0%{opacity:0}41.9%{opacity:0}43.03%{opacity:1}47.21%{opacity:1}49.71%{opacity:0}100%{opacity:0}}
+    @keyframes g-claim{0%{opacity:0}52.83%{opacity:0}53.96%{opacity:1}58.28%{opacity:1}60.78%{opacity:0}100%{opacity:0}}
+    @keyframes g-parked{0%{opacity:0}71.09%{opacity:0}72.22%{opacity:1}76.59%{opacity:1}79.09%{opacity:0}100%{opacity:0}}
+    @keyframes g-done{0%{opacity:0}89.07%{opacity:0}90.19%{opacity:1}94.37%{opacity:1}96.87%{opacity:0}100%{opacity:0}}
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .glow { opacity: 0; }
+      .dot { display: none; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="879" height="425" rx="16"/>
+
+  <g id="connectors">
+  <path class="ln flow kn" d="M532 189 L674 189" marker-end="url(#ah-kn)"/>
+  <path class="ln ret md" d="M678 225 L536 225" marker-end="url(#ah-md)"/>
+  <path class="ln flow gd" d="M348 189 L206 189" marker-end="url(#ah-gd)"/>
+  <path class="ln ret md" d="M202 225 L344 225" marker-end="url(#ah-md)"/>
+  <path class="ln flow ot" d="M440 162 L440 116" marker-end="url(#ah-ot)"/>
+  <path class="ln dash bd" d="M770 252 L770 310" marker-end="url(#ah-bd)"/>
+  <path class="ln flow in" d="M678 359 L536 359" marker-end="url(#ah-in)"/>
+  <path class="ln flow in" d="M440 314 L440 256" marker-end="url(#ah-in)"/>
+  </g>
+
+  <g class="dot" opacity="0">
+    <circle class="halo2" r="11"/>
+    <circle class="core" r="5"/>
+    <animateMotion dur="16s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;0;0.04186;0.09908;0.14055;0.14055;0.18241;0.23963;0.28111;0.28111;0.32296;0.38018;0.42166;0.42166;0.43856;0.46352;0.48003;0.48003;0.51498;0.5722;0.60676;0.60676;0.62366;0.64862;0.66513;0.66513;0.70699;0.76421;0.80568;0.80568;0.84754;0.90476;0.94624;0.94624;0.96313;0.98349;1;1;1" keyTimes="0;0.025;0.06563;0.06872;0.13362;0.13669;0.17732;0.18041;0.24531;0.24838;0.28901;0.2921;0.35701;0.36007;0.4007;0.40195;0.43026;0.43148;0.47211;0.47469;0.53959;0.54215;0.58278;0.58403;0.61234;0.61356;0.65419;0.65728;0.72218;0.72525;0.76588;0.76897;0.83387;0.83694;0.87757;0.87882;0.9019;0.90312;0.94375;1" path="M440 207 L440 189 L770 189 L770 207 L770 225 L440 225 L440 207 L440 189 L770 189 L770 207 L770 359 L440 359 L440 207 L440 189 L110 189 L110 207 L110 225 L440 225 L440 207 L440 67"/>
+    <animate attributeName="opacity" dur="16s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.005;0.025;0.94375;0.96875;1"/>
+  </g>
+
+  <g id="blocks">
+<g id="b-done" class="blk ot" data-box="done">
+  <rect class="card" x="348" y="22" width="184" height="90" rx="12"/>
+  <rect class="tile" x="362" y="36" width="26" height="26" rx="8"/>
+  <use href="#i-message-square-quote" class="ico" x="367" y="41" width="16" height="16"/>
+  <text class="t" x="397" y="54">Reply saved</text>
+  <text class="s" x="362" y="76">The run is over</text>
+  <text class="s" x="362" y="95">Its checkpoint is deleted</text>
+  <g class="glow g-done"><rect x="345" y="19" width="190" height="96" rx="15" class="halo"/><rect x="348" y="22" width="184" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-parked" class="blk gd" data-box="parked">
+  <rect class="card" x="18" y="162" width="184" height="90" rx="12"/>
+  <rect class="tile" x="32" y="176" width="26" height="26" rx="8"/>
+  <use href="#i-message-circle-question-mark" class="ico" x="37" y="181" width="16" height="16"/>
+  <text class="t" x="67" y="194">Waits for you</text>
+  <text class="s" x="32" y="216">Nothing held in memory</text>
+  <text class="s" x="32" y="235">30 min chat, 12 h task</text>
+  <g class="glow g-parked"><rect x="15" y="159" width="190" height="96" rx="15" class="halo"/><rect x="18" y="162" width="184" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-running" class="blk md" data-box="running">
+  <rect class="card" x="348" y="162" width="184" height="90" rx="12"/>
+  <rect class="tile" x="362" y="176" width="26" height="26" rx="8"/>
+  <use href="#i-sparkles" class="ico" x="367" y="181" width="16" height="16"/>
+  <text class="t" x="397" y="194">Running</text>
+  <text class="s" x="362" y="216">Model replies, tool calls</text>
+  <text class="s" x="362" y="235">One Kera process owns it</text>
+  <g class="glow g-running"><rect x="345" y="159" width="190" height="96" rx="15" class="halo"/><rect x="348" y="162" width="184" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-checkpoint" class="blk kn" data-box="checkpoint">
+  <rect class="card" x="678" y="162" width="184" height="90" rx="12"/>
+  <rect class="tile" x="692" y="176" width="26" height="26" rx="8"/>
+  <use href="#i-database" class="ico" x="697" y="181" width="16" height="16"/>
+  <text class="t" x="727" y="194">Checkpoint</text>
+  <text class="s" x="692" y="216">Saved in Postgres</text>
+  <text class="s" x="692" y="235">After each round and write</text>
+  <g class="glow g-checkpoint"><rect x="675" y="159" width="190" height="96" rx="15" class="halo"/><rect x="678" y="162" width="184" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-claim" class="blk in" data-box="claim">
+  <rect class="card" x="348" y="314" width="184" height="90" rx="12"/>
+  <rect class="tile" x="362" y="328" width="26" height="26" rx="8"/>
+  <use href="#i-rotate-ccw" class="ico" x="367" y="333" width="16" height="16"/>
+  <text class="t" x="397" y="346">Claimed again</text>
+  <text class="s" x="362" y="368">By the next Kera process</text>
+  <text class="s" x="362" y="387">Access is checked again</text>
+  <g class="glow g-claim"><rect x="345" y="311" width="190" height="96" rx="15" class="halo"/><rect x="348" y="314" width="184" height="90" rx="12" class="edge"/></g>
+</g>
+<g id="b-stops" class="blk bd" data-box="stops">
+  <rect class="card" x="678" y="314" width="184" height="90" rx="12"/>
+  <rect class="tile" x="692" y="328" width="26" height="26" rx="8"/>
+  <use href="#i-power" class="ico" x="697" y="333" width="16" height="16"/>
+  <text class="t" x="727" y="346">Server stops</text>
+  <text class="s" x="692" y="368">Deploy, restart or crash</text>
+  <text class="s" x="692" y="387">The run stays in Postgres</text>
+  <g class="glow g-stops"><rect x="675" y="311" width="190" height="96" rx="15" class="halo"/><rect x="678" y="314" width="184" height="90" rx="12" class="edge"/></g>
+</g>
+  </g>
+
+  <g id="labels">
+  <g class="pill kn "><rect x="578.5" y="164" width="53" height="20" rx="10"/><text x="605" y="178" text-anchor="middle">saves</text></g>
+  <g class="pill md "><rect x="571.5" y="230" width="67" height="20" rx="10"/><text x="605" y="244" text-anchor="middle">goes on</text></g>
+  <g class="pill gd "><rect x="214" y="164" width="122" height="20" rx="10"/><text x="275" y="178" text-anchor="middle">asks a question</text></g>
+  <g class="pill md "><rect x="207" y="230" width="136" height="20" rx="10"/><text x="275" y="244" text-anchor="middle">answer or timeout</text></g>
+  <g class="pill ot "><rect x="389.5" y="127" width="101" height="20" rx="10"/><text x="440" y="141" text-anchor="middle">final answer</text></g>
+  <g class="pill bd "><rect x="716" y="273" width="108" height="20" rx="10"/><text x="770" y="287" text-anchor="middle">at any moment</text></g>
+  <g class="pill in "><rect x="561.5" y="334" width="87" height="20" rx="10"/><text x="605" y="348" text-anchor="middle">next start</text></g>
+  <g class="pill in "><rect x="348" y="273" width="184" height="20" rx="10"/><text x="440" y="287" text-anchor="middle">from the last checkpoint</text></g>
+  </g>
+</svg>
